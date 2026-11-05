@@ -53,10 +53,12 @@ pg() { runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -p "$PG_PORT" -d "$D
 pg -tAc 'select 1' >/dev/null || die "cannot connect to database $DB on port $PG_PORT as postgres"
 
 # ---------- schema ----------
-state=$(pg -tAc "select case
-  when to_regclass('ledger._migration') is not null and exists (select 1 from ledger._migration where step = 'schema_v2') then 'ready'
-  when exists (select 1 from pg_namespace where nspname = 'ledger') then 'foreign'
-  else 'none' end")
+# (ledger._migration is only referenced once it is known to exist: SQL naming a missing table fails at parse time)
+state=$(pg -tAc "select case when to_regclass('ledger._migration') is not null then 'check'
+  when exists (select 1 from pg_namespace where nspname = 'ledger') then 'foreign' else 'none' end")
+if [ "$state" = check ]; then
+  state=$(pg -tAc "select case when exists (select 1 from ledger._migration where step = 'schema_v2') then 'ready' else 'foreign' end")
+fi
 case "$state" in
   none)
     echo "creating schema ledger in $DB"
