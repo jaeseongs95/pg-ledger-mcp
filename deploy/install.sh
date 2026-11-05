@@ -49,7 +49,7 @@ psql_major=$(psql --version | sed -E 's/[^0-9]*([0-9]+).*/\1/')
 [ "$psql_major" -ge 15 ] || die "psql 15 or newer is needed (\\getenv), found $psql_major"
 
 # psql as the postgres superuser; SQL comes on stdin so the files need not be readable by postgres
-pg() { runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -p "$PG_PORT" -d "$DB" "$@"; }
+pg() { PGOPTIONS="-c client_min_messages=warning" runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -p "$PG_PORT" -d "$DB" "$@"; }
 pg -tAc 'select 1' >/dev/null || die "cannot connect to database $DB on port $PG_PORT as postgres"
 
 # ---------- schema ----------
