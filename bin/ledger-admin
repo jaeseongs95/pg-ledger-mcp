@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# ledger-admin : owner operations that no MCP tool can do. Run as root on the database host.
+#   ledger-admin [--name pg-ledger-mcp] project-add <ID> <CODE> <title>      CODE: ^[A-Z][A-Z0-9_]{0,31}$ (defect ids are CODE-D-0001...)
+#   ledger-admin [--name ...] category-add <code> <name> <definition>
+#   ledger-admin [--name ...] grant <author-id> <project-id> <scope>... [--expires <timestamptz>] [--note <text>]
+#                                                                         scope: defect | task | fix | verify
+#   ledger-admin [--name ...] revoke <author-id> [<project-id> [<scope>]]
+#   ledger-admin [--name ...] grants [<author-id>]                       live grants
+# Database and port come from /etc/<name>/env (written by deploy/install.sh). Values are passed as psql variables.
+set -euo pipefail
+NAME=pg-ledger-mcp
+if [ "${1:-}" = --name ]; then NAME=${2:?}; shift 2; fi
+ENV_FILE=/etc/$NAME/env
+usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+[ $# -ge 1 ] || usage 2
+[ -r "$ENV_FILE" ] || { echo "ledger-admin: $ENV_FILE not readable (run as root after deploy/install.sh)" >&2; exit 1; }
+DB=$(sed -n 's/^PGLEDGER_DB=//p' "$ENV_FILE" | tail -n 1)
+PG_PORT=$(sed -n 's/^PGLEDGER_PGPORT=//p' "$ENV_FILE" | tail -n 1)
+# SQL on stdin, arguments as psql variables (:'name' quotes them safely)
+pg() { runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -p "$PG_PORT" -d "$DB" "$@"; }
+
+cmd=$1; shift
+case "$cmd" in
+  project-add)
+    [ $# -eq 3 ] || usage 2
+    pg -v id="$1" -v code="$2" -v title="$3" <<'SQL'
+INSERT INTO ledger.project (id, code, title) VALUES (:'id', :'code', :'title') RETURNING *;
+SQL
+    ;;
+  category-add)
+    [ $# -eq 3 ] || usage 2
+    pg -v code="$1" -v name="$2" -v def="$3" <<'SQL'
+INSERT INTO ledger.category (code, name, definition) VALUES (:'code', :'name', :'def') RETURNING *;
+SQL
+    ;;
+  grant)
+    [ $# -ge 3 ] || usage 2
+    author=$1 project=$2; shift 2
+    scopes=() expires= note=
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --expires) expires=${2:?}; shift 2 ;;
+        --note) note=${2:?}; shift 2 ;;
+        *) scopes+=("$1"); shift ;;
+      esac
+    done
+    [ ${#scopes[@]} -ge 1 ] || usage 2
+    for scope in "${scopes[@]}"; do
+      pg -v author="$author" -v project="$project" -v scope="$scope" -v expires="$expires" -v note="$note" <<'SQL'
+SELECT ledger.grant_session(:'author', :'project', :'scope', nullif(:'expires', '')::timestamptz, nullif(:'note', '')) AS grant_id;
+SQL
+    done
+    ;;
+  revoke)
+    [ $# -ge 1 ] && [ $# -le 3 ] || usage 2
+    pg -v author="$1" -v project="${2:-}" -v scope="${3:-}" <<'SQL'
+SELECT ledger.revoke_session(:'author', nullif(:'project', ''), nullif(:'scope', '')) AS revoked;
+SQL
+    ;;
+  grants)
+    pg -v author="${1:-}" <<'SQL'
+SELECT id, author_id, project, scope, granted_at, expires_at, note FROM ledger.session_grant
+ WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) AND (:'author' = '' OR author_id = :'author')
+ ORDER BY author_id, project, scope;
+SQL
+    ;;
+  -h|--help) usage ;;
+  *) echo "unknown command: $cmd" >&2; usage 2 ;;
+esac

@@ -1,0 +1,338 @@
+# DBHub (https://github.com/bytebase/dbhub) configuration for one ledger database = one MCP endpoint.
+# deploy/install.sh copies this file to /etc/pg-ledger-mcp/dbhub.toml; the ${...} values come from the
+# systemd EnvironmentFile (/etc/pg-ledger-mcp/env). Passwords are hex, so they need no URL encoding.
+#
+# Three sources, one per role login. Callers never pick a login: each tool is bound to the login it needs.
+#   reader   -> execute_sql_reader / search_objects_reader (read only, SELECT on the ledger views and tables)
+#   author   -> ledger_whoami, ledger_save, ledger_transition, ledger_record_fix, ledger_link, ledger_correct
+#   reviewer -> ledger_review, ledger_review_correct (the only path that can record VERIFIED / MET / NOT_MET)
+# Every write tool takes author_id = '<vendor>:<session-id>' (e.g. claude:1234abcd) or 'user:owner'. The database
+# accepts it only when ledger.session_grant holds a live grant for that author, the row's project and the scope.
+# request_id: pass a UUID to make a retry safe (same id + same payload returns the stored result); when omitted a
+# fresh id is generated, so a blind retry can write twice.
+
+[[sources]]
+id = "reader"
+description = "Ledger, read-only login"
+dsn = "postgres://ledger_reader:${PGLEDGER_READER_PASSWORD}@${PGLEDGER_PGHOST}:${PGLEDGER_PGPORT}/${PGLEDGER_DB}?sslmode=${PGLEDGER_SSLMODE}"
+query_timeout = 30
+
+[[sources]]
+id = "author"
+description = "Ledger, author login"
+dsn = "postgres://ledger_author:${PGLEDGER_AUTHOR_PASSWORD}@${PGLEDGER_PGHOST}:${PGLEDGER_PGPORT}/${PGLEDGER_DB}?sslmode=${PGLEDGER_SSLMODE}"
+query_timeout = 30
+
+[[sources]]
+id = "reviewer"
+description = "Ledger, reviewer login"
+dsn = "postgres://ledger_reviewer:${PGLEDGER_REVIEWER_PASSWORD}@${PGLEDGER_PGHOST}:${PGLEDGER_PGPORT}/${PGLEDGER_DB}?sslmode=${PGLEDGER_SSLMODE}"
+query_timeout = 30
+
+# ---------- read ----------
+[[tools]]
+name = "execute_sql"
+source = "reader"
+readonly = true
+max_rows = 1000
+
+[[tools]]
+name = "search_objects"
+source = "reader"
+
+# ---------- author ----------
+[[tools]]
+name = "ledger_whoami"
+source = "author"
+description = "Show whether an author id is well formed and which live grants (project, scope) it holds. Read only."
+statement = "SELECT ledger.whoami($1::text) AS result"
+[[tools.parameters]]
+name = "author_id"
+type = "string"
+description = "'<vendor>:<session-id>' or 'user:owner'"
+
+[[tools]]
+name = "ledger_save"
+source = "author"
+description = """Create (expected_version = 0) or edit (expected_version = current version) a defect, task or condition.
+fields is a JSON object. Defect: project_id (new only), title, category, severity (P1|P2|P3|UNRATED), behavior, root_cause, owner_actor_id.
+Task: project_id, title, purpose, success_condition, owner_actor_id, origin_ref, origin_quote. Condition: project_id, release, goal_label, code, condition_text.
+A new defect without id gets the next '<project code>-D-<n>' id. State changes use ledger_transition. Needs scope defect (defect) or task (task, condition)."""
+statement = "SELECT ledger.save(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::int, $6::jsonb, $7::text) AS result"
+[[tools.parameters]]
+name = "request_id"
+type = "string"
+required = false
+description = "UUID that makes a retry safe; omitted = new id"
+[[tools.parameters]]
+name = "author_id"
+type = "string"
+description = "'<vendor>:<session-id>' or 'user:owner'"
+[[tools.parameters]]
+name = "entity"
+type = "string"
+allowed_values = ["defect", "task", "condition"]
+description = "What to save"
+[[tools.parameters]]
+name = "id"
+type = "string"
+required = false
+description = "Row id; required to edit and for a new task or condition; omit for a new defect to get the next id"
+[[tools.parameters]]
+name = "expected_version"
+type = "integer"
+description = "0 to create, otherwise the current version (optimistic lock)"
+[[tools.parameters]]
+name = "fields"
+type = "string"
+description = "JSON object of the fields to set"
+[[tools.parameters]]
+name = "reason"
+type = "string"
+description = "Why, 10..1000 characters"
+
+[[tools]]
+name = "ledger_transition"
+source = "author"
+description = """Change the state of a defect, task or condition (one history row).
+Defect: OPEN, SOURCE_FIXED (needs a recorded fix), NOT_DEFECT / DISPUTED (need evidence_uri), MERGED (needs merged_into).
+Task: PLANNED, ACTIVE, BLOCKED, REPORTED_DONE (needs evidence_uri), CANCELLED.
+VERIFIED, MET and NOT_MET, and any move out of them, go through ledger_review. Needs scope defect or task."""
+statement = "SELECT ledger.transition(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::int, $6::text, $7::text, $8::text, $9::text, $10::text) AS result"
+[[tools.parameters]]
+name = "request_id"
+type = "string"
+required = false
+description = "UUID that makes a retry safe; omitted = new id"
+[[tools.parameters]]
+name = "author_id"
+type = "string"
+description = "'<vendor>:<session-id>' or 'user:owner'"
+[[tools.parameters]]
+name = "entity"
+type = "string"
+allowed_values = ["defect", "task", "condition"]
+description = "What to change"
+[[tools.parameters]]
+name = "id"
+type = "string"
+description = "Row id"
+[[tools.parameters]]
+name = "expected_version"
+type = "integer"
+description = "Current version (optimistic lock)"
+[[tools.parameters]]
+name = "to"
+type = "string"
+allowed_values = ["OPEN", "SOURCE_FIXED", "NOT_DEFECT", "DISPUTED", "MERGED", "PLANNED", "ACTIVE", "BLOCKED", "REPORTED_DONE", "CANCELLED", "UNKNOWN"]
+description = "New state"
+[[tools.parameters]]
+name = "reason"
+type = "string"
+description = "Why, 10..1000 characters"
+[[tools.parameters]]
+name = "evidence_uri"
+type = "string"
+required = false
+description = "Link to the evidence (CI run, commit, log)"
+[[tools.parameters]]
+name = "evidence_sha256"
+type = "string"
+required = false
+description = "SHA-256 (64 lowercase hex) of the evidence file, if any"
+[[tools.parameters]]
+name = "merged_into"
+type = "string"
+required = false
+description = "Target defect id for MERGED"
+
+[[tools]]
+name = "ledger_record_fix"
+source = "author"
+description = """Record a fix commit for a defect, or update the CI result of an already recorded fix.
+An OPEN defect moves to SOURCE_FIXED in the same transaction unless mark_source_fixed = false. Needs scope fix."""
+statement = "SELECT ledger.record_fix(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::text, $6::text, $7::text, $8::text, $9::text, $10::timestamptz, $11::boolean) AS result"
+[[tools.parameters]]
+name = "request_id"
+type = "string"
+required = false
+description = "UUID that makes a retry safe; omitted = new id"
+[[tools.parameters]]
+name = "author_id"
+type = "string"
+description = "'<vendor>:<session-id>' or 'user:owner'"
+[[tools.parameters]]
+name = "defect_id"
+type = "string"
+description = "Defect id"
+[[tools.parameters]]
+name = "repo"
+type = "string"
+description = "Repository, e.g. owner/name"
+[[tools.parameters]]
+name = "commit_sha"
+type = "string"
+description = "Full 40-character lowercase commit SHA"
+[[tools.parameters]]
+name = "reason"
+type = "string"
+description = "Why, 10..1000 characters"
+[[tools.parameters]]
+name = "branch"
+type = "string"
+required = false
+description = "Branch of the commit"
+[[tools.parameters]]
+name = "ci_ref"
+type = "string"
+required = false
+description = "CI run URL; required with ci_conclusion and to update an existing fix"
+[[tools.parameters]]
+name = "ci_conclusion"
+type = "string"
+required = false
+allowed_values = ["success", "failure", "cancelled"]
+description = "CI result"
+[[tools.parameters]]
+name = "ci_completed_at"
+type = "string"
+required = false
+description = "CI completion time, ISO 8601"
+[[tools.parameters]]
+name = "mark_source_fixed"
+type = "boolean"
+default = true
+description = "Move an OPEN defect to SOURCE_FIXED"
+
+[[tools]]
+name = "ledger_link"
+source = "author"
+description = """Add (or with remove = true, remove) a link. defect_task: a = defect, b = task.
+same_site / caused_by / blocks / same_family / same_fix_unit: a, b = defects. condition_task / condition_defect: a = condition.
+Needs scope defect (defect links) or task (condition links)."""
+statement = "SELECT ledger.link(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::text, $6::text, $7::boolean) AS result"
+[[tools.parameters]]
+name = "request_id"
+type = "string"
+required = false
+description = "UUID that makes a retry safe; omitted = new id"
+[[tools.parameters]]
+name = "author_id"
+type = "string"
+description = "'<vendor>:<session-id>' or 'user:owner'"
+[[tools.parameters]]
+name = "kind"
+type = "string"
+allowed_values = ["defect_task", "same_site", "caused_by", "blocks", "same_family", "same_fix_unit", "condition_task", "condition_defect"]
+description = "Link kind"
+[[tools.parameters]]
+name = "a"
+type = "string"
+description = "First id"
+[[tools.parameters]]
+name = "b"
+type = "string"
+description = "Second id"
+[[tools.parameters]]
+name = "reason"
+type = "string"
+description = "Why, 10..1000 characters"
+[[tools.parameters]]
+name = "remove"
+type = "boolean"
+default = false
+description = "Remove the link instead of adding it"
+
+[[tools]]
+name = "ledger_correct"
+source = "author"
+description = "Mark a history row as wrong with a CORRECT row (history is never edited). Corrections of verification rows go through ledger_review_correct."
+statement = "SELECT ledger.correct(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::bigint, $4::text) AS result"
+[[tools.parameters]]
+name = "request_id"
+type = "string"
+required = false
+description = "UUID that makes a retry safe; omitted = new id"
+[[tools.parameters]]
+name = "author_id"
+type = "string"
+description = "'<vendor>:<session-id>' or 'user:owner'"
+[[tools.parameters]]
+name = "history_id"
+type = "integer"
+description = "ledger.history id to correct"
+[[tools.parameters]]
+name = "reason"
+type = "string"
+description = "What was wrong, 10..1000 characters"
+
+# ---------- reviewer ----------
+[[tools]]
+name = "ledger_review"
+source = "reviewer"
+description = """Reviewer transition. Defect SOURCE_FIXED -> VERIFIED needs evidence_uri, a fix with CI success, and a session other than the one
+that recorded the fix. Task REPORTED_DONE -> VERIFIED needs evidence_uri and a session other than the owner and the reporter.
+Condition -> MET / NOT_MET needs evidence_uri. Also reopens VERIFIED rows (evidence_uri required). Needs scope verify."""
+statement = "SELECT ledger.transition(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::int, $6::text, $7::text, $8::text, $9::text, NULL::text) AS result"
+[[tools.parameters]]
+name = "request_id"
+type = "string"
+required = false
+description = "UUID that makes a retry safe; omitted = new id"
+[[tools.parameters]]
+name = "author_id"
+type = "string"
+description = "Reviewing session '<vendor>:<session-id>' or 'user:owner'"
+[[tools.parameters]]
+name = "entity"
+type = "string"
+allowed_values = ["defect", "task", "condition"]
+description = "What to review"
+[[tools.parameters]]
+name = "id"
+type = "string"
+description = "Row id"
+[[tools.parameters]]
+name = "expected_version"
+type = "integer"
+description = "Current version (optimistic lock)"
+[[tools.parameters]]
+name = "to"
+type = "string"
+description = "New state: VERIFIED, MET, NOT_MET, or the state a VERIFIED / MET / NOT_MET row goes back to"
+[[tools.parameters]]
+name = "reason"
+type = "string"
+description = "Why, 10..1000 characters"
+[[tools.parameters]]
+name = "evidence_uri"
+type = "string"
+description = "Link to the run that shows the result"
+[[tools.parameters]]
+name = "evidence_sha256"
+type = "string"
+required = false
+description = "SHA-256 (64 lowercase hex) of the evidence file, if any"
+
+[[tools]]
+name = "ledger_review_correct"
+source = "reviewer"
+description = "Mark a verification history row as wrong with a CORRECT row. Needs scope verify."
+statement = "SELECT ledger.correct(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::bigint, $4::text) AS result"
+[[tools.parameters]]
+name = "request_id"
+type = "string"
+required = false
+description = "UUID that makes a retry safe; omitted = new id"
+[[tools.parameters]]
+name = "author_id"
+type = "string"
+description = "Reviewing session '<vendor>:<session-id>' or 'user:owner'"
+[[tools.parameters]]
+name = "history_id"
+type = "integer"
+description = "ledger.history id to correct"
+[[tools.parameters]]
+name = "reason"
+type = "string"
+description = "What was wrong, 10..1000 characters"
