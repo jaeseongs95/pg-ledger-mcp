@@ -92,7 +92,8 @@ if [ "$RESET_PASSWORDS" = 1 ]; then AUTHOR_PW=; REVIEWER_PW=; READER_PW=; fi
 [ -n "$READER_PW" ] || READER_PW=$(rand_hex 24)
 [ -n "$TOKEN" ] || TOKEN=$(rand_hex 32)
 [ -n "$ALLOWED_HOSTS" ] || ALLOWED_HOSTS=$(envget DBHUB_ALLOWED_HOSTS)
-[ -n "$ALLOWED_HOSTS" ] || ALLOWED_HOSTS=localhost,127.0.0.1
+# loopback always stays allowed: the smoke check below and local clients use it
+case ",$ALLOWED_HOSTS," in *,127.0.0.1,*) ;; *) ALLOWED_HOSTS=${ALLOWED_HOSTS:+$ALLOWED_HOSTS,}localhost,127.0.0.1 ;; esac
 
 # Passwords travel in the environment of psql (readable only by root and postgres), never on a command line,
 # and the statements are not logged.
