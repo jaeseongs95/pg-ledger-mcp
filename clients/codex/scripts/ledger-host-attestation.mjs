@@ -24,6 +24,7 @@ if (!object(input)) {
   deny('A valid host session_id is required for ledger calls.');
 } else {
   const updatedInput = { ...input, _hostAttestation: `codex:${event.session_id}` };
-  delete updatedInput.author_id;
+  // Cached connector schemas may still require author_id; the server ignores it.
+  // Only the host attestation determines the ledger author.
   reply({ permissionDecision: 'allow', updatedInput });
 }

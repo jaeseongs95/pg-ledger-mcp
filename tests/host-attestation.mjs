@@ -27,7 +27,6 @@ for (const a of adapters) {
       assert.equal(a.decision(out), 'allow');
       const actual = a.args(input, out);
       const expected = { ...input, _hostAttestation: `${a.vendor}:${id}` };
-      if (a.host === 'codex') delete expected.author_id;
       assert.deepEqual(actual, expected);
       assert.equal(out.permissionOverrides, undefined);
     }
@@ -108,6 +107,23 @@ test('S10: exposed Codex app namespace names and native matcher cover all ten su
     assert.equal(a.decision(invoke(a, a.event(name, { _hostAttestation: null }))), 'deny');
   }
   assert.equal(invoke(a, a.event('mcp__codex_apps__app_ledger_ledger_get', {})), null);
+});
+test('S12: Codex supports cached required-author schemas and current optional-author schemas', () => {
+  const a = adapters[0];
+  for (const op of tools) {
+    const name = `mcp__codex_apps__app_ledger_ledger_${op}`;
+    const input = { author_id: 'other:declared', marker: 'cached-schema' };
+    const out = invoke(a, a.event(name, input));
+    const forwarded = a.args(input, out);
+    // The connector requires the old field before it can reach the server.
+    assert.ok(Object.hasOwn(forwarded, 'author_id'));
+    assert.equal(forwarded.author_id, input.author_id);
+    assert.equal(forwarded._hostAttestation, `codex:${id}`);
+    assert.notEqual(forwarded._hostAttestation, forwarded.author_id);
+    const current = a.args({}, invoke(a, a.event(name, {})));
+    assert.equal(Object.hasOwn(current, 'author_id'), false);
+    assert.equal(current._hostAttestation, `codex:${id}`);
+  }
 });
 test('S11: Antigravity call_mcp_tool targets only ledger Arguments and preserves envelope', () => {
   const a = adapters[1];
