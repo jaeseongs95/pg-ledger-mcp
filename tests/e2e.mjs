@@ -102,15 +102,15 @@ await refused('a defect cannot change project', 'ledger_save', { _hostAttestatio
 
 // fix and verification
 await refused('K6 an unknown state is refused', 'ledger_transition', { _hostAttestation: AUTHOR, entity: 'defect', id: `${code}-D-0002`, expected_version: 1, to: 'FIXED', reason },
-  'FIXED');
+  'to: Invalid option: expected one of');
 await refused('K7 an unknown link kind is refused, naming the relation kinds', 'ledger_link', { _hostAttestation: AUTHOR, kind: 'related', a: `${code}-D-0001`, b: `${code}-D-0002`, reason },
-  'related');
+  'kind: Invalid option: expected one of');
 await refused('K8 an unknown CI conclusion is refused', 'ledger_record_fix', { _hostAttestation: AUTHOR, defect_id: `${code}-D-0002`, repo: 'example/repo', commit_sha: SHA, reason,
-  ci_ref: 'https://ci.example/run/9', ci_conclusion: 'passed' }, 'passed');
+  ci_ref: 'https://ci.example/run/9', ci_conclusion: 'passed' }, 'ci_conclusion: Invalid option: expected one of');
 await refused('SOURCE_FIXED without a fix is refused', 'ledger_transition', { _hostAttestation: AUTHOR, entity: 'defect', id: `${code}-D-0002`, expected_version: 1, to: 'SOURCE_FIXED', reason }, 'needs a recorded fix');
 await ok('record_fix moves OPEN to SOURCE_FIXED', 'ledger_record_fix', { _hostAttestation: AUTHOR, defect_id: `${code}-D-0001`, repo: 'example/repo', commit_sha: SHA, reason,
   ci_ref: 'https://ci.example/run/1', ci_conclusion: 'success', ci_completed_at: new Date().toISOString() }, (x) => x.defect_status === 'SOURCE_FIXED' && x.version === 3);
-await refused('the author tool cannot set VERIFIED', 'ledger_transition', { _hostAttestation: AUTHOR, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, ['VERIFY_NEEDS_REVIEWER_LOGIN','VERIFIED']);
+await refused('the author tool cannot set VERIFIED', 'ledger_transition', { _hostAttestation: AUTHOR, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, 'to: Invalid option: expected one of');
 await refused('the fixing session cannot verify its own fix', 'ledger_review', { _hostAttestation: AUTHOR, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, 'SAME_SESSION');
 await refused('verify needs a verify grant', 'ledger_review', { _hostAttestation: NOGRANT, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, 'SESSION_NOT_GRANTED');
 await ok('another session verifies through the reviewer login', 'ledger_review', { _hostAttestation: REVIEWER, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, (x) => x.to === 'VERIFIED' && x.login === 'ledger_reviewer');

@@ -96,3 +96,47 @@ test('S09: documented Antigravity MCP naming candidates are distinguished', () =
     assert.equal(a.decision(invoke(a, a.event(name, {}))), 'allow');
   }
 });
+test('S10: exposed Codex app namespace names and native matcher cover all ten suffixes', () => {
+  const a = adapters[0];
+  const config = JSON.parse(readFileSync(resolve(root, 'clients/codex/hooks/hooks.json')));
+  const matcher = new RegExp(config.hooks.PreToolUse[0].matcher);
+  for (const op of tools) {
+    const name = `mcp__codex_apps__app_ledger_ledger_${op}`;
+    assert.ok(matcher.test(name));
+    const out = invoke(a, a.event(name, { marker: 'T0001-namespace' }));
+    assert.equal(a.args({}, out)._hostAttestation, `codex:${id}`);
+    assert.equal(a.decision(invoke(a, a.event(name, { _hostAttestation: null }))), 'deny');
+  }
+  assert.equal(invoke(a, a.event('mcp__codex_apps__app_ledger_ledger_get', {})), null);
+});
+test('S11: Antigravity call_mcp_tool targets only ledger Arguments and preserves envelope', () => {
+  const a = adapters[1];
+  const config = JSON.parse(readFileSync(resolve(root, 'clients/antigravity/hooks.json')));
+  assert.ok(new RegExp(config['pg-ledger-host-attestation'].PreToolUse[0].matcher).test('call_mcp_tool'));
+  for (const stringify of [false, true]) {
+    const encode = value => stringify ? JSON.stringify(value) : value;
+    for (const op of tools) {
+      const input = { marker: 'T0001-wrapper', author_id: 'model:declared', nested: { keep: [1, null, false] } };
+      const envelope = { ServerName: 't0001sink', ToolName: `app_ledger_ledger_${op}`, Arguments: encode(input), extra: { keep: true } };
+      const out = invoke(a, a.event('call_mcp_tool', envelope));
+      assert.equal(a.decision(out), 'allow');
+      const actualEnvelope = { ...envelope, ...out.overwrite };
+      const actual = stringify ? JSON.parse(actualEnvelope.Arguments) : actualEnvelope.Arguments;
+      assert.deepEqual(actualEnvelope.extra, envelope.extra);
+      assert.equal(actualEnvelope.ServerName, envelope.ServerName);
+      assert.equal(actualEnvelope.ToolName, envelope.ToolName);
+      assert.deepEqual(Object.keys(out.overwrite), ['Arguments']);
+      assert.deepEqual(actual, { ...input, _hostAttestation: `gemini:${id}` });
+      for (const value of [null, '', false, {}, [], `gemini:${id}`]) {
+        const args = { ...envelope, Arguments: encode({ _hostAttestation: value }) };
+        assert.equal(a.decision(invoke(a, a.event('call_mcp_tool', args))), 'deny');
+      }
+    }
+  }
+  for (const ToolName of ['ledger_get', 'unrelated_save', 'ledger_save_extra']) {
+    assert.equal(invoke(a, a.event('call_mcp_tool', { ServerName: 'other', ToolName, Arguments: { _hostAttestation: null } }, null)), null);
+  }
+  for (const Arguments of [null, [], 7, '{', '[]', 'null', '"text"']) {
+    assert.equal(a.decision(invoke(a, a.event('call_mcp_tool', { ServerName: 't0001sink', ToolName: 'ledger_save', Arguments }))), 'deny');
+  }
+});

@@ -9,7 +9,8 @@ export function attest(event) {
   const input = event.tool_input;
   if (!input || typeof input !== 'object' || Array.isArray(input)) return deny('ledger: tool_input must be an object');
   if (Object.hasOwn(input, '_hostAttestation')) return deny('ledger: _hostAttestation is reserved for the host hook; omit it');
-  if (typeof event.session_id !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(event.session_id)) return deny('ledger: host session_id is missing or invalid');
+  const sessionId = event.session_id;
+  if (typeof sessionId !== 'string' || sessionId.length < 1 || sessionId.length > 128 || /[^A-Za-z0-9._-]/.test(sessionId)) return deny('ledger: host session_id is missing or invalid');
   const { author_id: ignoredLegacyAuthor, ...rest } = input;
   // Omit permissionDecision to retain the host permission policy; do not auto-approve.
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { ...rest, _hostAttestation: `claude:${event.session_id}` } } };

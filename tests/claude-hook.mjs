@@ -23,9 +23,15 @@ test('reserved field is denied even for null or the expected value', () => {
   }
 });
 test('missing or malformed host id is denied without looking at agent id', () => {
-  for (const session_id of [undefined,'','bad:id','x'.repeat(129)]) {
+  for (const session_id of [undefined,'','bad:id','x'.repeat(129),'x\n','x\r','x\r\n']) {
     assert.equal(run({ ...event('save'),session_id }).output.hookSpecificOutput.permissionDecision,'deny');
   }
 });
 test('other tools are unchanged', () => assert.deepEqual(run({ ...event('save'),tool_name: 'mcp__other__read' }).output,{}));
 test('malformed JSON blocks via exit 2', () => assert.equal(run('{').status,2));
+test('valid host id boundaries and namespace suffixes are accepted', () => {
+  for (const session_id of ['x','a._-Z9','x'.repeat(128)]) {
+    const r = run({ ...event('whoami'),session_id,tool_name: 'mcp__codex_apps__app_ledger_ledger_whoami' });
+    assert.equal(r.output.hookSpecificOutput.updatedInput._hostAttestation,`claude:${session_id}`);
+  }
+});
