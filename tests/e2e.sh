@@ -250,14 +250,18 @@ expect_error() {  # <name> <login> <needle> <sql>
 }
 expect_error 'author login cannot verify even with a verify grant' ledger_author VERIFY_NEEDS_REVIEWER_LOGIN \
   "select ledger.transition(gen_random_uuid(), 'claude:e2e-author', 'defect', '$CODE-D-0002', 1, 'VERIFIED', 'e2e: direct verify attempt', 'https://ci.example/run/1')"
-# A transaction-local owner fixture reaches the legacy inconsistent state; rejection rolls it back too.
-if out=$(pgsu -d "$DB" -c "BEGIN; UPDATE ledger.defect SET status='SOURCE_FIXED' WHERE id='$CODE-D-0002';
-  SET SESSION AUTHORIZATION ledger_reviewer;
-  SELECT ledger.transition(gen_random_uuid(),'codex:e2e-reviewer','defect','$CODE-D-0002',1,'VERIFIED',
-    'e2e: no recorded fix remains forbidden','https://example.test/direct-program-execution');" 2>&1); then
-  echo 'FAIL  V4 VERIFIED without a recorded fix succeeded'; fail=1
-elif grep -q 'VERIFIED needs a recorded fix commit' <<<"$out"; then echo 'PASS  V4 VERIFIED still needs a recorded fix'
-else echo "FAIL  V4 wrong error: $out"; fail=1; fi
+# Transaction-local owner fixtures reach a legacy inconsistent state. Connection close rolls each back.
+for guard in evidence_uri fix; do
+  evidence=NULL; needle='VERIFIED needs evidence_uri'
+  if [ "$guard" = fix ]; then evidence="'https://example.test/direct-program-execution'"; needle='VERIFIED needs a recorded fix commit'; fi
+  if out=$(pgsu -d "$DB" -c "BEGIN; UPDATE ledger.defect SET status='SOURCE_FIXED' WHERE id='$CODE-D-0002';
+    SET SESSION AUTHORIZATION ledger_reviewer;
+    SELECT ledger.transition(gen_random_uuid(),'codex:e2e-reviewer','defect','$CODE-D-0002',1,'VERIFIED',
+      'e2e: verification guard remains mandatory',$evidence);" 2>&1); then
+    echo "FAIL  V3/V4 VERIFIED without $guard succeeded"; fail=1
+  elif grep -q "$needle" <<<"$out"; then echo "PASS  V3/V4 DB verification still needs $guard"
+  else echo "FAIL  V3/V4 wrong error: $out"; fail=1; fi
+done
 expect_error 'author login cannot write tables directly' ledger_author 'permission denied' \
   "update ledger.defect set title = 'x' where id = '$CODE-D-0002'"
 expect_error 'author login cannot add cases directly' ledger_author 'permission denied' \
