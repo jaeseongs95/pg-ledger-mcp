@@ -2,7 +2,7 @@
   "pg-ledger-host-attestation": {
     "PreToolUse": [
       {
-        "matcher": "mcp:.*",
+        "matcher": "^(call_mcp_tool|mcp:.*)$",
         "hooks": [
           {
             "type": "command",

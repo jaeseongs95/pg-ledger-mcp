@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^mcp__.+__ledger_(save|transition|record_fix|record_case|link|correct|batch|review|review_correct|whoami)$",
+        "matcher": "^mcp__.+_ledger_(save|transition|record_fix|record_case|link|correct|batch|review|review_correct|whoami)$",
         "hooks": [
           {
             "type": "command",

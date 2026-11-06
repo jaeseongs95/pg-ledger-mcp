@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-const target = /^mcp__.+__ledger_(save|transition|record_fix|record_case|link|correct|batch|review|review_correct|whoami)$/;
+const target = /^mcp__.+_ledger_(save|transition|record_fix|record_case|link|correct|batch|review|review_correct|whoami)$/;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = value => typeof value === 'string' && value.length >= 1 && value.length <= 128 && !/[^A-Za-z0-9._-]/.test(value);
 const reply = output => process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...output } })}\n`);

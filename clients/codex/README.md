@@ -4,7 +4,7 @@
 
 `plugin.json`의 `extensions.com.openai.hooks`가 `hooks/hooks.json`을 가리킨다. 명령은 플러그인 루트 환경변수로 스크립트를 찾는다. Windows 명령은 `cmd.exe`를 명시한다. 호스트가 플러그인을 로드한 뒤 `/hooks`에서 정확한 정의를 검토·신뢰해야 한다. 프로젝트 훅으로 배치할 때는 `<repo>/.codex/hooks.json`에 해당 구성을 병합하고 스크립트 명령을 실제 절대경로로 바꾼다. 기존 훅을 덮어쓰거나 중복 설치하지 않는다.
 
-대상은 `mcp__<server>__ledger_` 뒤에 `save`, `transition`, `record_fix`, `record_case`, `link`, `correct`, `batch`, `review`, `review_correct`, `whoami`가 붙은 10종이다. 모델 인자의 own `_hostAttestation` 키는 값과 무관하게 거부한다. 없으면 호스트 `session_id`를 그대로 `codex:<id>`로 넣는다. ID는 기존 DB의 세션 부분 형식 `[A-Za-z0-9._-]{1,128}`을 따라 검사하며 누락·잘못된 형식은 명시적으로 거부한다. `author_id`는 삭제하고 다른 인자는 보존한다. 대상 밖 호출에는 출력 없이 종료한다. 잘못된 JSON이나 대상의 비객체 인자는 거부 응답을 반환한다.
+대상은 `mcp__`로 시작하고 `_ledger_` 뒤에 `save`, `transition`, `record_fix`, `record_case`, `link`, `correct`, `batch`, `review`, `review_correct`, `whoami`가 붙어 끝나는 10종이다. `mcp__server__ledger_save`와 `mcp__codex_apps__app_ledger_ledger_save` 같은 네임스페이스를 포함한다. 모델 인자의 own `_hostAttestation` 키는 값과 무관하게 거부한다. 없으면 호스트 `session_id`를 그대로 `codex:<id>`로 넣는다. ID는 기존 DB의 세션 부분 형식 `[A-Za-z0-9._-]{1,128}`을 따라 검사하며 누락·잘못된 형식은 명시적으로 거부한다. `author_id`는 삭제하고 다른 인자는 보존한다. 대상 밖 호출에는 출력 없이 종료한다. 잘못된 JSON이나 대상의 비객체 인자는 거부 응답을 반환한다.
 
 Codex 공식 계약은 하위 에이전트 훅에 부모 `session_id`를 제공한다. 이 후보는 다른 식별자를 찾거나 자식별 권한·차단 계층을 만들지 않는다. `updatedInput`은 `permissionDecision: allow`와 함께 반환한다. 훅의 허용·거부 JSON 응답은 정상 종료 0이며, 프로세스 실패나 일부 우회 경로까지 서버 신원 강제를 보장하는 구성은 아니다.
 
