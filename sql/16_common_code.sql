@@ -1,6 +1,9 @@
 -- Only category, severity and relation kinds are extensible common codes. Other CHECKs remain fixed.
 \set ON_ERROR_STOP on
+\if :{?ledger_install_transaction}
+\else
 BEGIN;
+\endif
 SET ROLE ledger_owner;
 DO $m$
 DECLARE r record; v_con text; n int;
@@ -76,4 +79,7 @@ BEGIN
   INSERT INTO ledger._migration(step,detail) VALUES ('common_code',jsonb_build_object('by',session_user));
 END $m$;
 RESET ROLE;
+\if :{?ledger_install_transaction}
+\else
 COMMIT;
+\endif

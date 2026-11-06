@@ -1,7 +1,10 @@
 -- 20_api.sql : functions, views and grants of schema "ledger". Idempotent (CREATE OR REPLACE / DROP VIEW + CREATE).
 -- Run as a superuser after 10_tables.sql; safe to re-run (deploy/install.sh applies it on every install). Objects are owned by ledger_owner.
 \set ON_ERROR_STOP on
+\if :{?ledger_install_transaction}
+\else
 BEGIN;
+\endif
 SET ROLE ledger_owner;
 
 CREATE OR REPLACE FUNCTION ledger._author_ok(p text) RETURNS boolean LANGUAGE sql IMMUTABLE AS
@@ -614,4 +617,7 @@ GRANT SELECT ON ledger.project, ledger.category, ledger.common_code, ledger.comm
                 ledger.v_defect, ledger.v_history, ledger.v_attention TO ledger_author, ledger_reviewer, ledger_reader;
 INSERT INTO ledger._migration (step, detail) VALUES ('api', jsonb_build_object('by', session_user))
   ON CONFLICT (step) DO UPDATE SET done_at = clock_timestamp(), detail = EXCLUDED.detail;
+\if :{?ledger_install_transaction}
+\else
 COMMIT;
+\endif

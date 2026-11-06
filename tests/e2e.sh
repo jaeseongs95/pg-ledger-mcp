@@ -24,9 +24,19 @@ done
 NAME=pgledger-e2e
 DB=pgledger_e2e_$(date -u +%Y%m%d%H%M%S)
 PROJECT=e2e CODE=E2E
+EVIDENCE_DIR=$REPO/../e2e-evidence-$DB
+mkdir -p "$EVIDENCE_DIR"
+ATOMIC_DIR=
 pgsu() { runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -p "$PG_PORT" "$@"; }
 cleanup() {
   [ "$KEEP" = 1 ] && { echo "kept: database $DB, unit $NAME, /etc/$NAME"; return; }
+  # Only this harness's own database/process names are reconciled before dropping its disposable database.
+  pgsu -d "$DB" -tAc "select pg_terminate_backend(pid) from pg_stat_activity where datname=current_database()
+    and application_name in ('e2e-migration-gate','e2e-atomic-upgrade','e2e-old-category','e2e-old-severity')" >/dev/null 2>&1 || true
+  if [ -n "$ATOMIC_DIR" ]; then
+    for log in "$ATOMIC_DIR"/*.log; do [ ! -f "$log" ] || cp "$log" "$EVIDENCE_DIR/interrupted-$(basename "$log")"; done
+  fi
+  echo "TEST evidence: $EVIDENCE_DIR"
   systemctl disable --now "$NAME.service" >/dev/null 2>&1 || true
   rm -f "/etc/systemd/system/$NAME.service"; systemctl daemon-reload
   rm -rf "/etc/$NAME" "/var/backups/$NAME"
@@ -96,27 +106,28 @@ JS
     SELECT ledger.link(gen_random_uuid(),'claude:e2e-seed','defect_task','OLD-D-0001','OLD-T-1','e2e: old task link');
     SELECT ledger.link(gen_random_uuid(),'claude:e2e-seed','same_site','OLD-D-0001','OLD-D-0002','e2e: old relation link');
     SELECT ledger.link(gen_random_uuid(),'claude:e2e-seed','condition_task','OLD-C-1','OLD-T-1','e2e: old condition link')" >/dev/null
+  old_admin grant codex:e2e-relink old defect task --note "e2e re-link creator"
+  for spec in 'defect_task OLD-D-0001 OLD-T-1' 'same_site OLD-D-0001 OLD-D-0002' 'condition_task OLD-C-1 OLD-T-1'; do
+    read -r kind a b <<<"$spec"
+    login_sql ledger_author "SELECT ledger.link(gen_random_uuid(),'claude:e2e-seed','$kind','$a','$b','e2e: remove original link',true);
+      SELECT ledger.link(gen_random_uuid(),'codex:e2e-relink','$kind','$a','$b','e2e: replacement link creator')" >/dev/null
+  done
+  # Later duplicated LINK history must not replace the creator of the current incarnation.
+  pgsu -d "$DB" -c "INSERT INTO ledger.history(author_id,actor_assurance,entity,entity_id,op,reason,request_id)
+    VALUES('claude:e2e-seed','DECLARED','defect_task','OLD-D-0001|OLD-T-1','LINK','e2e: duplicate historical link',gen_random_uuid())" >/dev/null
   pgsu -d "$DB" -c "INSERT INTO ledger.task(id,project_id,title,purpose,success_condition,state,created_at,updated_at)
     VALUES('OLD-T-UNKNOWN','old','No history','','','PLANNED',now(),now())" >/dev/null
-  pgsu -d "$DB" -c "INSERT INTO ledger.history(at,author_id,actor_assurance,entity,entity_id,op,reason,request_id)
-    VALUES('2000-01-01','legacy:earlier-note','LEGACY_UNKNOWN','task','OLD-T-1','LEGACY_NOTE','e2e: earlier note is not the creator',gen_random_uuid())" >/dev/null
+  pgsu -d "$DB" -c "INSERT INTO ledger.history(at,author_id,actor_assurance,entity,entity_id,op,reason,request_id,legacy_ref)
+    VALUES('2000-01-01','legacy:earlier-note','LEGACY_UNKNOWN','task','OLD-T-1','LEGACY_NOTE','e2e: earlier note is not the creator',gen_random_uuid(),'e2e:legacy-earlier-note')" >/dev/null
   before=$(snapshot)
-  echo "== migration failure atomicity (forced invalid old category, then duplicate created_by)"
-  if out=$({ printf '%s\n' "BEGIN; ALTER TABLE ledger.defect DROP CONSTRAINT defect_category_fkey; UPDATE ledger.defect SET category='MISSING' WHERE id='OLD-D-0001';"; cat "$REPO/sql/16_common_code.sql"; } | pgsu -d "$DB" 2>&1); then
-    echo "FAIL  invalid legacy category did not stop migration"; fail=1
-  elif grep -q 'common_code: 1 row(s) of defect.category missing' <<<"$out"; then echo "PASS  invalid legacy code stops migration"
-  else echo "FAIL  wrong migration error: $out"; fail=1; fi
-  pass_if 'failed common-code migration leaves no table or marker' "$(pgsu -d "$DB" -tAc "select to_regclass('ledger.common_code') is null and not exists(select 1 from ledger._migration where step='common_code')")" t
-  pass_if 'failed common-code migration restores existing rows' "$(snapshot)" "$before"
-  if out=$({ printf '%s\n' "BEGIN; ALTER TABLE ledger.task ADD COLUMN created_by text;"; cat "$REPO/sql/17_created_by.sql"; } | pgsu -d "$DB" 2>&1); then
-    echo "FAIL  duplicate created_by did not stop migration"; fail=1
-  elif grep -q 'already exists' <<<"$out"; then echo "PASS  interrupted created_by migration rolls back"
-  else echo "FAIL  wrong provenance migration error: $out"; fail=1; fi
-  pass_if 'failed provenance migration leaves no partial columns' "$(pgsu -d "$DB" -tAc "select count(*) from information_schema.columns where table_schema='ledger' and column_name='created_by'")" 0
-  pass_if 'failed provenance migration restores existing rows' "$(snapshot)" "$before"
+  source "$REPO/tests/upgrade-atomicity.sh"
+  install_rollback_cases
+  concurrent_upgrade rollback
   categories() { pgsu -d "$DB" -tAc "select string_agg(code || '|' || name || '|' || definition, ',' order by code) from ledger.category"; }
   cats_before=$(categories)
-  echo "== upgrade: install this checkout over it"
+  echo "== concurrent upgrade commits constraints and API together"
+  concurrent_upgrade commit
+  echo "== reapply the unmodified candidate after the gated upgrade"
   "$REPO/deploy/install.sh" --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --name "$NAME"
   pass_if 'upgrade keeps every existing row' "$(snapshot)" "$before"
   pass_if 'upgrade records step defect_case' "$(pgsu -d "$DB" -tAc "select count(*) from ledger._migration where step = 'defect_case'")" 1
@@ -127,7 +138,8 @@ JS
   pass_if 'CON translation preserves concurrency and atomicity' "$(pgsu -d "$DB" -tAc "select name_en from ledger.common_code where code_group='DEFECT_CATEGORY' and code='CON'")" 'Concurrency and atomicity'
   pass_if 'EXC translation preserves error cause suppression or substitution' "$(pgsu -d "$DB" -tAc "select name_en from ledger.common_code where code_group='DEFECT_CATEGORY' and code='EXC'")" 'Error cause suppression or substitution'
   pass_if 'unknown categories use the original text as English fallback' "$(pgsu -d "$DB" -tAc "select name_en=name_ko and description_en=description_ko from ledger.common_code where code_group='DEFECT_CATEGORY' and code='OLDBUG'")" t
-  pass_if 'history backfills entity and link creators' "$(pgsu -d "$DB" -tAc "select count(*) from (select created_by from ledger.defect union all select created_by from ledger.task where id='OLD-T-1' union all select created_by from ledger.condition union all select created_by from ledger.defect_task union all select created_by from ledger.defect_relation union all select created_by from ledger.condition_link) x where created_by='claude:e2e-seed'")" 8
+  pass_if 'entity creators backfill from CREATE or IMPORT' "$(pgsu -d "$DB" -tAc "select count(*) from (select created_by from ledger.defect union all select created_by from ledger.task where id='OLD-T-1' union all select created_by from ledger.condition) x where created_by='claude:e2e-seed'")" 5
+  pass_if 're-linked rows belong to the current incarnation creator' "$(pgsu -d "$DB" -tAc "select count(*) from (select created_by from ledger.defect_task union all select created_by from ledger.defect_relation union all select created_by from ledger.condition_link) x where created_by='codex:e2e-relink'")" 3
   pass_if 'missing legacy history is marked unknown' "$(pgsu -d "$DB" -tAc "select created_by from ledger.task where id='OLD-T-UNKNOWN'")" unknown:legacy
   pass_if 'an unrated defect keeps UNRATED until it is written' "$(pgsu -d "$DB" -tAc "select severity from ledger.defect where id = 'OLD-D-0003'")" UNRATED
   out=$(login_sql ledger_author "SELECT ledger.save(gen_random_uuid(), 'claude:e2e-seed', 'defect', 'OLD-D-0003', 1, jsonb_build_object('title', 'unrated, edited'),
@@ -154,7 +166,7 @@ fi
 
 echo "== owner setup"
 admin project-add "$PROJECT" "$CODE" "End-to-end test project"
-admin category-add BUG "결함" "명세와 다른 동작" --name-en 'Bug "quoted"' --description-en $'Behaviour differs\nwith "quotes" and \\path'
+admin category-add BUG "결함" "명세와 다른 동작" --name-en 'Bug "quoted"' --description-en $'Behaviour differs\nwith "quotes" and \\path; Use @CODES:DEFECT_CATEGORY@ literally'
 admin code-set RELATION_KIND test_relation "시험 관계" "동적 관계 코드" --name-en "Test relation" --description-en "Dynamically rendered relation" --sort 6
 admin code-set DEFECT_CATEGORY RETIRED "이전 분류" "비활성" --inactive
 admin grant claude:e2e-author "$PROJECT" defect task fix verify --note "e2e"

@@ -30,7 +30,7 @@ Agents read and write through MCP tools. They never get a database login of thei
   **Severity is required:** P1/P2/P3 are active; an existing UNRATED defect must be rated on its next write.
 - **Creation provenance is immutable.** New project, task, defect, condition, link and common-code rows receive `created_by` automatically.
   Existing `recorded_by`, history/receipt `author_id` and grant `granted_by` columns retain their meanings.
-  Existing rows are backfilled from first CREATE/IMPORT history (LINK for links), with `unknown:legacy` when no source exists;
+  Existing rows are backfilled from first CREATE/IMPORT history (LINK for links), with `unknown:legacy` when no source exists; link creators come from the first LINK after the latest UNLINK;
   projects and common codes use `user:owner`. Edits and reviewer transitions preserve the creator.
   Parents remain responsible for child results, records and mistakes and must verify/correct their evidence directly.
 
@@ -95,7 +95,9 @@ sudo bin/ledger-admin grant codex:9a8b7c6d web verify
 4. Starts `pg-ledger-mcp.service` on `127.0.0.1:<mcp-port>`.
 5. Checks the tool list over MCP.
 
-Re-running it re-applies functions, views and grants after a `pg_dump` of the schema to `/var/backups/pg-ledger-mcp/`.
+Re-running it applies tables, backfill, replacement constraints, functions, views and grants in one PostgreSQL transaction after a `pg_dump` of the schema to `/var/backups/pg-ledger-mcp/`.
+Existing ledger tables remain locked until the replacement constraints and triggers commit together. A schema-phase failure rolls the entire schema unit back; old concurrent writers see either the original constraints or their complete replacements.
+Filesystem/password/service operations occur after that schema transaction; a later install failure still leaves the complete DB constraints in force.
 It keeps data, passwords and the token. Tables added after the first release are created by the
 re-run on an existing database (`sql/15_defect_case.sql`, `sql/16_common_code.sql`, `sql/17_created_by.sql`); each runs once, recorded in `ledger._migration`.
 Existing semantic values are preserved; `created_by` is backfilled. Code changes through `category-add` / `code-set` rerender the tool definitions, restart the instance and wait up to 30 seconds for healthz.
@@ -182,6 +184,7 @@ sql/16_common_code.sql  common codes table and the columns using them (same)
 sql/17_created_by.sql  creation provenance backfill (same)
 sql/20_api.sql        functions, views, grants (re-applied on every install)
 mcp/dbhub.toml        DBHub sources (one per login) and tool definitions
+deploy/apply-schema.sh  complete schema transaction and table locks
 deploy/render-tools.sh  active bilingual codes → DBHub tool definitions
 clients/claude/      Claude Code marketplace plugin (PreToolUse)
 deploy/install.sh     install / re-apply, passwords, DBHub, systemd unit, smoke check

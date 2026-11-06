@@ -4,7 +4,10 @@
 -- when ledger._migration holds step 'defect_case' it does nothing. Existing rows are not changed; history rows are only
 -- re-checked against the widened entity CHECK.
 \set ON_ERROR_STOP on
+\if :{?ledger_install_transaction}
+\else
 BEGIN;
+\endif
 SET ROLE ledger_owner;
 DO $m$
 DECLARE v_check text; n int;
@@ -37,4 +40,7 @@ BEGIN
   INSERT INTO ledger._migration (step, detail) VALUES ('defect_case', jsonb_build_object('by', session_user));
 END $m$;
 RESET ROLE;
+\if :{?ledger_install_transaction}
+\else
 COMMIT;
+\endif

@@ -11,7 +11,10 @@
 -- Who made a write is the declared author id '<vendor>:<session-id>' (or 'user:owner'), accepted only when
 -- ledger.session_grant holds a live grant for that author, project and scope.
 \set ON_ERROR_STOP on
+\if :{?ledger_install_transaction}
+\else
 BEGIN;
+\endif
 DO $$BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='ledger_owner')    THEN CREATE ROLE ledger_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='ledger_author')   THEN CREATE ROLE ledger_author LOGIN; END IF;
@@ -189,4 +192,7 @@ CREATE TRIGGER history_no_truncate BEFORE TRUNCATE ON ledger.history FOR EACH ST
 RESET ROLE;
 INSERT INTO ledger._migration (step, detail) VALUES ('schema', jsonb_build_object('by', session_user)),
                                                    ('schema_v2', jsonb_build_object('by', session_user, 'how', 'fresh install'));
+\if :{?ledger_install_transaction}
+\else
 COMMIT;
+\endif

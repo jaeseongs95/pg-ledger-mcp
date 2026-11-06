@@ -16,6 +16,8 @@ runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -p "$PG_PORT" -d "$DB" -tAc
 const fs = require("node:fs");
 const rows = JSON.parse(fs.readFileSync(0,"utf8"));
 const template = fs.readFileSync(process.argv[1],"utf8");
+const unresolved = template.replace(/@(CODES|CODELIST):(DEFECT_CATEGORY|DEFECT_SEVERITY|RELATION_KIND)@/g, "");
+if (/@(?:CODES|CODELIST):/.test(unresolved)) throw new Error("invalid common-code template placeholder");
 const rendered = template.replace(/@(CODES|CODELIST):([A-Z_]+)@/g, (_,kind,group) => {
   const codes = rows.filter(c => c.code_group === group);
   if (kind === "CODELIST") return codes.map(c => JSON.stringify(c.code)).join(", ");
@@ -23,7 +25,6 @@ const rendered = template.replace(/@(CODES|CODELIST):([A-Z_]+)@/g, (_,kind,group
     || "(없음: ledger-admin category-add로 추가)";
   return JSON.stringify(description).slice(1,-1);
 });
-if (/@(?:CODES|CODELIST):/.test(rendered)) throw new Error("unresolved common-code placeholder");
 fs.writeFileSync(process.argv[2],rendered);
 ' "$REPO/mcp/dbhub.toml" "$tmp"
 chmod 0644 "$tmp"

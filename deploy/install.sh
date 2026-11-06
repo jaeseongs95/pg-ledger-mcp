@@ -62,7 +62,7 @@ fi
 case "$state" in
   none)
     echo "creating schema ledger in $DB"
-    pg < "$REPO/sql/10_tables.sql" ;;
+    ;;
   ready)
     backup_dir=/var/backups/$NAME; install -d -m 0700 "$backup_dir"
     backup=$backup_dir/ledger-$(date -u +%Y%m%dT%H%M%SZ).dump
@@ -71,11 +71,11 @@ case "$state" in
   foreign)
     die "schema ledger exists in $DB but was not created by this project (no ledger._migration step schema_v2); refusing to touch it" ;;
 esac
-# tables added after schema_v2: each file runs once per database (guarded by its ledger._migration step), existing rows stay
-pg < "$REPO/sql/15_defect_case.sql"
-pg < "$REPO/sql/16_common_code.sql"
-pg < "$REPO/sql/17_created_by.sql"
-pg < "$REPO/sql/20_api.sql"
+# Schema constraints, backfill, API and triggers become visible together. Existing writers wait on table locks.
+args=(--db "$DB" --pg-port "$PG_PORT")
+[ "$state" != none ] || args+=(--fresh)
+"$REPO/deploy/apply-schema.sh" "${args[@]}"
+
 echo "functions, views and grants applied"
 
 # ---------- passwords (hex, kept in $ENV_FILE, mode 0600 root) ----------

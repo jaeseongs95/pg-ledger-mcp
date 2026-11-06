@@ -1,6 +1,9 @@
 -- One-time provenance backfill; 20_api creates the insert/update stamps after this migration.
 \set ON_ERROR_STOP on
+\if :{?ledger_install_transaction}
+\else
 BEGIN;
+\endif
 SET ROLE ledger_owner;
 DO $m$
 DECLARE t text; key_sql text; preferred text;
@@ -16,7 +19,7 @@ BEGIN
         WHEN 'condition_link' THEN 'x.condition_id || ''|'' || coalesce(x.task_id,x.defect_id)' ELSE 'x.id' END;
       preferred := CASE WHEN t IN ('task','defect','condition') THEN 'CREATE' ELSE 'LINK' END;
       EXECUTE format('UPDATE ledger.%I x SET created_by=coalesce((SELECT h.author_id FROM ledger.history h
-        WHERE h.entity=$1 AND h.entity_id=%s AND ($2=''CREATE'' OR h.op=''LINK'') ORDER BY CASE WHEN h.op IN ($2,''IMPORT'') THEN 0 ELSE 1 END,h.at,h.id LIMIT 1),''unknown:legacy'')',t,key_sql)
+        WHERE h.entity=$1 AND h.entity_id=%s AND ($2=''CREATE'' OR (h.op=''LINK'' AND h.id > coalesce((SELECT max(u.id) FROM ledger.history u WHERE u.entity=h.entity AND u.entity_id=h.entity_id AND u.op=''UNLINK''),0))) ORDER BY CASE WHEN h.op IN ($2,''IMPORT'') THEN 0 ELSE 1 END,CASE WHEN $2=''LINK'' THEN h.id END,h.at,h.id LIMIT 1),''unknown:legacy'')',t,key_sql)
         USING t,preferred;
     END IF;
     EXECUTE format('ALTER TABLE ledger.%I ALTER COLUMN created_by SET NOT NULL',t);
@@ -24,4 +27,7 @@ BEGIN
   INSERT INTO ledger._migration(step,detail) VALUES ('created_by',jsonb_build_object('by',session_user));
 END $m$;
 RESET ROLE;
+\if :{?ledger_install_transaction}
+\else
 COMMIT;
+\endif

@@ -202,7 +202,7 @@ await ok('P2 create a task and condition in one batch','ledger_batch',batch([
 ]),x => x.count === 5);
 for (const table of ['task','defect','condition','defect_task','defect_relation','condition_link']) {
   const provenance = await sql(`SELECT created_by FROM ledger.${table} ${['task','defect','condition'].includes(table) ? `WHERE project_id = '${project}'` : ''}`);
-  check(`P3 ${table} rows keep their first host author`,provenance.length > 0 && provenance.every(r => r.created_by === AUTHOR || r.created_by === 'claude:e2e-seed'),provenance);
+  check(`P3 ${table} rows keep their first host author`,provenance.length > 0 && provenance.every(r => r.created_by === AUTHOR || r.created_by === 'claude:e2e-seed' || r.created_by === 'codex:e2e-relink'),provenance);
 }
 const missingHostCases = {
   ledger_transition: { entity: 'defect',id: D2,expected_version: 1,to: 'DISPUTED',reason,evidence_uri: 'https://example.test/evidence' },
