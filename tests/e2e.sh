@@ -49,9 +49,9 @@ login_sql() {  # <login> <sql>
 snapshot() {
   pgsu -d "$DB" -tA <<'SQL'
 SELECT string_agg(t.tablename || '=' || (xpath('/row/h/text()', query_to_xml(format(
-         'SELECT md5(coalesce(string_agg(x::text, E''\n'' ORDER BY x::text), '''')) AS h FROM ledger.%I x', t.tablename), false, true, '')))[1]::text,
+         'SELECT md5(coalesce(string_agg((to_jsonb(x)-''created_by'')::text, E''\n'' ORDER BY (to_jsonb(x)-''created_by'')::text), '''')) AS h FROM ledger.%I x', t.tablename), false, true, '')))[1]::text,
        ' ' ORDER BY t.tablename)
-FROM pg_tables t WHERE t.schemaname = 'ledger' AND t.tablename NOT IN ('_migration', 'defect_case', 'common_code', 'common_code_use', 'category');
+FROM pg_tables t WHERE t.schemaname = 'ledger' AND t.tablename NOT IN ('_migration', 'common_code', 'common_code_use', 'category');
 SQL
 }
 
@@ -65,9 +65,10 @@ else
   echo "== install $UPGRADE_FROM (old schema)"
   "$OLD/deploy/install.sh" --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --name "$NAME" --reset-passwords
   echo "== write data with the old schema"
-  admin project-add old OLD "Data written before the upgrade"
-  admin category-add OLDBUG "Old bug" "Category written before the upgrade"
-  admin grant claude:e2e-seed old defect --note "e2e seed"
+  old_admin() { "$OLD/bin/ledger-admin" --name "$NAME" "$@" >/dev/null; }
+  old_admin project-add old OLD "Data written before the upgrade"
+  old_admin category-add OLDBUG "Old bug" "Category written before the upgrade"
+  old_admin grant claude:e2e-seed old defect task --note "e2e seed"
   seed=
   for t in target merged; do
     seed+="SELECT ledger.save(gen_random_uuid(), 'claude:e2e-seed', 'defect', NULL, 0, jsonb_build_object('project_id', 'old', 'title', '$t',
@@ -78,8 +79,35 @@ else
   seed+="SELECT ledger.save(gen_random_uuid(), 'claude:e2e-seed', 'defect', NULL, 0, jsonb_build_object('project_id', 'old', 'title', 'unrated',
       'category', 'OLDBUG', 'severity', 'UNRATED', 'behavior', 'old unrated behaviour', 'root_cause', 'old cause'), 'e2e: seed an unrated defect');"
   login_sql ledger_author "$seed" >/dev/null
-  pass_if 'old schema has no defect_case table' "$(pgsu -d "$DB" -tAc "select to_regclass('ledger.defect_case') is null")" t
+  pass_if 'production baseline has defect_case' "$(pgsu -d "$DB" -tAc "select to_regclass('ledger.defect_case') is not null")" t
+  for c in ARC CON DAT DENY DIAG DOC EXC GATE HOST PKG RES SEC TST VND; do
+    old_admin category-add "$c" "기존 이름 $c" "기존 정의 $c"
+  done
+  login_sql ledger_author "SELECT ledger.save(gen_random_uuid(),'claude:e2e-seed','task','OLD-T-1',0,
+    '{\"project_id\":\"old\",\"title\":\"Old task\",\"purpose\":\"preserve\",\"success_condition\":\"same row\"}', 'e2e: old task provenance');
+    SELECT ledger.save(gen_random_uuid(),'claude:e2e-seed','condition','OLD-C-1',0,
+    '{\"project_id\":\"old\",\"release\":\"old\",\"code\":\"C1\",\"condition_text\":\"Old condition\"}', 'e2e: old condition provenance');
+    SELECT ledger.link(gen_random_uuid(),'claude:e2e-seed','defect_task','OLD-D-0001','OLD-T-1','e2e: old task link');
+    SELECT ledger.link(gen_random_uuid(),'claude:e2e-seed','same_site','OLD-D-0001','OLD-D-0002','e2e: old relation link');
+    SELECT ledger.link(gen_random_uuid(),'claude:e2e-seed','condition_task','OLD-C-1','OLD-T-1','e2e: old condition link')" >/dev/null
+  pgsu -d "$DB" -c "INSERT INTO ledger.task(id,project_id,title,purpose,success_condition,state,created_at,updated_at)
+    VALUES('OLD-T-UNKNOWN','old','No history','','','PLANNED',now(),now())" >/dev/null
+  pgsu -d "$DB" -c "INSERT INTO ledger.history(at,author_id,actor_assurance,entity,entity_id,op,reason,request_id)
+    VALUES('2000-01-01','legacy:earlier-note','LEGACY_UNKNOWN','task','OLD-T-1','LEGACY_NOTE','e2e: earlier note is not the creator',gen_random_uuid())" >/dev/null
   before=$(snapshot)
+  echo "== migration failure atomicity (forced invalid old category, then duplicate created_by)"
+  if out=$({ printf '%s\n' "BEGIN; ALTER TABLE ledger.defect DROP CONSTRAINT defect_category_fkey; UPDATE ledger.defect SET category='MISSING' WHERE id='OLD-D-0001';"; cat "$REPO/sql/16_common_code.sql"; } | pgsu -d "$DB" 2>&1); then
+    echo "FAIL  invalid legacy category did not stop migration"; fail=1
+  elif grep -q 'common_code: 1 row(s) of defect.category missing' <<<"$out"; then echo "PASS  invalid legacy code stops migration"
+  else echo "FAIL  wrong migration error: $out"; fail=1; fi
+  pass_if 'failed common-code migration leaves no table or marker' "$(pgsu -d "$DB" -tAc "select to_regclass('ledger.common_code') is null and not exists(select 1 from ledger._migration where step='common_code')")" t
+  pass_if 'failed common-code migration restores existing rows' "$(snapshot)" "$before"
+  if out=$({ printf '%s\n' "BEGIN; ALTER TABLE ledger.task ADD COLUMN created_by text;"; cat "$REPO/sql/17_created_by.sql"; } | pgsu -d "$DB" 2>&1); then
+    echo "FAIL  duplicate created_by did not stop migration"; fail=1
+  elif grep -q 'already exists' <<<"$out"; then echo "PASS  interrupted created_by migration rolls back"
+  else echo "FAIL  wrong provenance migration error: $out"; fail=1; fi
+  pass_if 'failed provenance migration leaves no partial columns' "$(pgsu -d "$DB" -tAc "select count(*) from information_schema.columns where table_schema='ledger' and column_name='created_by'")" 0
+  pass_if 'failed provenance migration restores existing rows' "$(snapshot)" "$before"
   categories() { pgsu -d "$DB" -tAc "select string_agg(code || '|' || name || '|' || definition, ',' order by code) from ledger.category"; }
   cats_before=$(categories)
   echo "== upgrade: install this checkout over it"
@@ -89,6 +117,10 @@ else
   pass_if 'upgrade creates an empty defect_case' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect_case")" 0
   pass_if 'upgrade records step common_code' "$(pgsu -d "$DB" -tAc "select count(*) from ledger._migration where step = 'common_code'")" 1
   pass_if 'upgrade moves the categories into common_code unchanged' "$(categories)" "$cats_before"
+  pass_if 'known categories have English translations' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.common_code where code_group='DEFECT_CATEGORY' and code <> 'OLDBUG' and name_en <> name_ko and description_en <> description_ko")" 14
+  pass_if 'unknown categories use the original text as English fallback' "$(pgsu -d "$DB" -tAc "select name_en=name_ko and description_en=description_ko from ledger.common_code where code_group='DEFECT_CATEGORY' and code='OLDBUG'")" t
+  pass_if 'history backfills entity and link creators' "$(pgsu -d "$DB" -tAc "select count(*) from (select created_by from ledger.defect union all select created_by from ledger.task where id='OLD-T-1' union all select created_by from ledger.condition union all select created_by from ledger.defect_task union all select created_by from ledger.defect_relation union all select created_by from ledger.condition_link) x where created_by='claude:e2e-seed'")" 8
+  pass_if 'missing legacy history is marked unknown' "$(pgsu -d "$DB" -tAc "select created_by from ledger.task where id='OLD-T-UNKNOWN'")" unknown:legacy
   pass_if 'an unrated defect keeps UNRATED until it is written' "$(pgsu -d "$DB" -tAc "select severity from ledger.defect where id = 'OLD-D-0003'")" UNRATED
   out=$(login_sql ledger_author "SELECT ledger.save(gen_random_uuid(), 'claude:e2e-seed', 'defect', 'OLD-D-0003', 1, jsonb_build_object('title', 'unrated, edited'),
     'e2e: edit without rating')" 2>&1) && echo "FAIL  an edit that leaves UNRATED succeeded: $out" && fail=1
@@ -101,14 +133,31 @@ else
     'merged_behavior:OLD-D-0002:old merged behaviour'
 fi
 
+if [ -z "$UPGRADE_FROM" ]; then
+  TOKEN=$(sed -n 's/^DBHUB_AUTH_TOKEN=//p' "/etc/$NAME/env")
+  DBHUB_AUTH_TOKEN=$TOKEN node --input-type=module - "$REPO" "http://127.0.0.1:$MCP_PORT/mcp" <<'JS'
+const { connect } = await import(`${process.argv[2]}/bin/mcp-call.mjs`);
+const mcp = await connect(process.argv[3],process.env.DBHUB_AUTH_TOKEN);
+const save = (await mcp.toolDefinitions()).find(t => t.name === "ledger_save");
+if (!save.description.includes("(없음: ledger-admin category-add로 추가)")) throw new Error("empty category placeholder missing");
+console.log("PASS  empty-category bootstrap is usable through tools/list");
+JS
+fi
+
 echo "== owner setup"
 admin project-add "$PROJECT" "$CODE" "End-to-end test project"
-admin category-add BUG "Bug" "Behaviour differs from the specification"
+admin category-add BUG "결함" "명세와 다른 동작" --name-en 'Bug "quoted"' --description-en $'Behaviour differs\nwith "quotes" and \\path'
+admin code-set RELATION_KIND test_relation "시험 관계" "동적 관계 코드" --name-en "Test relation" --description-en "Dynamically rendered relation" --sort 6
+admin code-set DEFECT_CATEGORY RETIRED "이전 분류" "비활성" --inactive
 admin grant claude:e2e-author "$PROJECT" defect task fix verify --note "e2e"
 admin grant codex:e2e-reviewer "$PROJECT" verify --note "e2e"
 
 TOKEN=$(sed -n 's/^DBHUB_AUTH_TOKEN=//p' "/etc/$NAME/env")
 URL=http://127.0.0.1:$MCP_PORT/mcp
+echo "== Claude hook contract (synthetic host input)"
+node --test "$REPO/tests/claude-hook.mjs" || fail=1
+node "$REPO/tests/host-attestation.mjs" "$REPO" || fail=1
+
 echo "== MCP scenario"
 DBHUB_AUTH_TOKEN=$TOKEN node "$REPO/tests/e2e.mjs" "$URL" "$PROJECT" "$CODE" || fail=1
 
@@ -155,13 +204,33 @@ expect_error 'author login cannot add cases directly' ledger_author 'permission 
   "insert into ledger.defect_case (defect_id, observation, recorded_by, recorded_at) values ('$CODE-D-0002', 'x', 'claude:e2e-author', now())"
 expect_error 'history is append-only' ledger_author 'permission denied' "delete from ledger.history"
 expect_error 'author login cannot grant' ledger_author 'permission denied' "select ledger.grant_session('claude:x', '$PROJECT', 'defect')"
-expect_error 'reader login is read-only' ledger_reader 'read-only transaction' "insert into ledger.project values ('x', 'X', 'x')"
+expect_error 'reader login is read-only' ledger_reader 'read-only transaction' "insert into ledger.project (id,code,title) values ('x', 'X', 'x')"
 if pgsu -d "$DB" -c "delete from ledger.history" >/dev/null 2>&1; then echo "FAIL  history refuses delete even for the superuser"; fail=1
 else echo "PASS  history refuses delete even for the superuser"; fi
+
+echo "== preserved constraints and immutable provenance"
+for spec in 'defect status' 'task state' 'condition state' 'defect_fix ci_conclusion' 'session_grant scope'; do
+  read -r table column <<<"$spec"
+  pass_if "fixed CHECK retained: $table.$column" "$(pgsu -d "$DB" -tAc "select exists(select 1 from pg_constraint c join pg_attribute a on a.attrelid=c.conrelid and a.attnum=any(c.conkey) where c.conrelid='ledger.$table'::regclass and c.contype='c' and c.conkey=ARRAY[a.attnum] and a.attname='$column')")" t
+done
+pass_if 'only three code use mappings exist' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.common_code_use")" 3
+pass_if 'owner rows are automatically stamped' "$(pgsu -d "$DB" -tAc "select created_by from ledger.project where id='$PROJECT'")" user:owner
+pgsu -d "$DB" -c "UPDATE ledger.defect SET created_by='model:forged' WHERE id='$CODE-D-0002'" >/dev/null
+pass_if 'direct UPDATE cannot change created_by' "$(pgsu -d "$DB" -tAc "select created_by from ledger.defect where id='$CODE-D-0002'")" claude:e2e-author
+expect_error 'inactive category is refused at the DB boundary' ledger_author 'CODE_INVALID: defect.category = RETIRED' \
+  "select ledger.save(gen_random_uuid(),'claude:e2e-author','defect','$CODE-D-0002',1,jsonb_build_object('category','RETIRED'),'e2e: retired category')"
+expect_error 'unknown relation names valid DB codes' ledger_author 'link: unknown kind related' \
+  "select ledger.link(gen_random_uuid(),'claude:e2e-author','related','$CODE-D-0001','$CODE-D-0002','e2e: unknown relation')"
+pass_if 'all eight created_by columns are NOT NULL' "$(pgsu -d "$DB" -tAc "select count(*) from information_schema.columns where table_schema='ledger' and column_name='created_by' and is_nullable='NO'")" 8
+before_reapply=$(snapshot)
+creators=$(pgsu -d "$DB" -tAc "select string_agg(id||':'||created_by,',' order by id) from ledger.defect")
 
 echo "== install again (re-apply keeps data, token and passwords)"
 cases=$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect_case" 2>&1 || true)
 "$REPO/deploy/install.sh" --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --name "$NAME"
+pass_if 'reapply preserves every semantic row' "$(snapshot)" "$before_reapply"
+pass_if 'reapply preserves creators' "$(pgsu -d "$DB" -tAc "select string_agg(id||':'||created_by,',' order by id) from ledger.defect")" "$creators"
+pass_if 'created_by migration is recorded once' "$(pgsu -d "$DB" -tAc "select count(*) from ledger._migration where step='created_by'")" 1
 [ "$(sed -n 's/^DBHUB_AUTH_TOKEN=//p' "/etc/$NAME/env")" = "$TOKEN" ] && echo "PASS  token kept" || { echo "FAIL  token changed"; fail=1; }
 n=$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect where project_id = '$PROJECT'")
 [ "$n" = 5 ] && echo "PASS  data kept ($n defects)" || { echo "FAIL  defects after re-install: $n"; fail=1; }

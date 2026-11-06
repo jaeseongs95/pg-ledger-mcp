@@ -7,8 +7,10 @@ Agents read and write through MCP tools. They never get a database login of thei
 
 - **Role logins, not per-agent accounts.** There are three logins: `ledger_author`, `ledger_reviewer` and `ledger_reader`.
   Each MCP tool is bound to the login it needs, and the caller never chooses one.
-- **Every write names its author.** `author_id` is `<vendor>:<session-id>`, for example `claude:1f2e3d4c` or `codex:9a8b7c6d`.
-  The ledger owner is `user:owner`. Any lowercase vendor name is accepted; there is no vendor list to maintain.
+- **The host hook stamps every write and whoami.** Reserved `_hostAttestation` is `<vendor>:<session-id>`, for example `claude:1f2e3d4c` or `codex:9a8b7c6d`.
+  Models must omit this field. The hook inserts the host session id, using the parent conversation id for subagents.
+  Existing project/scope grants still apply. The ledger owner is `user:owner`; no new token authentication is added.
+  Legacy model `author_id` is ignored by the server. This convention relies on the host hook; it is not signed server authentication.
 - **Writes need a live grant.** The owner grants an author a scope on a project with `bin/ledger-admin grant`.
   The scopes are `defect`, `task`, `fix` and `verify`. Writes without a matching grant are refused.
 - **Verification is separate.** `VERIFIED`, `MET` and `NOT_MET` can only be set through the reviewer login.
@@ -22,14 +24,18 @@ Agents read and write through MCP tools. They never get a database login of thei
 - **One defect, one root cause; many observed cases.** Each observation of a defect (symptom, log, user report) is a row of
   `ledger.defect_case` under it. Merging a defect (`MERGED`, `merged_into`) keeps its cases where they are; `ledger.v_defect`
   shows them under the defect it was merged into, so nothing has to be copied. A MERGED defect takes no new cases.
-- **Common codes.** Every coded value (category, severity, defect status, task and condition state, relation kind, CI
-  conclusion, grant scope) is a row of `ledger.common_code`; `ledger.common_code_use` names the column that uses each group.
-  A trigger checks every written code against the table and names the valid codes when it refuses one, so a new code is a
-  row, not a schema change. A retired code (`active = false`) stays on the rows that hold it and is refused on new writes.
-  **Severity is required:** a defect needs `P1`, `P2` or `P3`, and a defect that still holds the retired `UNRATED` must be
-  rated in the same write before anything else about it can change.
+- **Common codes.** Category, severity and relation kind are the three groups in `ledger.common_code`, with Korean and English names and descriptions.
+  Active values are rendered into the MCP tool definitions. States, CI results and grant scopes keep their fixed CHECK constraints.
+  A retired code stays on existing rows and is refused when newly assigned.
+  **Severity is required:** P1/P2/P3 are active; an existing UNRATED defect must be rated on its next write.
+- **Creation provenance is immutable.** New project, task, defect, condition, link and common-code rows receive `created_by` automatically.
+  Existing `recorded_by`, history/receipt `author_id` and grant `granted_by` columns retain their meanings.
+  Existing rows are backfilled from first CREATE/IMPORT history (LINK for links), with `unknown:legacy` when no source exists;
+  projects and common codes use `user:owner`. Edits and reviewer transitions preserve the creator.
+  Parents remain responsible for child results, records and mistakes and must verify/correct their evidence directly.
 
-Every rule above is enforced inside PostgreSQL by constraints, `SECURITY DEFINER` functions, grants and triggers.
+PostgreSQL enforces grants, state rules, provenance and history through constraints, `SECURITY DEFINER` functions and triggers.
+Client hooks supply host identity; a direct MCP caller is not cryptographically authenticated as that host.
 The MCP layer is a thin configuration of [DBHub](https://github.com/bytebase/dbhub).
 
 ## MCP tools
@@ -38,7 +44,6 @@ The MCP layer is a thin configuration of [DBHub](https://github.com/bytebase/dbh
 |---|---|---|
 | `execute_sql_reader` | reader | any read-only SQL (read-only transaction, at most 1000 rows) |
 | `search_objects_reader` | reader | list schemas, tables, columns |
-| `ledger_codes` | reader | common codes by group, with the columns that use each group |
 | `ledger_whoami` | author | is this author id well formed, which grants does it hold |
 | `ledger_save` | author | create or edit a defect, task or condition |
 | `ledger_transition` | author | change state (OPEN, SOURCE_FIXED, MERGED, ACTIVE, REPORTED_DONE, …) |
@@ -61,7 +66,7 @@ through chains of merges. Each entry names its `defect`; `source` is `case` for 
 the `behavior` text of a merged defect, which counts as one more observation.
 
 ```json
-{"author_id": "claude:1f2e3d4c", "defect_id": "WEB-D-0007", "observation": "checkout returns 500 for a gift card",
+{"defect_id": "WEB-D-0007", "observation": "checkout returns 500 for a gift card",
  "evidence": "request 7f3a, api/checkout.ts:88", "user_quote": "I can't pay with my gift card",
  "observed_at": "2026-11-05T10:00:00Z", "reason": "second report of the same failure"}
 ```
@@ -76,8 +81,8 @@ The Debian and Ubuntu defaults already allow it.
 sudo -u postgres createdb ledger
 sudo deploy/install.sh --db ledger --mcp-port 8765 --allowed-hosts ledger-mcp.example.com
 sudo bin/ledger-admin project-add web WEB "Web shop"
-sudo bin/ledger-admin category-add BUG Bug "Behaviour differs from the specification"   # = code-set DEFECT_CATEGORY ...
-sudo bin/ledger-admin code-set RELATION_KIND duplicates Duplicates "a repeats b"         # any group; --inactive retires a code
+sudo bin/ledger-admin category-add BUG "결함" "명세와 다른 동작" --name-en Bug --description-en "Behaviour differs from the specification"
+sudo bin/ledger-admin code-set RELATION_KIND duplicates "중복" "a가 b를 반복" --name-en Duplicates --description-en "a repeats b"
 sudo bin/ledger-admin grant claude:1f2e3d4c web defect fix --note "fix sprint"
 sudo bin/ledger-admin grant codex:9a8b7c6d web verify
 ```
@@ -92,7 +97,9 @@ sudo bin/ledger-admin grant codex:9a8b7c6d web verify
 
 Re-running it re-applies functions, views and grants after a `pg_dump` of the schema to `/var/backups/pg-ledger-mcp/`.
 It keeps data, passwords and the token. Tables added after the first release are created by the
-re-run on an existing database (`sql/15_defect_case.sql`, `sql/16_common_code.sql`); each runs once, recorded in `ledger._migration`, and existing rows are not changed. `--schema-only` stops before DBHub.
+re-run on an existing database (`sql/15_defect_case.sql`, `sql/16_common_code.sql`, `sql/17_created_by.sql`); each runs once, recorded in `ledger._migration`.
+Existing semantic values are preserved; `created_by` is backfilled. Code changes through `category-add` / `code-set` rerender the tool definitions, restart the instance and wait up to 30 seconds for healthz.
+The English options default to the supplied Korean text when omitted. Only the three extensible groups are accepted. `--schema-only` stops before DBHub.
 
 The service listens on loopback only. To publish it, put an HTTPS reverse proxy or tunnel in front and list the public
 hostname in `--allowed-hosts`. Clients send `Authorization: Bearer <DBHUB_AUTH_TOKEN>`.
@@ -107,7 +114,36 @@ The `ledger_*` roles are cluster-wide. Run one instance per PostgreSQL cluster. 
   "headers": { "Authorization": "Bearer <token>" } } } }
 ```
 
-Tell your agents their author id. Claude Code, for example, can use `claude:<session id>`.
+Install a host hook before moving a server to this contract. Claude Code:
+
+```sh
+claude plugin marketplace add jaeseongs95/pg-ledger-mcp
+claude plugin install pg-ledger-mcp@pg-ledger-mcp
+```
+
+For a checkout, add its absolute repository path as the marketplace instead. For a temporary, session-scoped load:
+
+```sh
+claude --plugin-dir /absolute/path/to/pg-ledger-mcp/clients/claude
+```
+
+The Claude plugin matches the ten ledger tools, rejects any model-supplied `_hostAttestation`, removes legacy `author_id`,
+then returns the full `updatedInput` with `claude:<session_id>`. Missing/invalid host ids are refused. It reads only hook stdin.
+It omits `permissionDecision`, retaining Claude's permission policy. In auto mode Claude may deny a rewritten call;
+setting `allow` would skip permission prompts and is deliberately not part of this plugin.
+Official contract: [Claude hooks](https://code.claude.com/docs/en/hooks#pretooluse-decision-control).
+
+Codex: load the [Codex plugin](clients/codex/README.md) through the host's plugin mechanism, or merge its hook config into
+`<repo>/.codex/hooks.json`, set the script's absolute path and review/trust it with `/hooks`.
+Antigravity: load the [Antigravity plugin](clients/antigravity/README.md), or merge its named group into
+`<workspace>/.agents/hooks.json` with the script's absolute path. These are project configuration alternatives; preserve existing hooks.
+Codex uses host `session_id`; Antigravity uses `conversationId`. Antigravity shallow-merges `overwrite`, so a legacy `author_id`
+may remain but must not influence the server. No child-specific identity, permission or blocking layer is added.
+
+These packages need real host calls against TEST before production rollout. Native callback delivery, parent-id behavior,
+Windows command execution and the portal's `updated_tools` refresh are separate acceptance evidence. Installation/global hook
+changes/restarts are not performed by a source checkout. Roll out the three host hooks first, then migrate the server under
+its existing operator approval; otherwise writes without hooks fail with `HOST_ATTESTATION_REQUIRED`.
 
 ## Test
 
@@ -127,12 +163,14 @@ The test drives the MCP tools through these cases:
 - batches: replay, rollback of the whole batch on one failure, the same grant and login rules
 - observed cases: replay, refusal on a MERGED defect (also when the merge commits while the case waits), the view over
   merged defects and chains of merges
-- common codes: `ledger_codes`, a missing or retired severity, unknown category, state, link kind and CI conclusion
+- common codes: bilingual tools/list content, dynamic relation enum, escaped text, missing/retired severity and unknown category
+- fixed state, CI and grant CHECKs; host-attestation schemas and missing values; retained legacy `author_id` has no authority
+- immutable creators after save, link, batch, fix and review; forged fields/UPDATE refusal; synthetic Claude hook contracts
 
 It also checks the database rules directly through the logins, then re-runs the installer.
 
-`--upgrade-from <git-ref>` (for example `--upgrade-from a829947`) installs that commit first, writes data with it,
-installs the checkout over it, checks that every existing row is unchanged (categories move into `ledger.common_code`
+`--upgrade-from <git-ref>` (for example `--upgrade-from 6d2d0e1`) installs that commit first, writes data with it,
+installs the checkout over it, checks that existing semantic values are unchanged (excluding newly added `created_by`) (categories move into `ledger.common_code`
 unchanged, and an `UNRATED` defect must be rated on its next write), and then runs the same scenario.
 
 ## Layout
@@ -141,8 +179,11 @@ unchanged, and an `UNRATED` defect must be rated on its next write), and then ru
 sql/10_tables.sql     roles, schema, tables, history triggers (fresh install)
 sql/15_defect_case.sql  observed cases table (run on every install; does nothing once applied)
 sql/16_common_code.sql  common codes table and the columns using them (same)
+sql/17_created_by.sql  creation provenance backfill (same)
 sql/20_api.sql        functions, views, grants (re-applied on every install)
 mcp/dbhub.toml        DBHub sources (one per login) and tool definitions
+deploy/render-tools.sh  active bilingual codes → DBHub tool definitions
+clients/claude/      Claude Code marketplace plugin (PreToolUse)
 deploy/install.sh     install / re-apply, passwords, DBHub, systemd unit, smoke check
 bin/ledger-admin      projects, common codes, grants (owner operations)
 bin/mcp-call.mjs      tiny MCP client: check, list, call

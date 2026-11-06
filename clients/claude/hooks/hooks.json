@@ -1,0 +1,8 @@
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "^mcp__.*ledger_(save|transition|record_fix|record_case|link|correct|batch|review|review_correct|whoami)$",
+      "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/host-attestation.mjs\"", "timeout": 10 }]
+    }]
+  }
+}

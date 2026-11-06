@@ -24,9 +24,13 @@ BEGIN
   IF p_scope = 'verify' AND session_user <> 'ledger_reviewer' THEN
     RAISE EXCEPTION 'VERIFY_NEEDS_REVIEWER_LOGIN: verification is recorded only through login ledger_reviewer (session_user=%)', session_user USING ERRCODE = '42501';
   END IF;
+  IF p_author IS NULL THEN
+    RAISE EXCEPTION 'HOST_ATTESTATION_REQUIRED: 호스트 훅이 세션을 넣지 않았다(pg-ledger-mcp 클라이언트 훅 설치 필요)' USING ERRCODE = '22023';
+  END IF;
   IF NOT ledger._author_ok(p_author) THEN
     RAISE EXCEPTION 'AUTHOR_ID_FORMAT: author_id must be <vendor>:<session-id> (vendor lowercase, e.g. claude:1234abcd) or user:owner (got %)', coalesce(p_author, 'NULL') USING ERRCODE = '22023';
   END IF;
+  PERFORM set_config('ledger.author',p_author,true);
   IF p_project IS NULL THEN RAISE EXCEPTION 'project unknown' USING ERRCODE = '22023'; END IF;
   PERFORM 1 FROM ledger.session_grant g
    WHERE g.author_id = p_author AND g.project = p_project AND g.scope = p_scope
@@ -85,9 +89,9 @@ BEGIN
        OR (NOT v_active AND (u.always_active OR v_old IS NULL OR v IS DISTINCT FROM v_old->>u.column_name)) THEN
       SELECT string_agg(code, ', ' ORDER BY sort_order, code) INTO v_valid FROM ledger.common_code WHERE code_group = u.code_group AND active;
       IF v IS NULL THEN
-        RAISE EXCEPTION 'CODE_REQUIRED: %.% is required, one of: % (ledger_codes group %)', TG_TABLE_NAME, u.column_name, v_valid, u.code_group USING ERRCODE = '23514';
+        RAISE EXCEPTION 'CODE_REQUIRED: %.% is required, one of: % (group %)', TG_TABLE_NAME, u.column_name, v_valid, u.code_group USING ERRCODE = '23514';
       END IF;
-      RAISE EXCEPTION 'CODE_INVALID: %.% = % is not an active code of %, use one of: % (ledger_codes)%', TG_TABLE_NAME, u.column_name, v, u.code_group, v_valid,
+      RAISE EXCEPTION 'CODE_INVALID: %.% = % is not an active code of %, use one of: %; %', TG_TABLE_NAME, u.column_name, v, u.code_group, v_valid,
         CASE WHEN u.always_active AND v_active IS NOT NULL THEN '; this row still holds an old value, set it in the same write' ELSE '' END USING ERRCODE = '23514';
     END IF;
   END LOOP;
@@ -141,6 +145,24 @@ BEGIN
   GET DIAGNOSTICS n = ROW_COUNT;
   RETURN n;
 END $f$;
+
+-- A host attestation is transaction-local; owner SQL without one is stamped user:owner.
+CREATE OR REPLACE FUNCTION ledger._stamp_created_by() RETURNS trigger LANGUAGE plpgsql AS $f$
+BEGIN
+  IF TG_OP='INSERT' THEN
+    NEW.created_by := coalesce(nullif(current_setting('ledger.author',true),''),'user:owner');
+  ELSE NEW.created_by := OLD.created_by;
+  END IF;
+  RETURN NEW;
+END $f$;
+DO $t$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['project','task','defect','condition','defect_task','defect_relation','condition_link','common_code'] LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON ledger.%I',t || '_created_by',t);
+    EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON ledger.%I FOR EACH ROW EXECUTE FUNCTION ledger._stamp_created_by()',t || '_created_by',t);
+  END LOOP;
+END $t$;
 
 -- ---------- public write API ----------
 -- save: create (p_expected_version = 0) or edit non-state columns of defect / task / condition.
@@ -372,7 +394,7 @@ BEGIN
       IF v_project_b <> v_project THEN PERFORM ledger._begin(p_author, 'defect', v_project_b); END IF;
     END IF;
   ELSE
-    RAISE EXCEPTION 'link: unknown kind %, use defect_task, condition_task, condition_defect or a RELATION_KIND code: % (ledger_codes)', p_kind,
+    RAISE EXCEPTION 'link: unknown kind %, use defect_task, condition_task, condition_defect or a RELATION_KIND code: %', p_kind,
       (SELECT string_agg(code, ', ' ORDER BY sort_order, code) FROM ledger.common_code WHERE code_group = 'RELATION_KIND' AND active) USING ERRCODE = '22023';
   END IF;
   PERFORM ledger._check_reason(p_reason);
@@ -381,7 +403,7 @@ BEGIN
   IF p_kind = 'defect_task' THEN
     v_entity := 'defect_task'; v_id := p_a || '|' || p_b;
     IF p_remove THEN DELETE FROM ledger.defect_task WHERE defect_id = p_a AND task_id = p_b;
-    ELSE INSERT INTO ledger.defect_task VALUES (p_a, p_b) ON CONFLICT DO NOTHING; END IF;
+    ELSE INSERT INTO ledger.defect_task (defect_id,task_id) VALUES (p_a, p_b) ON CONFLICT DO NOTHING; END IF;
   ELSIF p_kind IN ('condition_task','condition_defect') THEN
     v_entity := 'condition_link'; v_id := p_a || '|' || p_b;
     IF p_remove THEN
@@ -392,7 +414,7 @@ BEGIN
     x := least(p_a, p_b); y := greatest(p_a, p_b);
     v_entity := 'defect_relation'; v_id := x || '|' || y || '|' || p_kind;
     IF p_remove THEN DELETE FROM ledger.defect_relation WHERE a = x AND b = y AND kind = p_kind;
-    ELSE INSERT INTO ledger.defect_relation VALUES (x, y, p_kind) ON CONFLICT DO NOTHING; END IF;
+    ELSE INSERT INTO ledger.defect_relation (a,b,kind) VALUES (x, y, p_kind) ON CONFLICT DO NOTHING; END IF;
   END IF;
   GET DIAGNOSTICS n = ROW_COUNT;
   IF n <> 1 THEN RAISE EXCEPTION 'link: nothing changed (% % %)', p_kind, p_a, p_b USING ERRCODE = '22023'; END IF;
@@ -521,31 +543,24 @@ END $f$;
 
 -- whoami: what this login and a declared author may do right now (read only).
 CREATE OR REPLACE FUNCTION ledger.whoami(p_author text DEFAULT NULL) RETURNS jsonb
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ledger, pg_temp AS $f$
-  SELECT jsonb_build_object('session_user', session_user, 'author', p_author, 'author_format_ok', ledger._author_ok(p_author),
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = ledger, pg_temp AS $f$
+BEGIN
+  IF p_author IS NULL THEN
+    RAISE EXCEPTION 'HOST_ATTESTATION_REQUIRED: 호스트 훅이 세션을 넣지 않았다(pg-ledger-mcp 클라이언트 훅 설치 필요)' USING ERRCODE = '22023';
+  END IF;
+  RETURN jsonb_build_object('session_user', session_user, 'author', p_author, 'author_format_ok', ledger._author_ok(p_author),
          'can_verify_login', session_user = 'ledger_reviewer',
          'grants', coalesce((SELECT jsonb_agg(jsonb_build_object('project', g.project, 'scope', g.scope, 'expires_at', g.expires_at) ORDER BY g.project, g.scope)
                                FROM ledger.session_grant g WHERE g.author_id = p_author AND g.revoked_at IS NULL
-                                AND (g.expires_at IS NULL OR g.expires_at > clock_timestamp())), '[]'))
-$f$;
+                                AND (g.expires_at IS NULL OR g.expires_at > clock_timestamp())), '[]'));
+END $f$;
 
--- codes: the common codes by group, with the columns that use each group (read only). p_group NULL = every group.
-CREATE OR REPLACE FUNCTION ledger.codes(p_group text DEFAULT NULL) RETURNS jsonb
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ledger, pg_temp AS $f$
-  SELECT coalesce(jsonb_object_agg(g.code_group, jsonb_build_object('used_by', g.used_by, 'codes', g.codes)), '{}')
-  FROM (SELECT c.code_group,
-               (SELECT coalesce(jsonb_agg(u.table_name || '.' || u.column_name || CASE WHEN u.always_active THEN ' (required)' ELSE '' END
-                                          ORDER BY u.table_name, u.column_name), '[]')
-                  FROM ledger.common_code_use u WHERE u.code_group = c.code_group) AS used_by,
-               jsonb_agg(jsonb_build_object('code', c.code, 'name', c.name, 'description', c.description, 'active', c.active)
-                         ORDER BY c.sort_order, c.code) AS codes
-          FROM ledger.common_code c WHERE p_group IS NULL OR c.code_group = p_group GROUP BY c.code_group) g
-$f$;
+DROP FUNCTION IF EXISTS ledger.codes(text);
 
 -- ---------- views ----------
 DROP VIEW IF EXISTS ledger.v_defect, ledger.v_history, ledger.v_attention;
 CREATE VIEW ledger.v_defect AS
-SELECT d.id, d.project_id, d.title, d.category, d.severity, d.status, d.merged_into, d.owner_actor_id, d.version, d.updated_at,
+SELECT d.id, d.project_id, d.title, d.category, d.severity, d.status, d.merged_into, d.owner_actor_id, d.version, d.updated_at, d.created_by,
        h.at AS last_change_at, h.author_id AS last_author, h.login AS last_login, h.actor_assurance AS last_assurance, h.op AS last_op, h.reason AS last_reason,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('commit', f.commit_sha, 'repo', f.repo, 'branch', f.branch, 'ci', f.ci_ref,
                                                      'ci_conclusion', f.ci_conclusion, 'by', f.recorded_by) ORDER BY f.id)
@@ -593,7 +608,7 @@ GRANT EXECUTE ON FUNCTION ledger.save(uuid,text,text,text,int,jsonb,text),
                           ledger.batch(uuid,text,jsonb) TO ledger_author;
 GRANT EXECUTE ON FUNCTION ledger.transition(uuid,text,text,text,int,text,text,text,text,text),
                           ledger.correct(uuid,text,bigint,text) TO ledger_author, ledger_reviewer;
-GRANT EXECUTE ON FUNCTION ledger.whoami(text), ledger.codes(text), ledger._sid(text), ledger._author_ok(text) TO ledger_author, ledger_reviewer, ledger_reader;
+GRANT EXECUTE ON FUNCTION ledger.whoami(text), ledger._sid(text), ledger._author_ok(text) TO ledger_author, ledger_reviewer, ledger_reader;
 GRANT SELECT ON ledger.project, ledger.category, ledger.common_code, ledger.common_code_use, ledger.task, ledger.defect, ledger.defect_fix, ledger.defect_case, ledger.defect_task,
                 ledger.defect_relation, ledger.condition, ledger.condition_link, ledger.session_grant, ledger.history, ledger.request_receipt,
                 ledger.v_defect, ledger.v_history, ledger.v_attention TO ledger_author, ledger_reviewer, ledger_reader;

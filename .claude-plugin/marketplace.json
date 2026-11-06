@@ -1,0 +1,5 @@
+{
+  "name": "pg-ledger-mcp",
+  "owner": { "name": "pg-ledger-mcp maintainers" },
+  "plugins": [{ "name": "pg-ledger-mcp", "source": "./clients/claude", "description": "Host session attestation for ledger MCP tools" }]
+}

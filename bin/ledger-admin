@@ -2,7 +2,7 @@
 # ledger-admin : owner operations that no MCP tool can do. Run as root on the database host.
 #   ledger-admin [--name pg-ledger-mcp] project-add <ID> <CODE> <title>      CODE: ^[A-Z][A-Z0-9_]{0,31}$ (defect ids are CODE-D-0001...)
 #   ledger-admin [--name ...] category-add <code> <name> <definition>       = code-set DEFECT_CATEGORY ...
-#   ledger-admin [--name ...] code-set <group> <code> <name> <description> [--sort <n>] [--inactive]
+#   ledger-admin [--name ...] code-set <group> <code> <name> <description> [--name-en <name>] [--description-en <text>] [--sort <n>] [--inactive]
 #                                                                         add or update a common code (never deleted)
 #   ledger-admin [--name ...] codes [<group>]                             common codes and the columns using them
 #   ledger-admin [--name ...] grant <author-id> <project-id> <scope>... [--expires <timestamptz>] [--note <text>]
@@ -34,25 +34,37 @@ SQL
     if [ "$cmd" = category-add ]; then set -- DEFECT_CATEGORY "$@"; fi
     [ $# -ge 4 ] || usage 2
     group=$1 code=$2 name=$3 desc=$4; shift 4
-    sort=0 active=true
+    name_en=$name desc_en=$desc sort=0 active=true
     while [ $# -gt 0 ]; do
       case "$1" in
+        --name-en) name_en=${2:?}; shift 2 ;;
+        --description-en) desc_en=${2:?}; shift 2 ;;
         --sort) sort=${2:?}; shift 2 ;;
         --inactive) active=false; shift ;;
         *) usage 2 ;;
       esac
     done
-    pg -v grp="$group" -v code="$code" -v name="$name" -v descr="$desc" -v sort="$sort" -v active="$active" <<'SQL'
-INSERT INTO ledger.common_code (code_group, code, name, description, sort_order, active)
-VALUES (:'grp', :'code', :'name', :'descr', :'sort'::int, :'active'::boolean)
-ON CONFLICT (code_group, code) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description,
+    pg -v grp="$group" -v code="$code" -v name="$name" -v descr="$desc" -v name_en="$name_en" -v desc_en="$desc_en" -v sort="$sort" -v active="$active" <<'SQL'
+INSERT INTO ledger.common_code (code_group, code, name_ko, name_en, description_ko, description_en, sort_order, active)
+VALUES (:'grp', :'code', :'name', :'name_en', :'descr', :'desc_en', :'sort'::int, :'active'::boolean)
+ON CONFLICT (code_group, code) DO UPDATE SET name_ko = EXCLUDED.name_ko, name_en = EXCLUDED.name_en,
+  description_ko = EXCLUDED.description_ko, description_en = EXCLUDED.description_en,
   sort_order = EXCLUDED.sort_order, active = EXCLUDED.active
 RETURNING *;
 SQL
+    "$(dirname "$0")/../deploy/render-tools.sh" --name "$NAME"
+    systemctl restart "$NAME.service"
+    port=$(sed -n 's/^PGLEDGER_MCP_PORT=//p' "$ENV_FILE" | tail -n 1)
+    deadline=$((SECONDS + 30))
+    until curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null 2>&1; do
+      [ $SECONDS -lt $deadline ] || { echo "ledger-admin: $NAME healthz timeout after code update" >&2; exit 1; }
+      sleep 1
+    done
     ;;
   codes)
     pg -v grp="${1:-}" <<'SQL'
-SELECT jsonb_pretty(ledger.codes(nullif(:'grp', '')));
+SELECT jsonb_pretty(coalesce(jsonb_agg(to_jsonb(c) ORDER BY code_group,sort_order,code),'[]'))
+  FROM ledger.common_code c WHERE :'grp'='' OR code_group=:'grp';
 SQL
     ;;
   grant)

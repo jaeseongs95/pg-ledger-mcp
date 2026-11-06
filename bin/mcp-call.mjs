@@ -5,7 +5,7 @@
 //   DBHUB_AUTH_TOKEN=... node bin/mcp-call.mjs <url> call <tool> '<json>' print the tool result; exit 1 when it is an error
 import { pathToFileURL } from 'node:url';
 
-export const LEDGER_TOOLS = ['execute_sql_reader', 'search_objects_reader', 'ledger_codes', 'ledger_whoami', 'ledger_save', 'ledger_transition',
+export const LEDGER_TOOLS = ['execute_sql_reader', 'search_objects_reader', 'ledger_whoami', 'ledger_save', 'ledger_transition',
   'ledger_record_fix', 'ledger_record_case', 'ledger_link', 'ledger_correct', 'ledger_batch', 'ledger_review', 'ledger_review_correct'];
 
 export async function connect(url, token) {
@@ -33,6 +33,7 @@ export async function connect(url, token) {
   await request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'pg-ledger-mcp-check', version: '1' } });
   await post({ jsonrpc: '2.0', method: 'notifications/initialized' });
   return {
+    async toolDefinitions() { return (await request('tools/list', {})).tools; },
     async tools() { return (await request('tools/list', {})).tools.map((t) => t.name); },
     // returns { isError, data }: data is the parsed JSON text content when possible
     async call(name, args) {

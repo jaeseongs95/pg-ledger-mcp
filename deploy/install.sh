@@ -74,6 +74,7 @@ esac
 # tables added after schema_v2: each file runs once per database (guarded by its ledger._migration step), existing rows stay
 pg < "$REPO/sql/15_defect_case.sql"
 pg < "$REPO/sql/16_common_code.sql"
+pg < "$REPO/sql/17_created_by.sql"
 pg < "$REPO/sql/20_api.sql"
 echo "functions, views and grants applied"
 
@@ -125,7 +126,7 @@ echo "passwords and bearer token: $ENV_FILE (root only)"
 # each login must be able to log in over TCP with its password (pg_hba must allow 127.0.0.1 with scram-sha-256)
 for pair in "ledger_author:$AUTHOR_PW" "ledger_reviewer:$REVIEWER_PW" "ledger_reader:$READER_PW"; do
   role=${pair%%:*}
-  PGPASSWORD=${pair#*:} psql -X -q -h 127.0.0.1 -p "$PG_PORT" -U "$role" -d "$DB" -tAc "select ledger.whoami(null)->>'session_user'" >/dev/null \
+  PGPASSWORD=${pair#*:} psql -X -q -h 127.0.0.1 -p "$PG_PORT" -U "$role" -d "$DB" -tAc "select session_user" >/dev/null \
     || die "login $role over 127.0.0.1:$PG_PORT failed; allow it in pg_hba.conf (host $DB $role 127.0.0.1/32 scram-sha-256)"
 done
 echo "logins ledger_author, ledger_reviewer, ledger_reader work over TCP"
@@ -144,7 +145,7 @@ fi
 [ -f "$DBHUB_JS" ] || die "DBHub install failed: $DBHUB_JS missing"
 
 id -u "$SVC_USER" >/dev/null 2>&1 || useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin "$SVC_USER"
-install -m 0644 "$REPO/mcp/dbhub.toml" "$ETC/dbhub.toml"
+"$REPO/deploy/render-tools.sh" --name "$NAME"
 sed -e "s#@NAME@#$NAME#g" -e "s#@NODE@#$NODE#g" -e "s#@DBHUB_JS@#$DBHUB_JS#g" -e "s#@ETC@#$ETC#g" -e "s#@USER@#$SVC_USER#g" \
   "$REPO/deploy/pg-ledger-mcp.service" > "/etc/systemd/system/$NAME.service"
 chmod 0644 "/etc/systemd/system/$NAME.service"
