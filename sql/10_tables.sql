@@ -1,6 +1,7 @@
 -- 10_tables.sql : roles, schema "ledger" and its tables. Fresh install only (fails if schema ledger exists).
 -- Run as a superuser in the target database:  psql -v ON_ERROR_STOP=1 -d <db> -f sql/10_tables.sql
--- Then apply sql/20_api.sql (functions, views, grants). deploy/install.sh does both.
+-- Then apply sql/15_defect_case.sql (later tables, also run on existing installs) and sql/20_api.sql (functions, views,
+-- grants). deploy/install.sh does all three.
 --
 -- Accounts are per role, never per vendor or session:
 --   ledger_owner    NOLOGIN  owns every object; session grants are written only through it (run as superuser)

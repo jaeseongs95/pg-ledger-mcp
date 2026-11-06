@@ -356,6 +356,35 @@ BEGIN
                         'author', p_author, 'login', session_user));
 END $f$;
 
+-- record_case (scope 'defect' on the defect's project): add one observed case under a defect. A MERGED defect is refused
+-- with its merge target named, so the cases of one root cause stay on the live defect. The defect row is locked FOR SHARE:
+-- a concurrent transition to MERGED (FOR UPDATE) either commits first, and this call sees MERGED, or waits for it.
+CREATE OR REPLACE FUNCTION ledger.record_case(p_request uuid, p_author text, p_defect text, p_observation text, p_reason text,
+                                   p_evidence text DEFAULT NULL, p_user_quote text DEFAULT NULL, p_observed_at timestamptz DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = ledger, pg_temp AS $f$
+DECLARE prior jsonb; v_status text; v_into text; v_project text; v_case bigint; v_id text; v_hist bigint;
+BEGIN
+  SELECT status, merged_into, project_id INTO v_status, v_into, v_project FROM ledger.defect WHERE id = p_defect FOR SHARE;
+  IF v_status IS NULL THEN RAISE EXCEPTION 'record_case: defect % not found', p_defect USING ERRCODE = '22023'; END IF;
+  PERFORM ledger._begin(p_author, 'defect', v_project);
+  PERFORM ledger._check_reason(p_reason);
+  prior := ledger._reserve(p_request, 'record_case', jsonb_build_object('defect', p_defect, 'observation', p_observation, 'evidence', p_evidence,
+                           'user_quote', p_user_quote, 'observed_at', p_observed_at, 'reason', p_reason), p_author);
+  IF prior IS NOT NULL THEN RETURN prior; END IF;
+  IF v_status = 'MERGED' THEN
+    RAISE EXCEPTION 'MERGED_DEFECT: % was merged into %; record the case on %', p_defect, v_into, v_into USING ERRCODE = '23514';
+  END IF;
+  INSERT INTO ledger.defect_case (defect_id, observation, evidence, user_quote, observed_at, recorded_by, recorded_at)
+  VALUES (p_defect, p_observation, p_evidence, p_user_quote, p_observed_at, p_author, clock_timestamp()) RETURNING id INTO v_case;
+  v_id := p_defect || '|' || v_case;   -- '<defect>|<case>': correct() finds the project from the part before '|'
+  v_hist := ledger._hist(p_author, 'defect_case', v_id, 'CREATE', NULL, NULL,
+              jsonb_build_object('observation', jsonb_build_array(NULL, p_observation), 'evidence', jsonb_build_array(NULL, p_evidence),
+                                 'user_quote', jsonb_build_array(NULL, p_user_quote), 'observed_at', jsonb_build_array(NULL, p_observed_at)),
+              p_reason, NULL, NULL, p_request);
+  RETURN ledger._finish(p_request, jsonb_build_object('status', 'COMMITTED', 'entity', 'defect_case', 'id', v_id, 'case_id', v_case, 'defect', p_defect,
+                        'history_id', v_hist, 'author', p_author, 'login', session_user));
+END $f$;
+
 -- correct: point at a wrong history row with a CORRECT row; the history row itself is never changed.
 -- Scope = the scope that writes the corrected entity ('verify' when the corrected row is a verification).
 CREATE OR REPLACE FUNCTION ledger.correct(p_request uuid, p_author text, p_history_id bigint, p_reason text)
@@ -370,7 +399,7 @@ BEGIN
                                WHEN 'condition' THEN (SELECT project_id FROM ledger.condition WHERE id = h.entity_id)
                                ELSE (SELECT project_id FROM ledger.condition WHERE id = split_part(h.entity_id, '|', 1)) END;
   ELSE
-    v_scope := CASE WHEN h.entity = 'defect_fix' THEN 'fix' ELSE 'defect' END;
+    v_scope := CASE WHEN h.entity = 'defect_fix' THEN 'fix' ELSE 'defect' END;   -- defect, defect_task, defect_relation, defect_case
     v_project := ledger._defect_project(CASE h.entity WHEN 'defect' THEN h.entity_id
                                                       WHEN 'defect_fix' THEN split_part(h.entity_id, '@', 1)
                                                       ELSE split_part(h.entity_id, '|', 1) END);
@@ -385,7 +414,7 @@ BEGIN
 END $f$;
 
 -- batch: up to 200 write operations in one transaction; they all commit or none does. Each operation is an object
--- {"op": save | transition | record_fix | link | correct, <the same arguments as the single function>, "request_id"?}.
+-- {"op": save | transition | record_fix | record_case | link | correct, <the same arguments as the single function>, "request_id"?}.
 -- An operation without request_id gets one derived from the batch request id and its position, so sending the same
 -- batch again with the same request id returns the stored results instead of writing twice. SECURITY INVOKER: every
 -- operation runs through its public function with that function's login, grant, reason and idempotency checks.
@@ -405,15 +434,17 @@ BEGIN
         WHEN 'save' THEN ARRAY['entity','fields','reason']
         WHEN 'transition' THEN ARRAY['entity','id','expected_version','to','reason']
         WHEN 'record_fix' THEN ARRAY['defect_id','repo','commit_sha','reason']
+        WHEN 'record_case' THEN ARRAY['defect_id','observation','reason']
         WHEN 'link' THEN ARRAY['kind','a','b','reason']
         WHEN 'correct' THEN ARRAY['history_id','reason'] END;
       IF required IS NULL THEN
-        RAISE EXCEPTION 'op must be one of save, transition, record_fix, link, correct (got %)', coalesce(v_op, 'NULL') USING ERRCODE = '22023';
+        RAISE EXCEPTION 'op must be one of save, transition, record_fix, record_case, link, correct (got %)', coalesce(v_op, 'NULL') USING ERRCODE = '22023';
       END IF;
       allowed := required || ARRAY['op','request_id'] || CASE v_op
         WHEN 'save' THEN ARRAY['id','expected_version']
         WHEN 'transition' THEN ARRAY['evidence_uri','evidence_sha256','merged_into']
         WHEN 'record_fix' THEN ARRAY['branch','ci_ref','ci_conclusion','ci_completed_at','mark_source_fixed']
+        WHEN 'record_case' THEN ARRAY['evidence','user_quote','observed_at']
         WHEN 'link' THEN ARRAY['remove']
         ELSE '{}'::text[] END;
       SELECT string_agg(k, ',') INTO bad FROM jsonb_object_keys(o) k WHERE k <> ALL (allowed);
@@ -428,6 +459,8 @@ BEGIN
         WHEN 'record_fix' THEN ledger.record_fix(v_req, p_author, o->>'defect_id', o->>'repo', o->>'commit_sha', o->>'reason', o->>'branch',
                                                  o->>'ci_ref', o->>'ci_conclusion', (o->>'ci_completed_at')::timestamptz,
                                                  coalesce((o->>'mark_source_fixed')::boolean, true))
+        WHEN 'record_case' THEN ledger.record_case(v_req, p_author, o->>'defect_id', o->>'observation', o->>'reason', o->>'evidence',
+                                                   o->>'user_quote', (o->>'observed_at')::timestamptz)
         WHEN 'link' THEN ledger.link(v_req, p_author, o->>'kind', o->>'a', o->>'b', o->>'reason', coalesce((o->>'remove')::boolean, false))
         ELSE ledger.correct(v_req, p_author, (o->>'history_id')::bigint, o->>'reason') END;
     EXCEPTION WHEN OTHERS THEN
@@ -460,7 +493,17 @@ SELECT d.id, d.project_id, d.title, d.category, d.severity, d.status, d.merged_i
                  FROM ledger.defect_fix f WHERE f.defect_id = d.id), '[]') AS fixes,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('task', t.id, 'state', t.state, 'owner', t.owner_actor_id) ORDER BY t.id)
                  FROM ledger.defect_task dt JOIN ledger.task t ON t.id = dt.task_id WHERE dt.defect_id = d.id), '[]') AS tasks,
-       COALESCE((SELECT jsonb_agg(cl.condition_id ORDER BY cl.condition_id) FROM ledger.condition_link cl WHERE cl.defect_id = d.id), '[]') AS conditions
+       COALESCE((SELECT jsonb_agg(cl.condition_id ORDER BY cl.condition_id) FROM ledger.condition_link cl WHERE cl.defect_id = d.id), '[]') AS conditions,
+       -- cases of this defect and of every defect merged into it (also through chains of merges). A merged defect's own
+       -- behavior is listed as a case with source 'merged_behavior', so merging needs no copying of text.
+       COALESCE((WITH RECURSIVE src(id) AS (SELECT d.id UNION SELECT m.id FROM ledger.defect m JOIN src ON m.merged_into = src.id)
+                 SELECT jsonb_agg(jsonb_strip_nulls(to_jsonb(c)) ORDER BY coalesce(c.observed_at, c.at), c.case_id NULLS FIRST, c.defect)
+                 FROM (SELECT 'case' AS source, k.defect_id AS defect, k.id AS case_id, k.observation, k.evidence, k.user_quote, k.observed_at,
+                              k.recorded_by AS by, k.recorded_at AS at
+                         FROM ledger.defect_case k JOIN src ON src.id = k.defect_id
+                       UNION ALL
+                       SELECT 'merged_behavior', m.id, NULL, m.behavior, NULL, NULL, NULL, NULL, m.created_at
+                         FROM ledger.defect m JOIN src ON src.id = m.id WHERE m.id <> d.id) c), '[]') AS cases
 FROM ledger.defect d
 LEFT JOIN LATERAL (SELECT x.* FROM ledger.history x WHERE x.entity = 'defect' AND x.entity_id = d.id AND x.op <> 'IMPORT'
                    ORDER BY x.at DESC, x.id DESC LIMIT 1) h ON true;
@@ -486,12 +529,13 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA ledger FROM PUBLIC;
 GRANT USAGE ON SCHEMA ledger TO ledger_author, ledger_reviewer, ledger_reader;
 GRANT EXECUTE ON FUNCTION ledger.save(uuid,text,text,text,int,jsonb,text),
                           ledger.record_fix(uuid,text,text,text,text,text,text,text,text,timestamptz,boolean),
+                          ledger.record_case(uuid,text,text,text,text,text,text,timestamptz),
                           ledger.link(uuid,text,text,text,text,text,boolean),
                           ledger.batch(uuid,text,jsonb) TO ledger_author;
 GRANT EXECUTE ON FUNCTION ledger.transition(uuid,text,text,text,int,text,text,text,text,text),
                           ledger.correct(uuid,text,bigint,text) TO ledger_author, ledger_reviewer;
 GRANT EXECUTE ON FUNCTION ledger.whoami(text), ledger._sid(text), ledger._author_ok(text) TO ledger_author, ledger_reviewer, ledger_reader;
-GRANT SELECT ON ledger.project, ledger.category, ledger.task, ledger.defect, ledger.defect_fix, ledger.defect_task,
+GRANT SELECT ON ledger.project, ledger.category, ledger.task, ledger.defect, ledger.defect_fix, ledger.defect_case, ledger.defect_task,
                 ledger.defect_relation, ledger.condition, ledger.condition_link, ledger.session_grant, ledger.history, ledger.request_receipt,
                 ledger.v_defect, ledger.v_history, ledger.v_attention TO ledger_author, ledger_reviewer, ledger_reader;
 INSERT INTO ledger._migration (step, detail) VALUES ('api', jsonb_build_object('by', session_user))

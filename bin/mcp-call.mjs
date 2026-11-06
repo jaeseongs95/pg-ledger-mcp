@@ -6,7 +6,7 @@
 import { pathToFileURL } from 'node:url';
 
 export const LEDGER_TOOLS = ['execute_sql_reader', 'search_objects_reader', 'ledger_whoami', 'ledger_save', 'ledger_transition',
-  'ledger_record_fix', 'ledger_link', 'ledger_correct', 'ledger_batch', 'ledger_review', 'ledger_review_correct'];
+  'ledger_record_fix', 'ledger_record_case', 'ledger_link', 'ledger_correct', 'ledger_batch', 'ledger_review', 'ledger_review_correct'];
 
 export async function connect(url, token) {
   let sessionId;

@@ -4,7 +4,8 @@
 #
 # Three sources, one per role login. Callers never pick a login: each tool is bound to the login it needs.
 #   reader   -> execute_sql_reader / search_objects_reader (read only, SELECT on the ledger views and tables)
-#   author   -> ledger_whoami, ledger_save, ledger_transition, ledger_record_fix, ledger_link, ledger_correct, ledger_batch
+#   author   -> ledger_whoami, ledger_save, ledger_transition, ledger_record_fix, ledger_record_case, ledger_link, ledger_correct,
+#               ledger_batch
 #   reviewer -> ledger_review, ledger_review_correct (the only path that can record VERIFIED / MET / NOT_MET)
 # Every write tool takes author_id = '<vendor>:<session-id>' (e.g. claude:1234abcd) or 'user:owner'. The database
 # accepts it only when ledger.session_grant holds a live grant for that author, the row's project and the scope.
@@ -205,6 +206,50 @@ default = true
 description = "Move an OPEN defect to SOURCE_FIXED"
 
 [[tools]]
+name = "ledger_record_case"
+source = "author"
+description = """Add one observed case (symptom, log, user report) under a defect. One defect is one root cause; its cases are listed in
+ledger.v_defect.cases together with the cases of the defects merged into it. A MERGED defect is refused: the error names the
+defect it was merged into, record the case there. Needs scope defect."""
+statement = "SELECT ledger.record_case(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::text, $6::text, $7::text, $8::timestamptz) AS result"
+[[tools.parameters]]
+name = "request_id"
+type = "string"
+required = false
+description = "UUID that makes a retry safe; omitted = new id"
+[[tools.parameters]]
+name = "author_id"
+type = "string"
+description = "'<vendor>:<session-id>' or 'user:owner'"
+[[tools.parameters]]
+name = "defect_id"
+type = "string"
+description = "Defect id (not a MERGED one)"
+[[tools.parameters]]
+name = "observation"
+type = "string"
+description = "What was observed, 1..4000 characters"
+[[tools.parameters]]
+name = "reason"
+type = "string"
+description = "Why it is recorded, 10..1000 characters"
+[[tools.parameters]]
+name = "evidence"
+type = "string"
+required = false
+description = "Where it can be checked: request id, file:line, log location, run URL (up to 2000 characters)"
+[[tools.parameters]]
+name = "user_quote"
+type = "string"
+required = false
+description = "The user's own words, verbatim (up to 2000 characters)"
+[[tools.parameters]]
+name = "observed_at"
+type = "string"
+required = false
+description = "When it was observed, ISO 8601; omitted = not known"
+
+[[tools]]
 name = "ledger_link"
 source = "author"
 description = """Add (or with remove = true, remove) a link. defect_task: a = defect, b = task.
@@ -270,9 +315,10 @@ description = "What was wrong, 10..1000 characters"
 name = "ledger_batch"
 source = "author"
 description = """Run up to 200 write operations in one transaction: all of them commit or none does, and an error names the failing operation.
-ops is a JSON array of objects {"op": "save" | "transition" | "record_fix" | "link" | "correct", ...} with the arguments of the single tool:
+ops is a JSON array of objects {"op": "save" | "transition" | "record_fix" | "record_case" | "link" | "correct", ...} with the arguments of the single tool:
 save: entity, id, expected_version (default 0), fields (JSON object), reason. transition: entity, id, expected_version, to, reason, evidence_uri, evidence_sha256, merged_into.
-record_fix: defect_id, repo, commit_sha, reason, branch, ci_ref, ci_conclusion, ci_completed_at, mark_source_fixed. link: kind, a, b, reason, remove. correct: history_id, reason.
+record_fix: defect_id, repo, commit_sha, reason, branch, ci_ref, ci_conclusion, ci_completed_at, mark_source_fixed.
+record_case: defect_id, observation, reason, evidence, user_quote, observed_at. link: kind, a, b, reason, remove. correct: history_id, reason.
 Each op may carry its own request_id; otherwise one is derived from the batch request_id and the op's position, so sending the same batch again
 with the same request_id returns the stored results. Grants, login rules (no VERIFIED here) and checks are those of the single tools."""
 statement = "SELECT ledger.batch(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::jsonb) AS result"

@@ -71,6 +71,8 @@ case "$state" in
   foreign)
     die "schema ledger exists in $DB but was not created by this project (no ledger._migration step schema_v2); refusing to touch it" ;;
 esac
+# tables added after schema_v2: each file runs once per database (guarded by its ledger._migration step), existing rows stay
+pg < "$REPO/sql/15_defect_case.sql"
 pg < "$REPO/sql/20_api.sql"
 echo "functions, views and grants applied"
 
