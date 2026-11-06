@@ -11,12 +11,17 @@ function run(input) {
   return { status: r.status, stderr: r.stderr, output: r.stdout ? JSON.parse(r.stdout) : null };
 }
 for (const name of ['save','transition','record_fix','record_case','link','correct','batch','review','review_correct','whoami']) {
-  test(`${name}: preserve fields, use host parent id, remove legacy author without auto approval`, () => {
+  test(`${name}: preserve legacy connector fields, use host parent id without auto approval`, () => {
     const r = run(event(name, { author_id: 'model:forged', request_id: 'kept', fields: '{"title":"kept"}' }));
     assert.equal(r.status,0);
-    assert.deepEqual(r.output,{ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { request_id: 'kept', fields: '{"title":"kept"}', _hostAttestation: 'claude:parent-123' } } });
+    assert.deepEqual(r.output,{ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { author_id: 'model:forged', request_id: 'kept', fields: '{"title":"kept"}', _hostAttestation: 'claude:parent-123' } } });
   });
 }
+test('current schemas do not gain an absent legacy author', () => {
+  const r = run(event('whoami'));
+  assert.equal(Object.hasOwn(r.output.hookSpecificOutput.updatedInput, 'author_id'),false);
+  assert.equal(r.output.hookSpecificOutput.updatedInput._hostAttestation,'claude:parent-123');
+});
 test('reserved field is denied even for null or the expected value', () => {
   for (const value of [null,'claude:parent-123','forged']) {
     assert.equal(run(event('whoami',{ _hostAttestation: value })).output.hookSpecificOutput.permissionDecision,'deny');

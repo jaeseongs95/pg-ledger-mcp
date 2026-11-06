@@ -10,9 +10,9 @@ export function attest(event) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return deny('ledger: tool_input must be an object');
   if (Object.hasOwn(input, '_hostAttestation')) return deny('ledger: _hostAttestation is reserved for the host hook; omit it');
   if (typeof event.session_id !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(event.session_id)) return deny('ledger: host session_id is missing or invalid');
-  const { author_id: ignoredLegacyAuthor, ...rest } = input;
+  // Retain legacy fields for cached connectors; the server ignores author_id.
   // Omit permissionDecision to retain the host permission policy; do not auto-approve.
-  return { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { ...rest, _hostAttestation: `claude:${event.session_id}` } } };
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { ...input, _hostAttestation: `claude:${event.session_id}` } } };
 }
 
 try {

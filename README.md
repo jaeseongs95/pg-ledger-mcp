@@ -130,7 +130,7 @@ For a checkout, add its absolute repository path as the marketplace instead. For
 claude --plugin-dir /absolute/path/to/pg-ledger-mcp/clients/claude
 ```
 
-The Claude plugin matches the ten ledger tools, rejects any model-supplied `_hostAttestation`, removes legacy `author_id`,
+The Claude plugin matches the ten ledger tools, rejects any model-supplied `_hostAttestation`, preserves legacy `author_id` for cached connector schemas,
 then returns the full `updatedInput` with `claude:<session_id>`. Missing/invalid host ids are refused. It reads only hook stdin.
 It omits `permissionDecision`, retaining Claude's permission policy. In auto mode Claude may deny a rewritten call;
 setting `allow` would skip permission prompts and is deliberately not part of this plugin.
@@ -140,8 +140,9 @@ Codex: load the [Codex plugin](clients/codex/README.md) through the host's plugi
 `<repo>/.codex/hooks.json`, set the script's absolute path and review/trust it with `/hooks`.
 Antigravity: load the [Antigravity plugin](clients/antigravity/README.md), or merge its named group into
 `<workspace>/.agents/hooks.json` with the script's absolute path. These are project configuration alternatives; preserve existing hooks.
-Codex uses host `session_id`; Antigravity uses `conversationId`. Antigravity shallow-merges `overwrite`, so a legacy `author_id`
-may remain but must not influence the server. No child-specific identity, permission or blocking layer is added.
+Codex and Claude use host `session_id`; Antigravity uses `conversationId`. All three preserve an existing legacy `author_id`
+for cached schemas, without adding an absent value. Only the host `_hostAttestation` determines the author on the server;
+the legacy field has no authority. No child-specific identity, permission or blocking layer is added.
 
 These packages need real host calls against TEST before production rollout. Native callback delivery, parent-id behavior,
 Windows command execution and the portal's `updated_tools` refresh are separate acceptance evidence. Installation/global hook
