@@ -2,7 +2,7 @@
 //   DBHUB_AUTH_TOKEN=... node tests/e2e.mjs <mcp-url> <project-id> <project-code>
 // Expects (tests/e2e.sh sets this up): project <project-id>/<project-code>, category 'BUG', and grants
 //   claude:e2e-author   defect, task, fix, verify   (verify only to prove the same-session rule)
-//   codex:e2e-reviewer  verify
+//   codex:e2e-reviewer  fix, verify
 // and no grant at all for gemini:e2e-nogrant.
 import { randomUUID } from 'node:crypto';
 import { connect, LEDGER_TOOLS } from '../bin/mcp-call.mjs';
@@ -57,6 +57,9 @@ await ok('whoami lists the grants', 'ledger_whoami', { _hostAttestation: AUTHOR 
 // Common codes are carried in real tools/list descriptions and allowed_values.
 const definitions = await mcp.toolDefinitions();
 const definition = (name) => definitions.find(t => t.name === name);
+check('V1 reviewer instructions describe direct execution and optional CI',
+  definition('ledger_review').description.includes('CI is optional metadata')
+  && definition('ledger_review').description.includes('reviewer runs the actual program'),definition('ledger_review'));
 check('K1 ledger_codes is removed',!names.includes('ledger_codes'),names);
 const codes = await sql('SELECT code_group,code,name_ko,name_en,description_ko,description_en,active FROM ledger.common_code ORDER BY code_group,sort_order,code');
 check('K1 only the three extensible groups exist',JSON.stringify([...new Set(codes.map(c => c.code_group))].sort()) ===
@@ -108,12 +111,12 @@ await refused('K7 an unknown link kind is refused, naming the relation kinds', '
 await refused('K8 an unknown CI conclusion is refused', 'ledger_record_fix', { _hostAttestation: AUTHOR, defect_id: `${code}-D-0002`, repo: 'example/repo', commit_sha: SHA, reason,
   ci_ref: 'https://ci.example/run/9', ci_conclusion: 'passed' }, 'ci_conclusion: Invalid option: expected one of');
 await refused('SOURCE_FIXED without a fix is refused', 'ledger_transition', { _hostAttestation: AUTHOR, entity: 'defect', id: `${code}-D-0002`, expected_version: 1, to: 'SOURCE_FIXED', reason }, 'needs a recorded fix');
-await ok('record_fix moves OPEN to SOURCE_FIXED', 'ledger_record_fix', { _hostAttestation: AUTHOR, defect_id: `${code}-D-0001`, repo: 'example/repo', commit_sha: SHA, reason,
-  ci_ref: 'https://ci.example/run/1', ci_conclusion: 'success', ci_completed_at: new Date().toISOString() }, (x) => x.defect_status === 'SOURCE_FIXED' && x.version === 3);
+await ok('V1 record_fix without CI moves OPEN to SOURCE_FIXED', 'ledger_record_fix', { _hostAttestation: AUTHOR, defect_id: `${code}-D-0001`, repo: 'example/repo', commit_sha: SHA, reason }, (x) => x.defect_status === 'SOURCE_FIXED' && x.version === 3);
+await refused('V3 verification without CI still needs evidence', 'ledger_review', { _hostAttestation: REVIEWER, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason }, 'VERIFIED needs evidence_uri');
 await refused('the author tool cannot set VERIFIED', 'ledger_transition', { _hostAttestation: AUTHOR, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, 'to: Invalid option: expected one of');
 await refused('the fixing session cannot verify its own fix', 'ledger_review', { _hostAttestation: AUTHOR, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, 'SAME_SESSION');
 await refused('verify needs a verify grant', 'ledger_review', { _hostAttestation: NOGRANT, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, 'SESSION_NOT_GRANTED');
-await ok('another session verifies through the reviewer login', 'ledger_review', { _hostAttestation: REVIEWER, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, (x) => x.to === 'VERIFIED' && x.login === 'ledger_reviewer');
+await ok('V1 another session verifies without CI through the reviewer login', 'ledger_review', { _hostAttestation: REVIEWER, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://example.test/direct-program-execution' }, (x) => x.to === 'VERIFIED' && x.login === 'ledger_reviewer');
 
 // links and corrections
 await ok('link two defects', 'ledger_link', { _hostAttestation: AUTHOR, kind: 'same_family', a: `${code}-D-0002`, b: `${code}-D-0001`, reason }, (x) => x.id === `${code}-D-0001|${code}-D-0002|same_family`);
@@ -233,6 +236,25 @@ const w = await mcp.call('execute_sql_reader', { sql: `UPDATE ledger.defect SET 
 check('reader cannot write', w.isError, w.data);
 const h = await mcp.call('execute_sql_reader', { sql: 'SELECT ledger.grant_session(\'claude:x\', \'x\', \'defect\')' });
 check('reader cannot grant', h.isError, h.data);
+
+// CI is optional metadata. Keep the independent-session rule over every recorded fix.
+for (const mode of ['failure','mixed']) {
+  const created = await ok(`V2/V5 create ${mode} verification fixture`,'ledger_save',
+    { _hostAttestation: AUTHOR,entity: 'defect',expected_version: 0,fields: defect(`CI optional ${mode}`),reason });
+  const id = result(created)?.id;
+  await ok(`V2/V5 record ${mode} CI metadata`,'ledger_record_fix',
+    { _hostAttestation: AUTHOR,defect_id: id,repo: 'example/repo',commit_sha: SHA,reason,
+      ci_ref: 'https://ci.example/optional',ci_conclusion: mode === 'failure' ? 'failure' : 'success' });
+  if (mode === 'mixed') await ok('V5 record other-session fix without CI','ledger_record_fix',
+    { _hostAttestation: REVIEWER,defect_id: id,repo: 'example/repo',commit_sha: 'b'.repeat(40),reason });
+  await ok(`V2/V5 verify ${mode} independently of CI`,'ledger_review',
+    { _hostAttestation: mode === 'mixed' ? AUTHOR : REVIEWER,entity: 'defect',id,expected_version: 2,to: 'VERIFIED',reason,
+      evidence_uri: 'https://example.test/direct-program-execution' },x => x.to === 'VERIFIED' && x.login === 'ledger_reviewer');
+  const [metadata] = await sql(`SELECT ci_conclusion FROM ledger.defect_fix WHERE defect_id='${id}' AND commit_sha='${SHA}'`);
+  check(`V2/V5 ${mode} CI metadata is retained`,metadata?.ci_conclusion === (mode === 'failure' ? 'failure' : 'success'),metadata);
+}
+const attention = await sql(`SELECT kind FROM ledger.v_attention WHERE project_id='${project}' AND kind='VERIFIED_WITHOUT_CI'`);
+check('V1 verified rows without CI do not produce a warning',attention.length === 0,attention);
 
 console.log(failed ? `${failed} check(s) FAILED` : 'ALL PASSED');
 process.exit(failed ? 1 : 0);

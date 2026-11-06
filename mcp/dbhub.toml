@@ -204,7 +204,7 @@ name = "ci_conclusion"
 type = "string"
 required = false
 allowed_values = ["success", "failure", "cancelled"]
-description = "CI result"
+description = "Optional CI result metadata; not a verification requirement"
 [[tools.parameters]]
 name = "ci_completed_at"
 type = "string"
@@ -357,8 +357,9 @@ description = "JSON array of 1..200 operation objects"
 [[tools]]
 name = "ledger_review"
 source = "reviewer"
-description = """Reviewer transition. Defect SOURCE_FIXED -> VERIFIED needs evidence_uri, a fix with CI success, and a session other than the one
-that recorded the fix. Task REPORTED_DONE -> VERIFIED needs evidence_uri and a session other than the owner and the reporter.
+description = """Reviewer transition. Defect SOURCE_FIXED -> VERIFIED needs evidence_uri and at least one recorded fix from another session; CI is optional metadata.
+The developer provides the source SHA, original failure reproduction and direct execution steps; the reviewer runs the actual program.
+Task REPORTED_DONE -> VERIFIED needs evidence_uri and a session other than the owner and the reporter.
 Condition -> MET / NOT_MET needs evidence_uri. Also reopens VERIFIED rows (evidence_uri required). Needs scope verify."""
 statement = "SELECT ledger.transition(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::int, $6::text, $7::text, $8::text, $9::text, NULL::text) AS result"
 [[tools.parameters]]

@@ -15,7 +15,8 @@ Agents read and write through MCP tools. They never get a database login of thei
   The scopes are `defect`, `task`, `fix` and `verify`. Writes without a matching grant are refused.
 - **Verification is separate.** `VERIFIED`, `MET` and `NOT_MET` can only be set through the reviewer login.
   A fix must be verified by a session other than the one that recorded it.
-  `VERIFIED` also needs an evidence link and a fix whose CI concluded `success`.
+  `VERIFIED` needs an evidence link and at least one recorded fix from another session. CI results are optional metadata.
+  The developer supplies the source SHA, original failure reproduction and direct execution steps; the reviewer runs the actual program.
 - **History is append-only.** Every write adds a `ledger.history` row: when, author, login, operation, state change and reason.
   Mistakes are marked with a `CORRECT` row. Triggers refuse `UPDATE`, `DELETE` and `TRUNCATE` on history, even for the owner.
 - **Retries are safe.** Pass `request_id`, a UUID. Repeating the same request returns the stored result and does not write twice.
@@ -47,7 +48,7 @@ The MCP layer is a thin configuration of [DBHub](https://github.com/bytebase/dbh
 | `ledger_whoami` | author | is this author id well formed, which grants does it hold |
 | `ledger_save` | author | create or edit a defect, task or condition |
 | `ledger_transition` | author | change state (OPEN, SOURCE_FIXED, MERGED, ACTIVE, REPORTED_DONE, …) |
-| `ledger_record_fix` | author | record a fix commit and its CI result; OPEN → SOURCE_FIXED |
+| `ledger_record_fix` | author | record a fix commit and optional CI metadata; OPEN → SOURCE_FIXED |
 | `ledger_record_case` | author | add an observed case under a defect (refused on a MERGED defect, naming its target) |
 | `ledger_link` | author | link defects, tasks and conditions |
 | `ledger_correct` | author | mark a history row as wrong |
@@ -56,7 +57,7 @@ The MCP layer is a thin configuration of [DBHub](https://github.com/bytebase/dbh
 | `ledger_review_correct` | reviewer | mark a verification row as wrong |
 
 Useful views: `ledger.v_defect` (state, fixes, tasks, cases, last change), `ledger.v_history`, `ledger.v_attention`
-(rows that need a look, such as an OPEN defect that already has a fix or a VERIFIED defect without CI).
+(rows that need a look, such as an OPEN defect that already has a fix or a fixed defect without a recorded commit).
 
 `ledger_record_case` takes `defect_id`, `observation` (1..4000 characters) and `reason`, and optionally `evidence`
 (request id, `file:line`, log location), `user_quote` (verbatim) and `observed_at` (ISO 8601; omitted = not known).

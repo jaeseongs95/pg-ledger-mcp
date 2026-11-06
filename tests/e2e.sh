@@ -202,7 +202,7 @@ admin category-add BUG "결함" "명세와 다른 동작" --name-en 'Bug "quoted
 admin code-set RELATION_KIND test_relation "시험 관계" "동적 관계 코드" --name-en "Test relation" --description-en "Dynamically rendered relation" --sort 6
 admin code-set DEFECT_CATEGORY RETIRED "이전 분류" "비활성" --inactive
 admin grant claude:e2e-author "$PROJECT" defect task fix verify --note "e2e"
-admin grant codex:e2e-reviewer "$PROJECT" verify --note "e2e"
+admin grant codex:e2e-reviewer "$PROJECT" fix verify --note "e2e"
 
 TOKEN=$(sed -n 's/^DBHUB_AUTH_TOKEN=//p' "/etc/$NAME/env")
 URL=http://127.0.0.1:$MCP_PORT/mcp
@@ -250,6 +250,14 @@ expect_error() {  # <name> <login> <needle> <sql>
 }
 expect_error 'author login cannot verify even with a verify grant' ledger_author VERIFY_NEEDS_REVIEWER_LOGIN \
   "select ledger.transition(gen_random_uuid(), 'claude:e2e-author', 'defect', '$CODE-D-0002', 1, 'VERIFIED', 'e2e: direct verify attempt', 'https://ci.example/run/1')"
+# A transaction-local owner fixture reaches the legacy inconsistent state; rejection rolls it back too.
+if out=$(pgsu -d "$DB" -c "BEGIN; UPDATE ledger.defect SET status='SOURCE_FIXED' WHERE id='$CODE-D-0002';
+  SET SESSION AUTHORIZATION ledger_reviewer;
+  SELECT ledger.transition(gen_random_uuid(),'codex:e2e-reviewer','defect','$CODE-D-0002',1,'VERIFIED',
+    'e2e: no recorded fix remains forbidden','https://example.test/direct-program-execution');" 2>&1); then
+  echo 'FAIL  V4 VERIFIED without a recorded fix succeeded'; fail=1
+elif grep -q 'VERIFIED needs a recorded fix commit' <<<"$out"; then echo 'PASS  V4 VERIFIED still needs a recorded fix'
+else echo "FAIL  V4 wrong error: $out"; fail=1; fi
 expect_error 'author login cannot write tables directly' ledger_author 'permission denied' \
   "update ledger.defect set title = 'x' where id = '$CODE-D-0002'"
 expect_error 'author login cannot add cases directly' ledger_author 'permission denied' \
@@ -285,7 +293,7 @@ pass_if 'reapply preserves creators' "$(pgsu -d "$DB" -tAc "select string_agg(id
 pass_if 'created_by migration is recorded once' "$(pgsu -d "$DB" -tAc "select count(*) from ledger._migration where step='created_by'")" 1
 [ "$(sed -n 's/^DBHUB_AUTH_TOKEN=//p' "/etc/$NAME/env")" = "$TOKEN" ] && echo "PASS  token kept" || { echo "FAIL  token changed"; fail=1; }
 n=$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect where project_id = '$PROJECT'")
-[ "$n" = 5 ] && echo "PASS  data kept ($n defects)" || { echo "FAIL  defects after re-install: $n"; fail=1; }
+[ "$n" = 7 ] && echo "PASS  data kept ($n defects)" || { echo "FAIL  defects after re-install: $n"; fail=1; }
 pass_if 'cases kept by the re-install' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect_case" 2>&1 || true)" "$cases"
 [ "$cases" -gt 0 ] 2>/dev/null && echo "PASS  cases recorded ($cases)" || { echo "FAIL  no cases recorded ($cases)"; fail=1; }
 ls /var/backups/$NAME/ledger-*.dump >/dev/null && echo "PASS  backup taken before re-apply" || { echo "FAIL  no backup"; fail=1; }

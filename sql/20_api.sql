@@ -290,10 +290,10 @@ BEGIN
     IF p_to = 'VERIFIED' THEN
       IF v_from <> 'SOURCE_FIXED' THEN RAISE EXCEPTION 'VERIFIED only from SOURCE_FIXED (now %)', v_from USING ERRCODE = '23514'; END IF;
       IF p_evidence_uri IS NULL THEN RAISE EXCEPTION 'VERIFIED needs evidence_uri' USING ERRCODE = '23514'; END IF;
-      IF NOT EXISTS (SELECT 1 FROM ledger.defect_fix WHERE defect_id = p_id AND ci_conclusion = 'success') THEN
-        RAISE EXCEPTION 'VERIFIED needs a fix with CI conclusion success' USING ERRCODE = '23514';
+      IF NOT EXISTS (SELECT 1 FROM ledger.defect_fix WHERE defect_id = p_id) THEN
+        RAISE EXCEPTION 'VERIFIED needs a recorded fix commit' USING ERRCODE = '23514';
       END IF;
-      IF NOT EXISTS (SELECT 1 FROM ledger.defect_fix WHERE defect_id = p_id AND ci_conclusion = 'success' AND ledger._sid(recorded_by) <> ledger._sid(p_author)) THEN
+      IF NOT EXISTS (SELECT 1 FROM ledger.defect_fix WHERE defect_id = p_id AND ledger._sid(recorded_by) <> ledger._sid(p_author)) THEN
         RAISE EXCEPTION 'SAME_SESSION: the reviewing session must differ from the session that recorded the fix' USING ERRCODE = '23514';
       END IF;
     END IF;
@@ -593,7 +593,6 @@ FROM ledger.history h;
 
 CREATE VIEW ledger.v_attention AS
 SELECT 'OPEN_WITH_FIX'::text AS kind, d.id, d.project_id FROM ledger.defect d WHERE d.status = 'OPEN' AND EXISTS (SELECT 1 FROM ledger.defect_fix f WHERE f.defect_id = d.id)
-UNION ALL SELECT 'VERIFIED_WITHOUT_CI', d.id, d.project_id FROM ledger.defect d WHERE d.status = 'VERIFIED' AND NOT EXISTS (SELECT 1 FROM ledger.defect_fix f WHERE f.defect_id = d.id AND f.ci_conclusion = 'success')
 UNION ALL SELECT 'FIXED_WITHOUT_COMMIT', d.id, d.project_id FROM ledger.defect d WHERE d.status IN ('SOURCE_FIXED','VERIFIED') AND NOT EXISTS (SELECT 1 FROM ledger.defect_fix f WHERE f.defect_id = d.id)
 UNION ALL SELECT 'OPEN_NO_OWNER', d.id, d.project_id FROM ledger.defect d WHERE d.status = 'OPEN' AND d.owner_actor_id IS NULL
 UNION ALL SELECT 'TASK_UNKNOWN', t.id, t.project_id FROM ledger.task t WHERE t.state = 'UNKNOWN'
