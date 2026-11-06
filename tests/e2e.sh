@@ -80,9 +80,15 @@ else
       'category', 'OLDBUG', 'severity', 'UNRATED', 'behavior', 'old unrated behaviour', 'root_cause', 'old cause'), 'e2e: seed an unrated defect');"
   login_sql ledger_author "$seed" >/dev/null
   pass_if 'production baseline has defect_case' "$(pgsu -d "$DB" -tAc "select to_regclass('ledger.defect_case') is not null")" t
-  for c in ARC CON DAT DENY DIAG DOC EXC GATE HOST PKG RES SEC TST VND; do
-    old_admin category-add "$c" "기존 이름 $c" "기존 정의 $c"
-  done
+  # Clean canonical category text supplied by the parent; all writes still use the old checkout admin.
+  node --input-type=module - "$OLD" "$REPO/tests/category-legacy-fixture.json" "$NAME" <<'JS'
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+for (const c of JSON.parse(readFileSync(process.argv[3],'utf8'))) {
+  const r = spawnSync(`${process.argv[2]}/bin/ledger-admin`,['--name',process.argv[4],'category-add',c.code,c.name,c.definition],{ encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`old category seed failed: ${c.code}: ${r.stderr}`);
+}
+JS
   login_sql ledger_author "SELECT ledger.save(gen_random_uuid(),'claude:e2e-seed','task','OLD-T-1',0,
     '{\"project_id\":\"old\",\"title\":\"Old task\",\"purpose\":\"preserve\",\"success_condition\":\"same row\"}', 'e2e: old task provenance');
     SELECT ledger.save(gen_random_uuid(),'claude:e2e-seed','condition','OLD-C-1',0,
@@ -118,6 +124,8 @@ else
   pass_if 'upgrade records step common_code' "$(pgsu -d "$DB" -tAc "select count(*) from ledger._migration where step = 'common_code'")" 1
   pass_if 'upgrade moves the categories into common_code unchanged' "$(categories)" "$cats_before"
   pass_if 'known categories have English translations' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.common_code where code_group='DEFECT_CATEGORY' and code <> 'OLDBUG' and name_en <> name_ko and description_en <> description_ko")" 14
+  pass_if 'CON translation preserves concurrency and atomicity' "$(pgsu -d "$DB" -tAc "select name_en from ledger.common_code where code_group='DEFECT_CATEGORY' and code='CON'")" 'Concurrency and atomicity'
+  pass_if 'EXC translation preserves error cause suppression or substitution' "$(pgsu -d "$DB" -tAc "select name_en from ledger.common_code where code_group='DEFECT_CATEGORY' and code='EXC'")" 'Error cause suppression or substitution'
   pass_if 'unknown categories use the original text as English fallback' "$(pgsu -d "$DB" -tAc "select name_en=name_ko and description_en=description_ko from ledger.common_code where code_group='DEFECT_CATEGORY' and code='OLDBUG'")" t
   pass_if 'history backfills entity and link creators' "$(pgsu -d "$DB" -tAc "select count(*) from (select created_by from ledger.defect union all select created_by from ledger.task where id='OLD-T-1' union all select created_by from ledger.condition union all select created_by from ledger.defect_task union all select created_by from ledger.defect_relation union all select created_by from ledger.condition_link) x where created_by='claude:e2e-seed'")" 8
   pass_if 'missing legacy history is marked unknown' "$(pgsu -d "$DB" -tAc "select created_by from ledger.task where id='OLD-T-UNKNOWN'")" unknown:legacy

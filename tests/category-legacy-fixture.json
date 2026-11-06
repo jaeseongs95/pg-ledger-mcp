@@ -1,0 +1,72 @@
+[
+  {
+    "code": "ARC",
+    "name": "구조·의존 방향",
+    "definition": "core가 바깥 계층에 의존하거나 계약이 구체 구현에 묶인다(SOLID)."
+  },
+  {
+    "code": "CON",
+    "name": "동시성·원자성",
+    "definition": "경합·재시도·잠금·lease 때문에 잘못된 상태가 된다."
+  },
+  {
+    "code": "DAT",
+    "name": "데이터 손실·복구",
+    "definition": "데이터·백업이 사라지거나 복구 자료가 남지 않는다."
+  },
+  {
+    "code": "DENY",
+    "name": "거짓 거부·과잉 차단",
+    "definition": "정당한 입력·호출·상태를 막거나 실패로 판정해 정상 동작이 멈춘다(GATE와 반대 방향)."
+  },
+  {
+    "code": "DIAG",
+    "name": "진단 오류",
+    "definition": "원인과 다른 안내·고정 문구·잘못된 상태 표시."
+  },
+  {
+    "code": "DOC",
+    "name": "문서·계약 모순",
+    "definition": "문서·스키마·설명이 실제 동작과 다르다."
+  },
+  {
+    "code": "EXC",
+    "name": "원인 소거·치환",
+    "definition": "예외를 삼키거나 다른 원인·코드로 바꿔 호출자가 실제 원인을 알 수 없게 된다."
+  },
+  {
+    "code": "GATE",
+    "name": "판정 우회·거짓 PASS",
+    "definition": "검증·게이트·하한이 실제 조건 없이 통과한다."
+  },
+  {
+    "code": "HOST",
+    "name": "host 확장성",
+    "definition": "새 host·다른 host에서 동작이 빠지거나 다른 host 경로로 처리된다."
+  },
+  {
+    "code": "PKG",
+    "name": "빌드·배포 산출물",
+    "definition": "배포물·dist·패키지 구성이 소스와 다르거나 빠진다."
+  },
+  {
+    "code": "RES",
+    "name": "자원 상한",
+    "definition": "작업량·크기·시간 상한이 없거나 실제 상한이 아니다."
+  },
+  {
+    "code": "SEC",
+    "name": "권한·신뢰 경계",
+    "definition": "권한 확인·신원·경로 경계가 우회되거나 신뢰하면 안 되는 값을 신뢰한다."
+  },
+  {
+    "code": "TST",
+    "name": "시험 공백·헛통과",
+    "definition": "시험이 결함을 잡지 못하거나 결함을 정답으로 고정한다."
+  },
+  {
+    "code": "VND",
+    "name": "벤더·모델 이름 결합",
+    "definition": "벤더·모델·host 이름의 사전 등록이나 리터럴에 동작이 묶인다(SOLID O·D)."
+  }
+]

@@ -35,20 +35,20 @@ BEGIN
   INSERT INTO ledger.common_code (code_group,code,name_ko,name_en,description_ko,description_en)
   SELECT 'DEFECT_CATEGORY',c.code,c.name,coalesce(e.name,c.name),c.definition,coalesce(e.description,c.definition)
   FROM ledger.category c LEFT JOIN (VALUES
-    ('ARC','Architecture','Architecture and responsibility boundaries'),
-    ('CON','Consistency','Data, state and concurrent-operation consistency'),
-    ('DAT','Data','Data integrity, storage and migration'),
-    ('DENY','Denial','Unnecessary refusal or blocked authorized work'),
-    ('DIAG','Diagnosis','Incorrect diagnosis or insufficient evidence'),
-    ('DOC','Documentation','Incorrect or missing documentation'),
-    ('EXC','Execution','Failure to execute or complete authorized work'),
-    ('GATE','Gate','Acceptance, approval and verification gates'),
-    ('HOST','Host','Host integration and environment behavior'),
-    ('PKG','Packaging','Build, packaging and distribution'),
-    ('RES','Resources','Resource use, lifetime and performance'),
-    ('SEC','Security','Security and access boundaries'),
-    ('TST','Testing','Test coverage, execution and evidence'),
-    ('VND','Vendor independence','Vendor and model independence')
+    ('ARC','Structure and dependency direction','The core depends on outer layers or a contract is tied to a concrete implementation (SOLID).'),
+    ('CON','Concurrency and atomicity','Races, retries, locks or leases cause an incorrect state.'),
+    ('DAT','Data loss and recovery','Data or backups disappear, or recovery material is not retained.'),
+    ('DENY','False refusal and excessive blocking','Valid input, calls or states are blocked or judged failures, stopping normal operation (the opposite of GATE).'),
+    ('DIAG','Incorrect diagnosis','Guidance, fixed messages or status displays do not match the actual cause.'),
+    ('DOC','Documentation and contract contradictions','Documentation, schemas or descriptions differ from actual behavior.'),
+    ('EXC','Error cause suppression or substitution','Swallowed exceptions or substituted causes or codes hide the actual failure from the caller.'),
+    ('GATE','Gate bypass and false PASS','Verification, gates or minimum requirements pass without meeting their actual conditions.'),
+    ('HOST','Host extensibility','Behavior is missing on a new or different host, or is handled through another host path.'),
+    ('PKG','Build and distribution artifacts','Distributions, dist output or package contents differ from the source or are missing.'),
+    ('RES','Resource limits','Workload, size or time limits are absent or do not impose an actual bound.'),
+    ('SEC','Authorization and trust boundaries','Authorization, identity or path boundaries are bypassed, or untrusted values are trusted.'),
+    ('TST','Test gaps and false passes','Tests fail to detect defects or encode defective behavior as the expected result.'),
+    ('VND','Vendor and model name coupling','Behavior depends on preregistered vendor, model or host names, or name literals (SOLID O and D).')
   ) e(code,name,description) ON e.code=c.code;
   INSERT INTO ledger.common_code_use VALUES
     ('defect','category','DEFECT_CATEGORY',false),
