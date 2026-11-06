@@ -73,6 +73,7 @@ case "$state" in
 esac
 # tables added after schema_v2: each file runs once per database (guarded by its ledger._migration step), existing rows stay
 pg < "$REPO/sql/15_defect_case.sql"
+pg < "$REPO/sql/16_common_code.sql"
 pg < "$REPO/sql/20_api.sql"
 echo "functions, views and grants applied"
 

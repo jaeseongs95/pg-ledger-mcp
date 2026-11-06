@@ -44,13 +44,14 @@ login_sql() {  # <login> <sql>
   pw=$(sed -n "s/^PGLEDGER_$(echo "$1" | sed 's/ledger_//' | tr a-z A-Z)_PASSWORD=//p" "/etc/$NAME/env")
   PGPASSWORD=$pw psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$PG_PORT" -U "$1" -d "$DB" -tAc "$2"
 }
-# digest of every row of every ledger table, except install bookkeeping (_migration) and tables added later
+# digest of every row of every ledger table, except install bookkeeping (_migration), tables added later and
+# category (a table before common_code, a view of it after; compared on its own)
 snapshot() {
   pgsu -d "$DB" -tA <<'SQL'
 SELECT string_agg(t.tablename || '=' || (xpath('/row/h/text()', query_to_xml(format(
          'SELECT md5(coalesce(string_agg(x::text, E''\n'' ORDER BY x::text), '''')) AS h FROM ledger.%I x', t.tablename), false, true, '')))[1]::text,
        ' ' ORDER BY t.tablename)
-FROM pg_tables t WHERE t.schemaname = 'ledger' AND t.tablename NOT IN ('_migration', 'defect_case');
+FROM pg_tables t WHERE t.schemaname = 'ledger' AND t.tablename NOT IN ('_migration', 'defect_case', 'common_code', 'common_code_use', 'category');
 SQL
 }
 
@@ -74,14 +75,26 @@ else
   done
   seed+="SELECT ledger.transition(gen_random_uuid(), 'claude:e2e-seed', 'defect', 'OLD-D-0002', 1, 'MERGED', 'e2e: seed merge before the upgrade',
     NULL, NULL, 'OLD-D-0001');"
+  seed+="SELECT ledger.save(gen_random_uuid(), 'claude:e2e-seed', 'defect', NULL, 0, jsonb_build_object('project_id', 'old', 'title', 'unrated',
+      'category', 'OLDBUG', 'severity', 'UNRATED', 'behavior', 'old unrated behaviour', 'root_cause', 'old cause'), 'e2e: seed an unrated defect');"
   login_sql ledger_author "$seed" >/dev/null
   pass_if 'old schema has no defect_case table' "$(pgsu -d "$DB" -tAc "select to_regclass('ledger.defect_case') is null")" t
   before=$(snapshot)
+  categories() { pgsu -d "$DB" -tAc "select string_agg(code || '|' || name || '|' || definition, ',' order by code) from ledger.category"; }
+  cats_before=$(categories)
   echo "== upgrade: install this checkout over it"
   "$REPO/deploy/install.sh" --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --name "$NAME"
   pass_if 'upgrade keeps every existing row' "$(snapshot)" "$before"
   pass_if 'upgrade records step defect_case' "$(pgsu -d "$DB" -tAc "select count(*) from ledger._migration where step = 'defect_case'")" 1
   pass_if 'upgrade creates an empty defect_case' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect_case")" 0
+  pass_if 'upgrade records step common_code' "$(pgsu -d "$DB" -tAc "select count(*) from ledger._migration where step = 'common_code'")" 1
+  pass_if 'upgrade moves the categories into common_code unchanged' "$(categories)" "$cats_before"
+  pass_if 'an unrated defect keeps UNRATED until it is written' "$(pgsu -d "$DB" -tAc "select severity from ledger.defect where id = 'OLD-D-0003'")" UNRATED
+  out=$(login_sql ledger_author "SELECT ledger.save(gen_random_uuid(), 'claude:e2e-seed', 'defect', 'OLD-D-0003', 1, jsonb_build_object('title', 'unrated, edited'),
+    'e2e: edit without rating')" 2>&1) && echo "FAIL  an edit that leaves UNRATED succeeded: $out" && fail=1
+  grep -q 'CODE_INVALID: defect.severity = UNRATED' <<<"$out" && echo "PASS  an edit that leaves UNRATED is refused" || { echo "FAIL  wrong error: $out"; fail=1; }
+  pass_if 'the same edit with a rating is accepted' "$(login_sql ledger_author "SELECT ledger.save(gen_random_uuid(), 'claude:e2e-seed', 'defect', 'OLD-D-0003', 1,
+    jsonb_build_object('title', 'unrated, edited', 'severity', 'P3'), 'e2e: edit with a rating')->>'version'")" 2
   pass_if 'a defect merged before the upgrade shows as a case of its target' \
     "$(login_sql ledger_reader "select string_agg((c->>'source') || ':' || (c->>'defect') || ':' || (c->>'observation'), ',')
        from ledger.v_defect, jsonb_array_elements(cases) c where id = 'OLD-D-0001'")" \

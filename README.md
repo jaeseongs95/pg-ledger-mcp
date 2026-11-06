@@ -22,6 +22,12 @@ Agents read and write through MCP tools. They never get a database login of thei
 - **One defect, one root cause; many observed cases.** Each observation of a defect (symptom, log, user report) is a row of
   `ledger.defect_case` under it. Merging a defect (`MERGED`, `merged_into`) keeps its cases where they are; `ledger.v_defect`
   shows them under the defect it was merged into, so nothing has to be copied. A MERGED defect takes no new cases.
+- **Common codes.** Every coded value (category, severity, defect status, task and condition state, relation kind, CI
+  conclusion, grant scope) is a row of `ledger.common_code`; `ledger.common_code_use` names the column that uses each group.
+  A trigger checks every written code against the table and names the valid codes when it refuses one, so a new code is a
+  row, not a schema change. A retired code (`active = false`) stays on the rows that hold it and is refused on new writes.
+  **Severity is required:** a defect needs `P1`, `P2` or `P3`, and a defect that still holds the retired `UNRATED` must be
+  rated in the same write before anything else about it can change.
 
 Every rule above is enforced inside PostgreSQL by constraints, `SECURITY DEFINER` functions, grants and triggers.
 The MCP layer is a thin configuration of [DBHub](https://github.com/bytebase/dbhub).
@@ -32,6 +38,7 @@ The MCP layer is a thin configuration of [DBHub](https://github.com/bytebase/dbh
 |---|---|---|
 | `execute_sql_reader` | reader | any read-only SQL (read-only transaction, at most 1000 rows) |
 | `search_objects_reader` | reader | list schemas, tables, columns |
+| `ledger_codes` | reader | common codes by group, with the columns that use each group |
 | `ledger_whoami` | author | is this author id well formed, which grants does it hold |
 | `ledger_save` | author | create or edit a defect, task or condition |
 | `ledger_transition` | author | change state (OPEN, SOURCE_FIXED, MERGED, ACTIVE, REPORTED_DONE, …) |
@@ -69,7 +76,8 @@ The Debian and Ubuntu defaults already allow it.
 sudo -u postgres createdb ledger
 sudo deploy/install.sh --db ledger --mcp-port 8765 --allowed-hosts ledger-mcp.example.com
 sudo bin/ledger-admin project-add web WEB "Web shop"
-sudo bin/ledger-admin category-add BUG Bug "Behaviour differs from the specification"
+sudo bin/ledger-admin category-add BUG Bug "Behaviour differs from the specification"   # = code-set DEFECT_CATEGORY ...
+sudo bin/ledger-admin code-set RELATION_KIND duplicates Duplicates "a repeats b"         # any group; --inactive retires a code
 sudo bin/ledger-admin grant claude:1f2e3d4c web defect fix --note "fix sprint"
 sudo bin/ledger-admin grant codex:9a8b7c6d web verify
 ```
@@ -83,8 +91,8 @@ sudo bin/ledger-admin grant codex:9a8b7c6d web verify
 5. Checks the tool list over MCP.
 
 Re-running it re-applies functions, views and grants after a `pg_dump` of the schema to `/var/backups/pg-ledger-mcp/`.
-It keeps data, passwords and the token. Tables added after the first release (`sql/15_defect_case.sql`) are created by the
-re-run on an existing database; each runs once, recorded in `ledger._migration`, and existing rows are not changed. `--schema-only` stops before DBHub.
+It keeps data, passwords and the token. Tables added after the first release are created by the
+re-run on an existing database (`sql/15_defect_case.sql`, `sql/16_common_code.sql`); each runs once, recorded in `ledger._migration`, and existing rows are not changed. `--schema-only` stops before DBHub.
 
 The service listens on loopback only. To publish it, put an HTTPS reverse proxy or tunnel in front and list the public
 hostname in `--allowed-hosts`. Clients send `Authorization: Bearer <DBHUB_AUTH_TOKEN>`.
@@ -119,21 +127,24 @@ The test drives the MCP tools through these cases:
 - batches: replay, rollback of the whole batch on one failure, the same grant and login rules
 - observed cases: replay, refusal on a MERGED defect (also when the merge commits while the case waits), the view over
   merged defects and chains of merges
+- common codes: `ledger_codes`, a missing or retired severity, unknown category, state, link kind and CI conclusion
 
 It also checks the database rules directly through the logins, then re-runs the installer.
 
 `--upgrade-from <git-ref>` (for example `--upgrade-from a829947`) installs that commit first, writes data with it,
-installs the checkout over it, checks that every existing row is unchanged, and then runs the same scenario.
+installs the checkout over it, checks that every existing row is unchanged (categories move into `ledger.common_code`
+unchanged, and an `UNRATED` defect must be rated on its next write), and then runs the same scenario.
 
 ## Layout
 
 ```
 sql/10_tables.sql     roles, schema, tables, history triggers (fresh install)
 sql/15_defect_case.sql  observed cases table (run on every install; does nothing once applied)
+sql/16_common_code.sql  common codes table and the columns using them (same)
 sql/20_api.sql        functions, views, grants (re-applied on every install)
 mcp/dbhub.toml        DBHub sources (one per login) and tool definitions
 deploy/install.sh     install / re-apply, passwords, DBHub, systemd unit, smoke check
-bin/ledger-admin      projects, categories, grants (owner operations)
+bin/ledger-admin      projects, common codes, grants (owner operations)
 bin/mcp-call.mjs      tiny MCP client: check, list, call
 tests/                end-to-end test
 ```

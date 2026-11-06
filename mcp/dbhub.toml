@@ -3,7 +3,7 @@
 # systemd EnvironmentFile (/etc/pg-ledger-mcp/env). Passwords are hex, so they need no URL encoding.
 #
 # Three sources, one per role login. Callers never pick a login: each tool is bound to the login it needs.
-#   reader   -> execute_sql_reader / search_objects_reader (read only, SELECT on the ledger views and tables)
+#   reader   -> execute_sql_reader / search_objects_reader / ledger_codes (read only, SELECT on the ledger views and tables)
 #   author   -> ledger_whoami, ledger_save, ledger_transition, ledger_record_fix, ledger_record_case, ledger_link, ledger_correct,
 #               ledger_batch
 #   reviewer -> ledger_review, ledger_review_correct (the only path that can record VERIFIED / MET / NOT_MET)
@@ -11,6 +11,8 @@
 # accepts it only when ledger.session_grant holds a live grant for that author, the row's project and the scope.
 # request_id: pass a UUID to make a retry safe (same id + same payload returns the stored result); when omitted a
 # fresh id is generated, so a blind retry can write twice.
+# Coded values (category, severity, states, relation kinds, CI conclusion) are rows of ledger.common_code, listed by
+# ledger_codes. The database checks every written code against that table and names the valid codes when it refuses one.
 
 [[sources]]
 id = "reader"
@@ -41,6 +43,19 @@ max_rows = 1000
 name = "search_objects"
 source = "reader"
 
+[[tools]]
+name = "ledger_codes"
+source = "reader"
+description = """List the common codes (ledger.common_code) by group, with the columns that use each group. Write tools accept only active codes:
+DEFECT_CATEGORY (defect.category), DEFECT_SEVERITY (defect.severity, required on every defect write), DEFECT_STATUS and TASK_STATE and
+CONDITION_STATE (ledger_transition / ledger_review 'to'), RELATION_KIND (ledger_link kind), CI_CONCLUSION (ledger_record_fix). Read only."""
+statement = "SELECT ledger.codes(nullif($1::text, '')) AS result"
+[[tools.parameters]]
+name = "code_group"
+type = "string"
+required = false
+description = "One group, e.g. DEFECT_SEVERITY; omitted = every group"
+
 # ---------- author ----------
 [[tools]]
 name = "ledger_whoami"
@@ -56,7 +71,8 @@ description = "'<vendor>:<session-id>' or 'user:owner'"
 name = "ledger_save"
 source = "author"
 description = """Create (expected_version = 0) or edit (expected_version = current version) a defect, task or condition.
-fields is a JSON object. Defect: project_id (new only), title, category, severity (P1|P2|P3|UNRATED), behavior, root_cause, owner_actor_id.
+fields is a JSON object. Defect: project_id (new only), title, category (DEFECT_CATEGORY), severity (DEFECT_SEVERITY, required: a defect
+still holding the retired UNRATED must be rated in the same write), behavior, root_cause, owner_actor_id. Codes: ledger_codes.
 Task: project_id, title, purpose, success_condition, owner_actor_id, origin_ref, origin_quote. Condition: project_id, release, goal_label, code, condition_text.
 A new defect without id gets the next '<project code>-D-<n>' id. State changes use ledger_transition. Needs scope defect (defect) or task (task, condition)."""
 statement = "SELECT ledger.save(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::int, $6::jsonb, $7::text) AS result"
@@ -96,6 +112,7 @@ description = "Why, 10..1000 characters"
 name = "ledger_transition"
 source = "author"
 description = """Change the state of a defect, task or condition (one history row).
+States are codes (ledger_codes): defect DEFECT_STATUS, task TASK_STATE, condition CONDITION_STATE.
 Defect: OPEN, SOURCE_FIXED (needs a recorded fix), NOT_DEFECT / DISPUTED (need evidence_uri), MERGED (needs merged_into).
 Task: PLANNED, ACTIVE, BLOCKED, REPORTED_DONE (needs evidence_uri), CANCELLED.
 VERIFIED, MET and NOT_MET, and any move out of them, go through ledger_review. Needs scope defect or task."""
@@ -125,8 +142,7 @@ description = "Current version (optimistic lock)"
 [[tools.parameters]]
 name = "to"
 type = "string"
-allowed_values = ["OPEN", "SOURCE_FIXED", "NOT_DEFECT", "DISPUTED", "MERGED", "PLANNED", "ACTIVE", "BLOCKED", "REPORTED_DONE", "CANCELLED", "UNKNOWN"]
-description = "New state"
+description = "New state: a code of DEFECT_STATUS, TASK_STATE or CONDITION_STATE (ledger_codes)"
 [[tools.parameters]]
 name = "reason"
 type = "string"
@@ -192,8 +208,7 @@ description = "CI run URL; required with ci_conclusion and to update an existing
 name = "ci_conclusion"
 type = "string"
 required = false
-allowed_values = ["success", "failure", "cancelled"]
-description = "CI result"
+description = "CI result: a CI_CONCLUSION code (ledger_codes)"
 [[tools.parameters]]
 name = "ci_completed_at"
 type = "string"
@@ -253,7 +268,8 @@ description = "When it was observed, ISO 8601; omitted = not known"
 name = "ledger_link"
 source = "author"
 description = """Add (or with remove = true, remove) a link. defect_task: a = defect, b = task.
-same_site / caused_by / blocks / same_family / same_fix_unit: a, b = defects. condition_task / condition_defect: a = condition.
+A RELATION_KIND code (ledger_codes, e.g. same_site, caused_by, blocks, same_family, same_fix_unit): a, b = defects.
+condition_task / condition_defect: a = condition.
 Needs scope defect (defect links) or task (condition links)."""
 statement = "SELECT ledger.link(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::text, $6::text, $7::boolean) AS result"
 [[tools.parameters]]
@@ -268,8 +284,7 @@ description = "'<vendor>:<session-id>' or 'user:owner'"
 [[tools.parameters]]
 name = "kind"
 type = "string"
-allowed_values = ["defect_task", "same_site", "caused_by", "blocks", "same_family", "same_fix_unit", "condition_task", "condition_defect"]
-description = "Link kind"
+description = "defect_task, condition_task, condition_defect, or a RELATION_KIND code (ledger_codes)"
 [[tools.parameters]]
 name = "a"
 type = "string"

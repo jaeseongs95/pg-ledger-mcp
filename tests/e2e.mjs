@@ -51,6 +51,22 @@ await refused('author id without session is refused', 'ledger_save', { author_id
 await refused('user:<other> is refused', 'ledger_save', { author_id: 'user:someone', entity: 'defect', expected_version: 0, fields: defect('x'), reason }, 'AUTHOR_ID_FORMAT');
 await ok('whoami lists the grants', 'ledger_whoami', { author_id: AUTHOR }, (w) => w.author_format_ok === true && w.grants.length === 4);
 
+// common codes: one table, every written code checked against it, the error names the valid codes
+const active = (g) => (g?.codes ?? []).filter((c) => c.active).map((c) => c.code).join(',');
+await ok('K1 ledger_codes lists each group with its codes and the columns using it', 'ledger_codes', {}, (c) =>
+  active(c.DEFECT_SEVERITY) === 'P1,P2,P3' && c.DEFECT_SEVERITY.codes.some((x) => x.code === 'UNRATED' && x.active === false)
+  && c.DEFECT_SEVERITY.used_by.includes('defect.severity (required)') && c.DEFECT_CATEGORY?.codes.some((x) => x.code === 'BUG')
+  && active(c.TASK_STATE).includes('REPORTED_DONE') && !active(c.TASK_STATE).includes('UNKNOWN') && c.RELATION_KIND?.used_by.includes('defect_relation.kind'));
+await ok('K2 ledger_codes returns one group when asked', 'ledger_codes', { code_group: 'CI_CONCLUSION' }, (c) =>
+  JSON.stringify(Object.keys(c)) === '["CI_CONCLUSION"]' && active(c.CI_CONCLUSION) === 'success,failure,cancelled');
+const noSeverity = JSON.parse(defect('no severity')); delete noSeverity.severity;
+await refused('K3 a defect without severity is refused', 'ledger_save', { author_id: AUTHOR, entity: 'defect', expected_version: 0, fields: JSON.stringify(noSeverity), reason },
+  'CODE_REQUIRED: defect.severity is required, one of: P1, P2, P3');
+await refused('K4 the retired UNRATED is refused on a new defect', 'ledger_save', { author_id: AUTHOR, entity: 'defect', expected_version: 0,
+  fields: JSON.stringify({ ...JSON.parse(defect('unrated')), severity: 'UNRATED' }), reason }, 'CODE_INVALID: defect.severity = UNRATED is not an active code of DEFECT_SEVERITY, use one of: P1, P2, P3');
+await refused('K5 an unknown category is refused', 'ledger_save', { author_id: AUTHOR, entity: 'defect', expected_version: 0,
+  fields: JSON.stringify({ ...JSON.parse(defect('typo')), category: 'BGU' }), reason }, 'CODE_INVALID: defect.category = BGU');
+
 // create, ids, idempotency, optimistic lock
 const rid = randomUUID();
 const first = await ok('new defect gets the next id', 'ledger_save', { request_id: rid, author_id: AUTHOR, entity: 'defect', expected_version: 0, fields: defect('first'), reason },
@@ -65,10 +81,16 @@ await ok('edit with the current version', 'ledger_save', { author_id: AUTHOR, en
 await refused('a defect cannot change project', 'ledger_save', { author_id: AUTHOR, entity: 'defect', id: `${code}-D-0001`, expected_version: 2, fields: JSON.stringify({ project_id: 'ELSEWHERE' }), reason }, 'cannot move');
 
 // fix and verification
+await refused('K6 an unknown state is refused', 'ledger_transition', { author_id: AUTHOR, entity: 'defect', id: `${code}-D-0002`, expected_version: 1, to: 'FIXED', reason },
+  'CODE_INVALID: defect.status = FIXED');
+await refused('K7 an unknown link kind is refused, naming the relation kinds', 'ledger_link', { author_id: AUTHOR, kind: 'related', a: `${code}-D-0001`, b: `${code}-D-0002`, reason },
+  'link: unknown kind related, use defect_task, condition_task, condition_defect or a RELATION_KIND code: same_site');
+await refused('K8 an unknown CI conclusion is refused', 'ledger_record_fix', { author_id: AUTHOR, defect_id: `${code}-D-0002`, repo: 'example/repo', commit_sha: SHA, reason,
+  ci_ref: 'https://ci.example/run/9', ci_conclusion: 'passed' }, 'CODE_INVALID: defect_fix.ci_conclusion = passed');
 await refused('SOURCE_FIXED without a fix is refused', 'ledger_transition', { author_id: AUTHOR, entity: 'defect', id: `${code}-D-0002`, expected_version: 1, to: 'SOURCE_FIXED', reason }, 'needs a recorded fix');
 await ok('record_fix moves OPEN to SOURCE_FIXED', 'ledger_record_fix', { author_id: AUTHOR, defect_id: `${code}-D-0001`, repo: 'example/repo', commit_sha: SHA, reason,
   ci_ref: 'https://ci.example/run/1', ci_conclusion: 'success', ci_completed_at: new Date().toISOString() }, (x) => x.defect_status === 'SOURCE_FIXED' && x.version === 3);
-await refused('the author tool cannot set VERIFIED', 'ledger_transition', { author_id: AUTHOR, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, 'Invalid option');  // refused by the tool schema (allowed_values) before SQL runs
+await refused('the author tool cannot set VERIFIED', 'ledger_transition', { author_id: AUTHOR, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, 'VERIFY_NEEDS_REVIEWER_LOGIN');
 await refused('the fixing session cannot verify its own fix', 'ledger_review', { author_id: AUTHOR, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, 'SAME_SESSION');
 await refused('verify needs a verify grant', 'ledger_review', { author_id: NOGRANT, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, 'SESSION_NOT_GRANTED');
 await ok('another session verifies through the reviewer login', 'ledger_review', { author_id: REVIEWER, entity: 'defect', id: `${code}-D-0001`, expected_version: 3, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }, (x) => x.to === 'VERIFIED' && x.login === 'ledger_reviewer');

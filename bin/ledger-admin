@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # ledger-admin : owner operations that no MCP tool can do. Run as root on the database host.
 #   ledger-admin [--name pg-ledger-mcp] project-add <ID> <CODE> <title>      CODE: ^[A-Z][A-Z0-9_]{0,31}$ (defect ids are CODE-D-0001...)
-#   ledger-admin [--name ...] category-add <code> <name> <definition>
+#   ledger-admin [--name ...] category-add <code> <name> <definition>       = code-set DEFECT_CATEGORY ...
+#   ledger-admin [--name ...] code-set <group> <code> <name> <description> [--sort <n>] [--inactive]
+#                                                                         add or update a common code (never deleted)
+#   ledger-admin [--name ...] codes [<group>]                             common codes and the columns using them
 #   ledger-admin [--name ...] grant <author-id> <project-id> <scope>... [--expires <timestamptz>] [--note <text>]
 #                                                                         scope: defect | task | fix | verify
 #   ledger-admin [--name ...] revoke <author-id> [<project-id> [<scope>]]
@@ -11,7 +14,7 @@ set -euo pipefail
 NAME=pg-ledger-mcp
 if [ "${1:-}" = --name ]; then NAME=${2:?}; shift 2; fi
 ENV_FILE=/etc/$NAME/env
-usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 [ $# -ge 1 ] || usage 2
 [ -r "$ENV_FILE" ] || { echo "ledger-admin: $ENV_FILE not readable (run as root after deploy/install.sh)" >&2; exit 1; }
 DB=$(sed -n 's/^PGLEDGER_DB=//p' "$ENV_FILE" | tail -n 1)
@@ -27,10 +30,29 @@ case "$cmd" in
 INSERT INTO ledger.project (id, code, title) VALUES (:'id', :'code', :'title') RETURNING *;
 SQL
     ;;
-  category-add)
-    [ $# -eq 3 ] || usage 2
-    pg -v code="$1" -v name="$2" -v def="$3" <<'SQL'
-INSERT INTO ledger.category (code, name, definition) VALUES (:'code', :'name', :'def') RETURNING *;
+  category-add|code-set)
+    if [ "$cmd" = category-add ]; then set -- DEFECT_CATEGORY "$@"; fi
+    [ $# -ge 4 ] || usage 2
+    group=$1 code=$2 name=$3 desc=$4; shift 4
+    sort=0 active=true
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --sort) sort=${2:?}; shift 2 ;;
+        --inactive) active=false; shift ;;
+        *) usage 2 ;;
+      esac
+    done
+    pg -v grp="$group" -v code="$code" -v name="$name" -v descr="$desc" -v sort="$sort" -v active="$active" <<'SQL'
+INSERT INTO ledger.common_code (code_group, code, name, description, sort_order, active)
+VALUES (:'grp', :'code', :'name', :'descr', :'sort'::int, :'active'::boolean)
+ON CONFLICT (code_group, code) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description,
+  sort_order = EXCLUDED.sort_order, active = EXCLUDED.active
+RETURNING *;
+SQL
+    ;;
+  codes)
+    pg -v grp="${1:-}" <<'SQL'
+SELECT jsonb_pretty(ledger.codes(nullif(:'grp', '')));
 SQL
     ;;
   grant)

@@ -69,6 +69,50 @@ RETURNS bigint LANGUAGE sql SET search_path = ledger, pg_temp AS $f$
   RETURNING id
 $f$;
 
+-- Coded columns (ledger.common_code_use) hold codes of ledger.common_code. Unknown codes are refused; an inactive code is
+-- refused when it is written (insert, or a changed value) and kept on rows that already hold it, except where the
+-- column is always_active: then every write of the row needs an active code (defect.severity is a required rating).
+-- The error lists the valid codes read from the table.
+CREATE OR REPLACE FUNCTION ledger._check_codes() RETURNS trigger LANGUAGE plpgsql SET search_path = ledger, pg_temp AS $f$
+DECLARE u record; v text; v_active boolean; v_new jsonb := to_jsonb(NEW); v_old jsonb; v_valid text;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN v_old := to_jsonb(OLD); END IF;
+  FOR u IN SELECT column_name, code_group, always_active FROM ledger.common_code_use WHERE table_name = TG_TABLE_NAME LOOP
+    v := v_new->>u.column_name;
+    IF v IS NULL AND NOT u.always_active THEN CONTINUE; END IF;
+    SELECT active INTO v_active FROM ledger.common_code WHERE code_group = u.code_group AND code = v;
+    IF v IS NULL OR v_active IS NULL
+       OR (NOT v_active AND (u.always_active OR v_old IS NULL OR v IS DISTINCT FROM v_old->>u.column_name)) THEN
+      SELECT string_agg(code, ', ' ORDER BY sort_order, code) INTO v_valid FROM ledger.common_code WHERE code_group = u.code_group AND active;
+      IF v IS NULL THEN
+        RAISE EXCEPTION 'CODE_REQUIRED: %.% is required, one of: % (ledger_codes group %)', TG_TABLE_NAME, u.column_name, v_valid, u.code_group USING ERRCODE = '23514';
+      END IF;
+      RAISE EXCEPTION 'CODE_INVALID: %.% = % is not an active code of %, use one of: % (ledger_codes)%', TG_TABLE_NAME, u.column_name, v, u.code_group, v_valid,
+        CASE WHEN u.always_active AND v_active IS NOT NULL THEN '; this row still holds an old value, set it in the same write' ELSE '' END USING ERRCODE = '23514';
+    END IF;
+  END LOOP;
+  RETURN NEW;
+END $f$;
+DO $t$
+DECLARE t text;
+BEGIN
+  FOR t IN SELECT DISTINCT table_name FROM ledger.common_code_use LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON ledger.%I', t || '_codes', t);
+    EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON ledger.%I FOR EACH ROW EXECUTE FUNCTION ledger._check_codes()', t || '_codes', t);
+  END LOOP;
+END $t$;
+
+-- Codes are never deleted or renamed (rows keep pointing at them); retire one with active = false.
+CREATE OR REPLACE FUNCTION ledger._code_keep() RETURNS trigger LANGUAGE plpgsql AS $f$
+BEGIN
+  IF TG_OP = 'DELETE' OR NEW.code_group <> OLD.code_group OR NEW.code <> OLD.code THEN
+    RAISE EXCEPTION 'common codes are never deleted or renamed (% %/% refused); set active = false instead', TG_OP, OLD.code_group, OLD.code USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END $f$;
+DROP TRIGGER IF EXISTS common_code_keep ON ledger.common_code;
+CREATE TRIGGER common_code_keep BEFORE UPDATE OR DELETE ON ledger.common_code FOR EACH ROW EXECUTE FUNCTION ledger._code_keep();
+
 CREATE OR REPLACE FUNCTION ledger._check_reason(p_reason text) RETURNS void LANGUAGE plpgsql IMMUTABLE AS $f$
 BEGIN
   IF p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 10 AND 1000 THEN
@@ -318,7 +362,7 @@ BEGIN
     SELECT project_id INTO v_project FROM ledger.condition WHERE id = p_a;
     IF v_project IS NULL THEN RAISE EXCEPTION 'link: condition % not found', p_a USING ERRCODE = '22023'; END IF;
     PERFORM ledger._begin(p_author, 'task', v_project);
-  ELSIF p_kind IN ('defect_task','same_site','caused_by','blocks','same_family','same_fix_unit') THEN
+  ELSIF p_kind = 'defect_task' OR EXISTS (SELECT 1 FROM ledger.common_code WHERE code_group = 'RELATION_KIND' AND code = p_kind) THEN
     v_project := ledger._defect_project(p_a);
     IF v_project IS NULL THEN RAISE EXCEPTION 'link: defect % not found', p_a USING ERRCODE = '22023'; END IF;
     PERFORM ledger._begin(p_author, 'defect', v_project);
@@ -327,7 +371,9 @@ BEGIN
       IF v_project_b IS NULL THEN RAISE EXCEPTION 'link: defect % not found', p_b USING ERRCODE = '22023'; END IF;
       IF v_project_b <> v_project THEN PERFORM ledger._begin(p_author, 'defect', v_project_b); END IF;
     END IF;
-  ELSE RAISE EXCEPTION 'link: unknown kind %', p_kind USING ERRCODE = '22023';
+  ELSE
+    RAISE EXCEPTION 'link: unknown kind %, use defect_task, condition_task, condition_defect or a RELATION_KIND code: % (ledger_codes)', p_kind,
+      (SELECT string_agg(code, ', ' ORDER BY sort_order, code) FROM ledger.common_code WHERE code_group = 'RELATION_KIND' AND active) USING ERRCODE = '22023';
   END IF;
   PERFORM ledger._check_reason(p_reason);
   prior := ledger._reserve(p_request, 'link', jsonb_build_object('kind', p_kind, 'a', p_a, 'b', p_b, 'remove', p_remove, 'reason', p_reason), p_author);
@@ -483,6 +529,19 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ledger, pg_temp AS $f$
                                 AND (g.expires_at IS NULL OR g.expires_at > clock_timestamp())), '[]'))
 $f$;
 
+-- codes: the common codes by group, with the columns that use each group (read only). p_group NULL = every group.
+CREATE OR REPLACE FUNCTION ledger.codes(p_group text DEFAULT NULL) RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ledger, pg_temp AS $f$
+  SELECT coalesce(jsonb_object_agg(g.code_group, jsonb_build_object('used_by', g.used_by, 'codes', g.codes)), '{}')
+  FROM (SELECT c.code_group,
+               (SELECT coalesce(jsonb_agg(u.table_name || '.' || u.column_name || CASE WHEN u.always_active THEN ' (required)' ELSE '' END
+                                          ORDER BY u.table_name, u.column_name), '[]')
+                  FROM ledger.common_code_use u WHERE u.code_group = c.code_group) AS used_by,
+               jsonb_agg(jsonb_build_object('code', c.code, 'name', c.name, 'description', c.description, 'active', c.active)
+                         ORDER BY c.sort_order, c.code) AS codes
+          FROM ledger.common_code c WHERE p_group IS NULL OR c.code_group = p_group GROUP BY c.code_group) g
+$f$;
+
 -- ---------- views ----------
 DROP VIEW IF EXISTS ledger.v_defect, ledger.v_history, ledger.v_attention;
 CREATE VIEW ledger.v_defect AS
@@ -534,8 +593,8 @@ GRANT EXECUTE ON FUNCTION ledger.save(uuid,text,text,text,int,jsonb,text),
                           ledger.batch(uuid,text,jsonb) TO ledger_author;
 GRANT EXECUTE ON FUNCTION ledger.transition(uuid,text,text,text,int,text,text,text,text,text),
                           ledger.correct(uuid,text,bigint,text) TO ledger_author, ledger_reviewer;
-GRANT EXECUTE ON FUNCTION ledger.whoami(text), ledger._sid(text), ledger._author_ok(text) TO ledger_author, ledger_reviewer, ledger_reader;
-GRANT SELECT ON ledger.project, ledger.category, ledger.task, ledger.defect, ledger.defect_fix, ledger.defect_case, ledger.defect_task,
+GRANT EXECUTE ON FUNCTION ledger.whoami(text), ledger.codes(text), ledger._sid(text), ledger._author_ok(text) TO ledger_author, ledger_reviewer, ledger_reader;
+GRANT SELECT ON ledger.project, ledger.category, ledger.common_code, ledger.common_code_use, ledger.task, ledger.defect, ledger.defect_fix, ledger.defect_case, ledger.defect_task,
                 ledger.defect_relation, ledger.condition, ledger.condition_link, ledger.session_grant, ledger.history, ledger.request_receipt,
                 ledger.v_defect, ledger.v_history, ledger.v_attention TO ledger_author, ledger_reviewer, ledger_reader;
 INSERT INTO ledger._migration (step, detail) VALUES ('api', jsonb_build_object('by', session_user))
