@@ -133,6 +133,17 @@ JS
   login_sql ledger_author "SELECT ledger.link(gen_random_uuid(),'claude:e2e-seed','condition_task','OLD-C-3','OLD-T-1','e2e: initially typed link')" >/dev/null
   pgsu -d "$DB" -c "INSERT INTO ledger.history(author_id,actor_assurance,entity,entity_id,op,reason,request_id)
     VALUES('claude:e2e-seed','DECLARED','condition_link','OLD-C-3|OLD-T-1','LINK','e2e: untyped legacy link evidence',gen_random_uuid())" >/dev/null
+  # Same-kind legacy keys also collide when free-text condition/task ids contain the separator.
+  for task in 'A|T' T; do
+    login_sql ledger_author "SELECT ledger.save(gen_random_uuid(),'claude:e2e-seed','task','$task',0,
+      jsonb_build_object('project_id','old','title','pipe target','purpose','legacy key collision','success_condition','unknown creator'), 'e2e: free text legacy task')" >/dev/null
+  done
+  for condition in OLD-PIPE-C 'OLD-PIPE-C|A'; do
+    login_sql ledger_author "SELECT ledger.save(gen_random_uuid(),'claude:e2e-seed','condition','$condition',0,
+      jsonb_build_object('project_id','old','release','old','code','$condition','condition_text','pipe condition'), 'e2e: free text legacy condition')" >/dev/null
+  done
+  login_sql ledger_author "SELECT ledger.link(gen_random_uuid(),'claude:e2e-seed','condition_task','OLD-PIPE-C','A|T','e2e: first ambiguous legacy key');
+    SELECT ledger.link(gen_random_uuid(),'codex:e2e-relink','condition_task','OLD-PIPE-C|A','T','e2e: second ambiguous legacy key')" >/dev/null
   pgsu -d "$DB" -c "INSERT INTO ledger.task(id,project_id,title,purpose,success_condition,state,created_at,updated_at)
     VALUES('OLD-T-UNKNOWN','old','No history','','','PLANNED',now(),now())" >/dev/null
   pgsu -d "$DB" -c "INSERT INTO ledger.history(at,author_id,actor_assurance,entity,entity_id,op,reason,request_id,legacy_ref)
@@ -156,10 +167,11 @@ JS
   pass_if 'CON translation preserves concurrency and atomicity' "$(pgsu -d "$DB" -tAc "select name_en from ledger.common_code where code_group='DEFECT_CATEGORY' and code='CON'")" 'Concurrency and atomicity'
   pass_if 'EXC translation preserves error cause suppression or substitution' "$(pgsu -d "$DB" -tAc "select name_en from ledger.common_code where code_group='DEFECT_CATEGORY' and code='EXC'")" 'Error cause suppression or substitution'
   pass_if 'unknown categories use the original text as English fallback' "$(pgsu -d "$DB" -tAc "select name_en=name_ko and description_en=description_ko from ledger.common_code where code_group='DEFECT_CATEGORY' and code='OLDBUG'")" t
-  pass_if 'entity creators backfill from CREATE or IMPORT' "$(pgsu -d "$DB" -tAc "select count(*) from (select created_by from ledger.defect union all select created_by from ledger.task where id in ('OLD-T-1','OLD-D-0001') union all select created_by from ledger.condition) x where created_by='claude:e2e-seed'")" 8
+  pass_if 'entity creators backfill from CREATE or IMPORT' "$(pgsu -d "$DB" -tAc "select count(*) from (select created_by from ledger.defect union all select created_by from ledger.task where project_id='old' and id<>'OLD-T-UNKNOWN' union all select created_by from ledger.condition) x where created_by='claude:e2e-seed'")" 12
   pass_if 're-linked rows belong to the current incarnation creator' "$(pgsu -d "$DB" -tAc "select count(*) from (select created_by from ledger.defect_task union all select created_by from ledger.defect_relation union all select created_by from ledger.condition_link) x where created_by='codex:e2e-relink'")" 5
   pass_if 'kind aliases keep the other live incarnation creator' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.condition_link where created_by='claude:e2e-seed' and ((condition_id='OLD-C-1' and task_id='OLD-D-0001') or (condition_id='OLD-C-2' and defect_id='OLD-D-0001'))")" 2
   pass_if 'untyped condition lifecycle does not invent a creator' "$(pgsu -d "$DB" -tAc "select created_by from ledger.condition_link where condition_id='OLD-C-3' and task_id='OLD-T-1'")" unknown:legacy
+  pass_if 'same-kind legacy separator collisions stay unknown' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.condition_link where condition_id in ('OLD-PIPE-C','OLD-PIPE-C|A') and created_by='unknown:legacy'")" 2
   pass_if 'missing legacy history is marked unknown' "$(pgsu -d "$DB" -tAc "select created_by from ledger.task where id='OLD-T-UNKNOWN'")" unknown:legacy
   pass_if 'an unrated defect keeps UNRATED until it is written' "$(pgsu -d "$DB" -tAc "select severity from ledger.defect where id = 'OLD-D-0003'")" UNRATED
   out=$(login_sql ledger_author "SELECT ledger.save(gen_random_uuid(), 'claude:e2e-seed', 'defect', 'OLD-D-0003', 1, jsonb_build_object('title', 'unrated, edited'),

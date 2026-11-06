@@ -15,7 +15,8 @@ BEGIN
       EXECUTE format('UPDATE ledger.%I SET created_by=''user:owner''',t);
     ELSIF t='condition_link' THEN
       -- Both physical link kinds can have the same history entity_id. Untyped lifecycle evidence is ambiguous.
-      UPDATE ledger.condition_link x SET created_by=coalesce((
+      UPDATE ledger.condition_link x SET created_by=CASE WHEN x.task_id IS NOT NULL
+        AND (strpos(x.condition_id,'|')>0 OR strpos(x.task_id,'|')>0) THEN 'unknown:legacy' ELSE coalesce((
         WITH expected AS (SELECT CASE WHEN x.task_id IS NOT NULL THEN 'condition_task' ELSE 'condition_defect' END AS kind),
         events AS (SELECT h.id,h.author_id,h.op,h.changes->>'kind' AS kind FROM ledger.history h
           WHERE h.entity='condition_link' AND h.entity_id=x.condition_id || '|' || coalesce(x.task_id,x.defect_id)),
@@ -23,7 +24,7 @@ BEGIN
         SELECT e.author_id FROM events e,boundary b WHERE e.op='LINK' AND e.kind=(SELECT kind FROM expected) AND e.id>b.id
           AND NOT EXISTS(SELECT 1 FROM events a WHERE a.id>b.id AND a.op IN ('LINK','UNLINK')
             AND (a.kind IS NULL OR a.kind NOT IN ('condition_task','condition_defect')))
-        ORDER BY e.id LIMIT 1),'unknown:legacy');
+        ORDER BY e.id LIMIT 1),'unknown:legacy') END;
     ELSE
       key_sql := CASE t WHEN 'defect_task' THEN 'x.defect_id || ''|'' || x.task_id'
         WHEN 'defect_relation' THEN 'x.a || ''|'' || x.b || ''|'' || x.kind'

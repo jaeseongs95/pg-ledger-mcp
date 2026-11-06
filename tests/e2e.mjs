@@ -198,11 +198,14 @@ await ok('P2 create a task and condition in one batch','ledger_batch',batch([
   { op: 'save',entity: 'condition',id: 'E2E-C-1',fields: { project_id: project,release: 'test',code: 'C1',condition_text: 'stamped' },reason },
   { op: 'link',kind: 'defect_task',a: D2,b: 'E2E-T-1',reason },
   { op: 'link',kind: 'condition_task',a: 'E2E-C-1',b: 'E2E-T-1',reason },
-  { op: 'link',kind: 'condition_defect',a: 'E2E-C-1',b: D2,reason }
-]),x => x.count === 5);
+  { op: 'link',kind: 'condition_defect',a: 'E2E-C-1',b: D2,reason },
+  { op: 'save',entity: 'task',id: 'E2E-T|PIPE',fields: { project_id: project,title: 'Pipe task',purpose: 'normal insert',success_condition: 'host creator' },reason },
+  { op: 'save',entity: 'condition',id: 'E2E-C|PIPE',fields: { project_id: project,release: 'test',code: 'C2',condition_text: 'normal pipe insert' },reason },
+  { op: 'link',kind: 'condition_task',a: 'E2E-C|PIPE',b: 'E2E-T|PIPE',reason }
+]),x => x.count === 8);
 for (const table of ['task','defect','condition','defect_task','defect_relation','condition_link']) {
   const scope = ['task','defect','condition'].includes(table) ? `project_id = '${project}'`
-    : table === 'defect_task' ? `defect_id LIKE '${code}-D-%'` : table === 'defect_relation' ? `a LIKE '${code}-D-%'` : "condition_id = 'E2E-C-1'";
+    : table === 'defect_task' ? `defect_id LIKE '${code}-D-%'` : table === 'defect_relation' ? `a LIKE '${code}-D-%'` : "condition_id IN ('E2E-C-1','E2E-C|PIPE')";
   const provenance = await sql(`SELECT created_by FROM ledger.${table} WHERE ${scope}`);
   check(`P3 ${table} rows keep their first host author`,provenance.length > 0 && provenance.every(r => r.created_by === AUTHOR),provenance);
 }
