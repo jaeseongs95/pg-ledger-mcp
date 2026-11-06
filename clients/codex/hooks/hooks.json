@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^mcp__.+__ledger_(save|transition|record_fix|record_case|link|correct|batch|review|review_correct|whoami)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/scripts/ledger-host-attestation.mjs\"",
+            "commandWindows": "cmd.exe /d /c node \"%PLUGIN_ROOT%/scripts/ledger-host-attestation.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

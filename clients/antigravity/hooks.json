@@ -1,0 +1,16 @@
+{
+  "pg-ledger-host-attestation": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp:.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/ledger-host-attestation.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
