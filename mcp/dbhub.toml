@@ -4,7 +4,7 @@
 #
 # Three sources, one per role login. Callers never pick a login: each tool is bound to the login it needs.
 #   reader   -> execute_sql_reader / search_objects_reader (read only, SELECT on the ledger views and tables)
-#   author   -> ledger_whoami, ledger_save, ledger_transition, ledger_record_fix, ledger_link, ledger_correct
+#   author   -> ledger_whoami, ledger_save, ledger_transition, ledger_record_fix, ledger_link, ledger_correct, ledger_batch
 #   reviewer -> ledger_review, ledger_review_correct (the only path that can record VERIFIED / MET / NOT_MET)
 # Every write tool takes author_id = '<vendor>:<session-id>' (e.g. claude:1234abcd) or 'user:owner'. The database
 # accepts it only when ledger.session_grant holds a live grant for that author, the row's project and the scope.
@@ -265,6 +265,30 @@ description = "ledger.history id to correct"
 name = "reason"
 type = "string"
 description = "What was wrong, 10..1000 characters"
+
+[[tools]]
+name = "ledger_batch"
+source = "author"
+description = """Run up to 200 write operations in one transaction: all of them commit or none does, and an error names the failing operation.
+ops is a JSON array of objects {"op": "save" | "transition" | "record_fix" | "link" | "correct", ...} with the arguments of the single tool:
+save: entity, id, expected_version (default 0), fields (JSON object), reason. transition: entity, id, expected_version, to, reason, evidence_uri, evidence_sha256, merged_into.
+record_fix: defect_id, repo, commit_sha, reason, branch, ci_ref, ci_conclusion, ci_completed_at, mark_source_fixed. link: kind, a, b, reason, remove. correct: history_id, reason.
+Each op may carry its own request_id; otherwise one is derived from the batch request_id and the op's position, so sending the same batch again
+with the same request_id returns the stored results. Grants, login rules (no VERIFIED here) and checks are those of the single tools."""
+statement = "SELECT ledger.batch(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::jsonb) AS result"
+[[tools.parameters]]
+name = "request_id"
+type = "string"
+required = false
+description = "UUID that makes a retry of the whole batch safe; omitted = new id"
+[[tools.parameters]]
+name = "author_id"
+type = "string"
+description = "'<vendor>:<session-id>' or 'user:owner'"
+[[tools.parameters]]
+name = "ops"
+type = "string"
+description = "JSON array of 1..200 operation objects"
 
 # ---------- reviewer ----------
 [[tools]]

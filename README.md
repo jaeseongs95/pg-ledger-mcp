@@ -35,6 +35,7 @@ The MCP layer is a thin configuration of [DBHub](https://github.com/bytebase/dbh
 | `ledger_record_fix` | author | record a fix commit and its CI result; OPEN → SOURCE_FIXED |
 | `ledger_link` | author | link defects, tasks and conditions |
 | `ledger_correct` | author | mark a history row as wrong |
+| `ledger_batch` | author | up to 200 of the operations above in one transaction: all commit or none |
 | `ledger_review` | reviewer | VERIFIED / MET / NOT_MET, and reopening them |
 | `ledger_review_correct` | reviewer | mark a verification row as wrong |
 
@@ -97,6 +98,7 @@ The test drives the MCP tools through these cases:
 - id assignment and version conflicts
 - fix, then verify, including the same-session refusal
 - links, corrections and read-only access
+- batches: replay, rollback of the whole batch on one failure, the same grant and login rules
 
 It also checks the database rules directly through the logins, then re-runs the installer.
 

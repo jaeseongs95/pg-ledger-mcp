@@ -384,6 +384,62 @@ BEGIN
   RETURN ledger._finish(p_request, jsonb_build_object('status', 'COMMITTED', 'corrects', p_history_id, 'history_id', v_hist, 'author', p_author, 'login', session_user));
 END $f$;
 
+-- batch: up to 200 write operations in one transaction; they all commit or none does. Each operation is an object
+-- {"op": save | transition | record_fix | link | correct, <the same arguments as the single function>, "request_id"?}.
+-- An operation without request_id gets one derived from the batch request id and its position, so sending the same
+-- batch again with the same request id returns the stored results instead of writing twice. SECURITY INVOKER: every
+-- operation runs through its public function with that function's login, grant, reason and idempotency checks.
+CREATE OR REPLACE FUNCTION ledger.batch(p_request uuid, p_author text, p_ops jsonb) RETURNS jsonb
+LANGUAGE plpgsql SET search_path = ledger, pg_temp AS $f$
+DECLARE o jsonb; i int; n int; v_op text; v_req uuid; v_res jsonb; results jsonb := '[]'; allowed text[]; required text[]; bad text;
+  v_state text; v_msg text;
+BEGIN
+  IF p_request IS NULL THEN RAISE EXCEPTION 'request id is required' USING ERRCODE = '22023'; END IF;
+  IF p_ops IS NULL OR jsonb_typeof(p_ops) <> 'array' THEN RAISE EXCEPTION 'batch: ops must be a JSON array' USING ERRCODE = '22023'; END IF;
+  n := jsonb_array_length(p_ops);
+  IF n NOT BETWEEN 1 AND 200 THEN RAISE EXCEPTION 'batch: 1..200 operations allowed (got %)', n USING ERRCODE = '22023'; END IF;
+  FOR i IN 0 .. n - 1 LOOP
+    o := p_ops->i; v_op := CASE WHEN jsonb_typeof(o) = 'object' THEN o->>'op' END;
+    BEGIN
+      required := CASE v_op
+        WHEN 'save' THEN ARRAY['entity','fields','reason']
+        WHEN 'transition' THEN ARRAY['entity','id','expected_version','to','reason']
+        WHEN 'record_fix' THEN ARRAY['defect_id','repo','commit_sha','reason']
+        WHEN 'link' THEN ARRAY['kind','a','b','reason']
+        WHEN 'correct' THEN ARRAY['history_id','reason'] END;
+      IF required IS NULL THEN
+        RAISE EXCEPTION 'op must be one of save, transition, record_fix, link, correct (got %)', coalesce(v_op, 'NULL') USING ERRCODE = '22023';
+      END IF;
+      allowed := required || ARRAY['op','request_id'] || CASE v_op
+        WHEN 'save' THEN ARRAY['id','expected_version']
+        WHEN 'transition' THEN ARRAY['evidence_uri','evidence_sha256','merged_into']
+        WHEN 'record_fix' THEN ARRAY['branch','ci_ref','ci_conclusion','ci_completed_at','mark_source_fixed']
+        WHEN 'link' THEN ARRAY['remove']
+        ELSE '{}'::text[] END;
+      SELECT string_agg(k, ',') INTO bad FROM jsonb_object_keys(o) k WHERE k <> ALL (allowed);
+      IF bad IS NOT NULL THEN RAISE EXCEPTION 'unknown key(s) %', bad USING ERRCODE = '22023'; END IF;
+      SELECT string_agg(k, ',') INTO bad FROM unnest(required) k WHERE jsonb_typeof(o->k) IS NULL OR jsonb_typeof(o->k) = 'null';
+      IF bad IS NOT NULL THEN RAISE EXCEPTION 'missing %', bad USING ERRCODE = '22023'; END IF;
+      v_req := coalesce((o->>'request_id')::uuid, md5(p_request::text || ':' || i)::uuid);
+      v_res := CASE v_op
+        WHEN 'save' THEN ledger.save(v_req, p_author, o->>'entity', o->>'id', coalesce((o->>'expected_version')::int, 0), o->'fields', o->>'reason')
+        WHEN 'transition' THEN ledger.transition(v_req, p_author, o->>'entity', o->>'id', (o->>'expected_version')::int, o->>'to', o->>'reason',
+                                                 o->>'evidence_uri', o->>'evidence_sha256', o->>'merged_into')
+        WHEN 'record_fix' THEN ledger.record_fix(v_req, p_author, o->>'defect_id', o->>'repo', o->>'commit_sha', o->>'reason', o->>'branch',
+                                                 o->>'ci_ref', o->>'ci_conclusion', (o->>'ci_completed_at')::timestamptz,
+                                                 coalesce((o->>'mark_source_fixed')::boolean, true))
+        WHEN 'link' THEN ledger.link(v_req, p_author, o->>'kind', o->>'a', o->>'b', o->>'reason', coalesce((o->>'remove')::boolean, false))
+        ELSE ledger.correct(v_req, p_author, (o->>'history_id')::bigint, o->>'reason') END;
+    EXCEPTION WHEN OTHERS THEN
+      -- re-raised outside the operation: the whole statement, and so every earlier operation, rolls back
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      RAISE EXCEPTION 'batch op % (%): %; nothing was written', i + 1, coalesce(v_op, '?'), v_msg USING ERRCODE = v_state;
+    END;
+    results := results || jsonb_build_array(v_res);
+  END LOOP;
+  RETURN jsonb_build_object('status', 'COMMITTED', 'count', n, 'results', results);
+END $f$;
+
 -- whoami: what this login and a declared author may do right now (read only).
 CREATE OR REPLACE FUNCTION ledger.whoami(p_author text DEFAULT NULL) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = ledger, pg_temp AS $f$
@@ -430,7 +486,8 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA ledger FROM PUBLIC;
 GRANT USAGE ON SCHEMA ledger TO ledger_author, ledger_reviewer, ledger_reader;
 GRANT EXECUTE ON FUNCTION ledger.save(uuid,text,text,text,int,jsonb,text),
                           ledger.record_fix(uuid,text,text,text,text,text,text,text,text,timestamptz,boolean),
-                          ledger.link(uuid,text,text,text,text,text,boolean) TO ledger_author;
+                          ledger.link(uuid,text,text,text,text,text,boolean),
+                          ledger.batch(uuid,text,jsonb) TO ledger_author;
 GRANT EXECUTE ON FUNCTION ledger.transition(uuid,text,text,text,int,text,text,text,text,text),
                           ledger.correct(uuid,text,bigint,text) TO ledger_author, ledger_reviewer;
 GRANT EXECUTE ON FUNCTION ledger.whoami(text), ledger._sid(text), ledger._author_ok(text) TO ledger_author, ledger_reviewer, ledger_reader;

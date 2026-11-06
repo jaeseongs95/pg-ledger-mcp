@@ -71,7 +71,7 @@ echo "== install again (re-apply keeps data, token and passwords)"
 "$REPO/deploy/install.sh" --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --name "$NAME"
 [ "$(sed -n 's/^DBHUB_AUTH_TOKEN=//p' "/etc/$NAME/env")" = "$TOKEN" ] && echo "PASS  token kept" || { echo "FAIL  token changed"; fail=1; }
 n=$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect")
-[ "$n" = 2 ] && echo "PASS  data kept ($n defects)" || { echo "FAIL  defects after re-install: $n"; fail=1; }
+[ "$n" = 4 ] && echo "PASS  data kept ($n defects)" || { echo "FAIL  defects after re-install: $n"; fail=1; }
 ls /var/backups/$NAME/ledger-*.dump >/dev/null && echo "PASS  backup taken before re-apply" || { echo "FAIL  no backup"; fail=1; }
 
 [ "$fail" = 0 ] && echo "E2E PASSED" || { echo "E2E FAILED"; exit 1; }

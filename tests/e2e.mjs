@@ -78,6 +78,27 @@ await ok('link two defects', 'ledger_link', { author_id: AUTHOR, kind: 'same_fam
 const [{ id: createRow }] = await sql(`SELECT id FROM ledger.history WHERE entity = 'defect' AND entity_id = '${code}-D-0002' AND op = 'CREATE'`);
 await ok('correct a history row', 'ledger_correct', { author_id: AUTHOR, history_id: Number(createRow), reason: 'e2e: the title was a placeholder' }, (x) => x.corrects === Number(createRow));
 
+// batch: one transaction, replay by batch request id, all-or-nothing, same rules as the single tools
+const batch = (ops, extra = {}) => ({ author_id: AUTHOR, ops: JSON.stringify(ops), ...extra });
+const saveOp = (title) => ({ op: 'save', entity: 'defect', fields: JSON.parse(defect(title)), reason });
+const bid = randomUUID();
+const b1 = await ok('batch saves two defects and links them', 'ledger_batch', batch([saveOp('batch one'), saveOp('batch two'),
+  { op: 'link', kind: 'same_site', a: `${code}-D-0003`, b: `${code}-D-0004`, reason }], { request_id: bid }),
+  (x) => x.count === 3 && x.results[0].id === `${code}-D-0003` && x.results[1].id === `${code}-D-0004` && x.results[2].entity === 'defect_relation');
+await ok('same batch request id replays the stored results', 'ledger_batch', batch([saveOp('batch one'), saveOp('batch two'),
+  { op: 'link', kind: 'same_site', a: `${code}-D-0003`, b: `${code}-D-0004`, reason }], { request_id: bid }),
+  (x) => JSON.stringify(x.results) === JSON.stringify(result(b1).results));
+await refused('a failing op rolls the whole batch back', 'ledger_batch', batch([saveOp('must not stay'),
+  { op: 'transition', entity: 'defect', id: `${code}-D-0003`, expected_version: 9, to: 'DISPUTED', reason, evidence_uri: 'https://ci.example/run/2' }]), 'batch op 2 (transition): version conflict');
+const [{ n: kept }] = await sql(`SELECT count(*) AS n FROM ledger.defect WHERE title = 'must not stay'`);
+check('nothing of the failed batch was written', Number(kept) === 0, kept);
+await refused('batch needs the same grants', 'ledger_batch', { author_id: NOGRANT, ops: JSON.stringify([saveOp('x')]) }, 'SESSION_NOT_GRANTED');
+await refused('batch cannot verify through the author login', 'ledger_batch',
+  batch([{ op: 'transition', entity: 'defect', id: `${code}-D-0004`, expected_version: 1, to: 'VERIFIED', reason, evidence_uri: 'https://ci.example/run/1' }]), 'VERIFY_NEEDS_REVIEWER_LOGIN');
+await refused('batch refuses unknown keys', 'ledger_batch', batch([{ ...saveOp('x'), titel: 'typo' }]), 'unknown key(s) titel');
+await refused('batch refuses a missing version on transition', 'ledger_batch',
+  batch([{ op: 'transition', entity: 'defect', id: `${code}-D-0004`, to: 'OPEN', reason }]), 'missing expected_version');
+
 // read side
 const [row] = await sql(`SELECT status, version, project_id FROM ledger.v_defect WHERE id = '${code}-D-0001'`);
 check('reader sees the verified defect', row?.status === 'VERIFIED' && row?.project_id === project, row);
