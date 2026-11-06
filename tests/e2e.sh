@@ -60,7 +60,7 @@ if [ -z "$UPGRADE_FROM" ]; then
   "$REPO/deploy/install.sh" --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --name "$NAME" --reset-passwords
 else
   OLD=$(mktemp -d)
-  git -C "$REPO" archive "$UPGRADE_FROM" | tar -x -C "$OLD"
+  git -c safe.directory="$REPO" -C "$REPO" archive "$UPGRADE_FROM" | tar -x -C "$OLD"   # sudo: the checkout may belong to another user
   echo "== install $UPGRADE_FROM (old schema)"
   "$OLD/deploy/install.sh" --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --name "$NAME" --reset-passwords
   echo "== write data with the old schema"
