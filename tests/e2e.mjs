@@ -238,20 +238,23 @@ const h = await mcp.call('execute_sql_reader', { sql: 'SELECT ledger.grant_sessi
 check('reader cannot grant', h.isError, h.data);
 
 // CI is optional metadata. Keep the independent-session rule over every recorded fix.
-for (const mode of ['failure','mixed']) {
+for (const mode of ['failure','cancelled','mixed']) {
   const created = await ok(`V2/V5 create ${mode} verification fixture`,'ledger_save',
     { _hostAttestation: AUTHOR,entity: 'defect',expected_version: 0,fields: defect(`CI optional ${mode}`),reason });
   const id = result(created)?.id;
   await ok(`V2/V5 record ${mode} CI metadata`,'ledger_record_fix',
     { _hostAttestation: AUTHOR,defect_id: id,repo: 'example/repo',commit_sha: SHA,reason,
-      ci_ref: 'https://ci.example/optional',ci_conclusion: mode === 'failure' ? 'failure' : 'success' });
+      ci_ref: 'https://ci.example/optional',ci_conclusion: mode === 'mixed' ? 'success' : mode });
+  await refused(`V3 own ${mode} fix still cannot be verified`,'ledger_review',
+    { _hostAttestation: AUTHOR,entity: 'defect',id,expected_version: 2,to: 'VERIFIED',reason,
+      evidence_uri: 'https://example.test/direct-program-execution' },'SAME_SESSION');
   if (mode === 'mixed') await ok('V5 record other-session fix without CI','ledger_record_fix',
     { _hostAttestation: REVIEWER,defect_id: id,repo: 'example/repo',commit_sha: 'b'.repeat(40),reason });
   await ok(`V2/V5 verify ${mode} independently of CI`,'ledger_review',
     { _hostAttestation: mode === 'mixed' ? AUTHOR : REVIEWER,entity: 'defect',id,expected_version: 2,to: 'VERIFIED',reason,
       evidence_uri: 'https://example.test/direct-program-execution' },x => x.to === 'VERIFIED' && x.login === 'ledger_reviewer');
   const [metadata] = await sql(`SELECT ci_conclusion FROM ledger.defect_fix WHERE defect_id='${id}' AND commit_sha='${SHA}'`);
-  check(`V2/V5 ${mode} CI metadata is retained`,metadata?.ci_conclusion === (mode === 'failure' ? 'failure' : 'success'),metadata);
+  check(`V2/V5 ${mode} CI metadata is retained`,metadata?.ci_conclusion === (mode === 'mixed' ? 'success' : mode),metadata);
 }
 const attention = await sql(`SELECT kind FROM ledger.v_attention WHERE project_id='${project}' AND kind='VERIFIED_WITHOUT_CI'`);
 check('V1 verified rows without CI do not produce a warning',attention.length === 0,attention);
