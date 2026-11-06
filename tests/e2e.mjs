@@ -99,6 +99,55 @@ await refused('batch refuses unknown keys', 'ledger_batch', batch([{ ...saveOp('
 await refused('batch refuses a missing version on transition', 'ledger_batch',
   batch([{ op: 'transition', entity: 'defect', id: `${code}-D-0004`, to: 'OPEN', reason }]), 'missing expected_version');
 
+// observed cases: one defect = one root cause, its observations are rows under it
+const caseArgs = (defectId, observation, extra = {}) => ({ author_id: AUTHOR, defect_id: defectId, observation, reason: 'e2e: record an observed case', ...extra });
+const D1 = `${code}-D-0001`, D2 = `${code}-D-0002`, D3 = `${code}-D-0003`, D4 = `${code}-D-0004`;
+const cid = randomUUID();
+const c1 = await ok('C1 record a case with evidence, user quote and time', 'ledger_record_case',
+  caseArgs(D1, 'login page shows 500', { request_id: cid, evidence: 'req 7f3a; app/login.ts:42', user_quote: '로그인이 안 돼요', observed_at: '2026-11-05T10:00:00Z' }),
+  (x) => x.entity === 'defect_case' && x.defect === D1 && x.id === `${D1}|${x.case_id}`);
+const c1h = result(c1)?.history_id;
+const [c1row] = (await sql(`SELECT entity, entity_id, op, author_id, login FROM ledger.history WHERE id = ${Number(c1h)}`)) ?? [];
+check('C2 the case has a history row', c1row?.entity === 'defect_case' && c1row?.op === 'CREATE' && c1row?.author_id === AUTHOR && c1row?.login === 'ledger_author', c1row);
+await refused('C3 a blank observation is refused', 'ledger_record_case', caseArgs(D1, '   '), 'defect_case_observation_check');
+await refused('C4 an ungranted author cannot record a case', 'ledger_record_case', { ...caseArgs(D1, 'x'), author_id: NOGRANT }, 'SESSION_NOT_GRANTED');
+await refused('C5 a case on an unknown defect is refused', 'ledger_record_case', caseArgs(`${code}-D-9999`, 'x'), 'not found');
+await ok('C6 same request id replays the stored case', 'ledger_record_case',
+  caseArgs(D1, 'login page shows 500', { request_id: cid, evidence: 'req 7f3a; app/login.ts:42', user_quote: '로그인이 안 돼요', observed_at: '2026-11-05T10:00:00Z' }),
+  (x) => x.history_id === c1h);
+await refused('C7 same request id with another observation is refused', 'ledger_record_case', caseArgs(D1, 'something else', { request_id: cid }), 'already bound');
+const caseCount = async () => Number((await sql('SELECT count(*) AS n FROM ledger.defect_case'))?.[0]?.n);
+check('C6 the replay wrote no second case', (await caseCount()) === 1, await caseCount());
+
+const c8id = randomUUID();
+const c8 = await ok('C8 record a case on a live defect', 'ledger_record_case', caseArgs(D4, 'batch two crashed', { request_id: c8id }), (x) => x.defect === D4);
+await ok('C8 merge it into another defect', 'ledger_transition', { author_id: AUTHOR, entity: 'defect', id: D4, expected_version: 1, to: 'MERGED', merged_into: D3, reason }, (x) => x.to === 'MERGED');
+await refused('C8 a case on the merged defect is refused, naming the target', 'ledger_record_case', caseArgs(D4, 'seen again'), `MERGED_DEFECT: ${D4} was merged into ${D3}`);
+await ok('C9 a retry of a case recorded before the merge replays', 'ledger_record_case', caseArgs(D4, 'batch two crashed', { request_id: c8id }),
+  (x) => x.history_id === result(c8)?.history_id);
+const caseOp = (defectId, observation, extra = {}) => ({ op: 'record_case', defect_id: defectId, observation, reason: 'e2e: record an observed case', ...extra });
+await ok('C10 batch records cases', 'ledger_batch', batch([caseOp(D3, 'batch one crashed', { observed_at: '2026-11-01T00:00:00Z' }), caseOp(D3, 'batch one crashed again')]),
+  (x) => x.count === 2 && x.results.every((r) => r.entity === 'defect_case' && r.defect === D3));
+const before11 = await caseCount();
+await refused('C11 a batch case on a merged defect rolls the batch back', 'ledger_batch', batch([caseOp(D3, 'must not stay'), caseOp(D4, 'merged')]),
+  `batch op 2 (record_case): MERGED_DEFECT: ${D4} was merged into ${D3}`);
+check('C11 nothing of that batch was written', (await caseCount()) === before11, await caseCount());
+
+const casesOf = async (id) => (await sql(`SELECT cases FROM ledger.v_defect WHERE id = '${id}'`))?.[0]?.cases;
+const tag = (cs) => (cs ?? []).map((c) => `${c.source}:${c.defect}`).sort();
+const c12 = await casesOf(D3);
+check('C12 the view lists the cases of the defect and of the defect merged into it', JSON.stringify(tag(c12)) ===
+  JSON.stringify([`case:${D3}`, `case:${D3}`, `case:${D4}`, `merged_behavior:${D4}`]), c12);
+await ok('C13 merge the target again (chain)', 'ledger_transition', { author_id: AUTHOR, entity: 'defect', id: D3, expected_version: 1, to: 'MERGED', merged_into: D2, reason }, (x) => x.to === 'MERGED');
+const c13 = await casesOf(D2);
+check('C13 the view follows chains of merges', JSON.stringify(tag(c13)) ===
+  JSON.stringify([`case:${D3}`, `case:${D3}`, `case:${D4}`, `merged_behavior:${D3}`, `merged_behavior:${D4}`]), c13);
+const c14 = await casesOf(D1);
+check('C14 the view keeps evidence, user quote and observation time', c14?.length === 1 && c14[0].evidence === 'req 7f3a; app/login.ts:42'
+  && c14[0].user_quote === '로그인이 안 돼요' && Date.parse(c14[0].observed_at) === Date.parse('2026-11-05T10:00:00Z') && c14[0].by === AUTHOR, c14);
+await ok('C15 a case history row can be corrected', 'ledger_correct', { author_id: AUTHOR, history_id: Number(c1h), reason: 'e2e: wrong page named in the case' },
+  (x) => x.corrects === Number(c1h));
+
 // read side
 const [row] = await sql(`SELECT status, version, project_id FROM ledger.v_defect WHERE id = '${code}-D-0001'`);
 check('reader sees the verified defect', row?.status === 'VERIFIED' && row?.project_id === project, row);
