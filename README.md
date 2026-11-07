@@ -17,6 +17,7 @@ Agents read and write through MCP tools. They never get a database login of thei
   A fix must be verified by a session other than the one that recorded it.
   `VERIFIED` needs an evidence link and at least one recorded fix from another session. CI results are optional metadata.
   The developer supplies the source SHA, original failure reproduction and direct execution steps; the reviewer runs the actual program.
+  When a defect is registered by one session (`created_by`) and fixed by another, `ledger_record_fix` updates `owner_actor_id` to the fixing session and `ledger.v_defect` exposes `fixed_by` / `fixed_at`; verification feedback and rework requests go to the session that fixed the defect (`fixed_by`), not `created_by`.
 - **History is append-only.** Every write adds a `ledger.history` row: when, author, login, operation, state change and reason.
   Mistakes are marked with a `CORRECT` row. Triggers refuse `UPDATE`, `DELETE` and `TRUNCATE` on history, even for the owner.
 - **Retries are safe.** Pass `request_id`, a UUID. Repeating the same request returns the stored result and does not write twice.
@@ -48,7 +49,7 @@ The MCP layer is a thin configuration of [DBHub](https://github.com/bytebase/dbh
 | `ledger_whoami` | author | is this author id well formed, which grants does it hold |
 | `ledger_save` | author | create or edit a defect, task or condition |
 | `ledger_transition` | author | change state (OPEN, SOURCE_FIXED, MERGED, ACTIVE, REPORTED_DONE, …) |
-| `ledger_record_fix` | author | record a fix commit and optional CI metadata; OPEN → SOURCE_FIXED |
+| `ledger_record_fix` | author | record a fix commit and optional CI metadata; assigns `owner_actor_id` (`v_defect.fixed_by`) and moves OPEN → SOURCE_FIXED |
 | `ledger_record_case` | author | add an observed case under a defect (refused on a MERGED defect, naming its target) |
 | `ledger_link` | author | link defects, tasks and conditions |
 | `ledger_correct` | author | mark a history row as wrong |

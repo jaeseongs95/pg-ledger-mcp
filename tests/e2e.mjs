@@ -59,7 +59,8 @@ const definitions = await mcp.toolDefinitions();
 const definition = (name) => definitions.find(t => t.name === name);
 check('V1 reviewer instructions describe direct execution and optional CI',
   definition('ledger_review').description.includes('CI is optional metadata')
-  && definition('ledger_review').description.includes('reviewer runs the actual program'),definition('ledger_review'));
+  && definition('ledger_review').description.includes('reviewer runs the actual program')
+  && definition('ledger_review').description.includes('v_defect.fixed_by'),definition('ledger_review'));
 check('K1 ledger_codes is removed',!names.includes('ledger_codes'),names);
 const codes = await sql('SELECT code_group,code,name_ko,name_en,description_ko,description_en,active FROM ledger.common_code ORDER BY code_group,sort_order,code');
 check('K1 only the three extensible groups exist',JSON.stringify([...new Set(codes.map(c => c.code_group))].sort()) ===
@@ -225,8 +226,9 @@ const missingHostCases = {
 for (const [tool,args] of Object.entries(missingHostCases)) await refused(`H2 ${tool} requires host attestation`,tool,args,'HOST_ATTESTATION_REQUIRED');
 const [fixAuthor] = await sql(`SELECT recorded_by FROM ledger.defect_fix WHERE defect_id='${D1}'`);
 check('P4 record_fix keeps its existing author column',fixAuthor?.recorded_by === AUTHOR,fixAuthor);
-const [firstAuthor] = await sql(`SELECT created_by FROM ledger.v_defect WHERE id='${D1}'`);
-check('P5 edit, record_fix and reviewer transition preserve original creator',firstAuthor?.created_by === AUTHOR,firstAuthor);
+const [firstAuthor] = await sql(`SELECT created_by, owner_actor_id, fixed_by, fixed_at FROM ledger.v_defect WHERE id='${D1}'`);
+check('P5 edit, record_fix and reviewer transition preserve original creator and expose fixed_by',
+  firstAuthor?.created_by === AUTHOR && firstAuthor?.owner_actor_id === AUTHOR && firstAuthor?.fixed_by === AUTHOR && Boolean(firstAuthor?.fixed_at),firstAuthor);
 // read side
 const [row] = await sql(`SELECT status, version, project_id FROM ledger.v_defect WHERE id = '${code}-D-0001'`);
 check('reader sees the verified defect', row?.status === 'VERIFIED' && row?.project_id === project, row);
@@ -249,15 +251,39 @@ for (const mode of ['failure','cancelled','mixed']) {
     { _hostAttestation: AUTHOR,entity: 'defect',id,expected_version: 2,to: 'VERIFIED',reason,
       evidence_uri: 'https://example.test/direct-program-execution' },'SAME_SESSION');
   if (mode === 'mixed') await ok('V5 record other-session fix without CI','ledger_record_fix',
-    { _hostAttestation: REVIEWER,defect_id: id,repo: 'example/repo',commit_sha: 'b'.repeat(40),reason });
+    { _hostAttestation: REVIEWER,defect_id: id,repo: 'example/repo',commit_sha: 'b'.repeat(40),reason },
+    x => x.owner_actor_id === REVIEWER && x.version === 3);
   await ok(`V2/V5 verify ${mode} independently of CI`,'ledger_review',
-    { _hostAttestation: mode === 'mixed' ? AUTHOR : REVIEWER,entity: 'defect',id,expected_version: 2,to: 'VERIFIED',reason,
+    { _hostAttestation: mode === 'mixed' ? AUTHOR : REVIEWER,entity: 'defect',id,expected_version: mode === 'mixed' ? 3 : 2,to: 'VERIFIED',reason,
       evidence_uri: 'https://example.test/direct-program-execution' },x => x.to === 'VERIFIED' && x.login === 'ledger_reviewer');
+  if (mode === 'mixed') {
+    const [mixedRow] = await sql(`SELECT created_by, owner_actor_id, fixed_by, last_author FROM ledger.v_defect WHERE id='${id}'`);
+    check('V6 separate creator and fixer keep created_by and route owner_actor_id/fixed_by to fixer',
+      mixedRow?.created_by === AUTHOR && mixedRow?.owner_actor_id === REVIEWER && mixedRow?.fixed_by === REVIEWER && mixedRow?.last_author === AUTHOR,mixedRow);
+  }
   const [metadata] = await sql(`SELECT ci_conclusion FROM ledger.defect_fix WHERE defect_id='${id}' AND commit_sha='${SHA}'`);
   check(`V2/V5 ${mode} CI metadata is retained`,metadata?.ci_conclusion === (mode === 'mixed' ? 'success' : mode),metadata);
 }
 const attention = await sql(`SELECT kind FROM ledger.v_attention WHERE project_id='${project}' AND kind='VERIFIED_WITHOUT_CI'`);
 check('V1 verified rows without CI do not produce a warning',attention.length === 0,attention);
+
+// Task re-verification after reviewer rejection (VERIFIED -> REPORTED_DONE) must still check original reporter, not the rejecting reviewer.
+await ok('V7 task reported done by author','ledger_transition',
+  { _hostAttestation: AUTHOR,entity: 'task',id: 'E2E-T-1',expected_version: 1,to: 'REPORTED_DONE',reason,evidence_uri: 'https://example.test/task-done-1' },
+  x => x.to === 'REPORTED_DONE' && x.version === 2);
+await refused('V7 reporter cannot verify own task','ledger_review',
+  { _hostAttestation: AUTHOR,entity: 'task',id: 'E2E-T-1',expected_version: 2,to: 'VERIFIED',reason,evidence_uri: 'https://example.test/task-verify' },'SAME_SESSION');
+await ok('V7 reviewer verifies task','ledger_review',
+  { _hostAttestation: REVIEWER,entity: 'task',id: 'E2E-T-1',expected_version: 2,to: 'VERIFIED',reason,evidence_uri: 'https://example.test/task-verify-1' },
+  x => x.to === 'VERIFIED' && x.version === 3);
+await ok('V7 reviewer sends task back to REPORTED_DONE','ledger_review',
+  { _hostAttestation: REVIEWER,entity: 'task',id: 'E2E-T-1',expected_version: 3,to: 'REPORTED_DONE',reason,evidence_uri: 'https://example.test/task-reopen-1' },
+  x => x.to === 'REPORTED_DONE' && x.version === 4);
+await refused('V7 original reporter still cannot verify after reviewer rejection','ledger_review',
+  { _hostAttestation: AUTHOR,entity: 'task',id: 'E2E-T-1',expected_version: 4,to: 'VERIFIED',reason,evidence_uri: 'https://example.test/task-verify-self' },'SAME_SESSION');
+await ok('V7 same reviewer can re-verify task after rejecting it','ledger_review',
+  { _hostAttestation: REVIEWER,entity: 'task',id: 'E2E-T-1',expected_version: 4,to: 'VERIFIED',reason,evidence_uri: 'https://example.test/task-verify-2' },
+  x => x.to === 'VERIFIED' && x.version === 5);
 
 console.log(failed ? `${failed} check(s) FAILED` : 'ALL PASSED');
 process.exit(failed ? 1 : 0);

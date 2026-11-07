@@ -161,6 +161,7 @@ description = "Target defect id for MERGED"
 name = "ledger_record_fix"
 source = "author"
 description = """Record a fix commit for a defect, or update the CI result of an already recorded fix.
+Recording a new fix commit assigns owner_actor_id on the defect to the fixing session (exposed as fixed_by in ledger.v_defect) while preserving created_by.
 An OPEN defect moves to SOURCE_FIXED in the same transaction unless mark_source_fixed = false. Needs scope fix."""
 statement = "SELECT ledger.record_fix(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::text, $6::text, $7::text, $8::text, $9::text, $10::timestamptz, $11::boolean) AS result"
 [[tools.parameters]]
@@ -359,7 +360,8 @@ name = "ledger_review"
 source = "reviewer"
 description = """Reviewer transition. Defect SOURCE_FIXED -> VERIFIED needs evidence_uri and at least one recorded fix from another session; CI is optional metadata.
 The developer provides the source SHA, original failure reproduction and direct execution steps; the reviewer runs the actual program.
-Task REPORTED_DONE -> VERIFIED needs evidence_uri and a session other than the owner and the reporter.
+Because a defect may be registered (created_by) by one session and fixed by another, send verification results or rework requests to the session that fixed the defect (v_defect.fixed_by / latest defect_fix.recorded_by, also updated into owner_actor_id), not to created_by.
+Task REPORTED_DONE -> VERIFIED needs evidence_uri and a session other than the owner and the completion reporter (a reviewer who reopened VERIFIED -> REPORTED_DONE can still re-verify).
 Condition -> MET / NOT_MET needs evidence_uri. Also reopens VERIFIED rows (evidence_uri required). Needs scope verify."""
 statement = "SELECT ledger.transition(coalesce($1::uuid, gen_random_uuid()), $2::text, $3::text, $4::text, $5::int, $6::text, $7::text, $8::text, $9::text, NULL::text) AS result"
 [[tools.parameters]]

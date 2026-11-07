@@ -317,7 +317,8 @@ BEGIN
       IF p_evidence_uri IS NULL THEN RAISE EXCEPTION 'VERIFIED needs evidence_uri' USING ERRCODE = '23514'; END IF;
       IF ledger._sid(v_owner) = ledger._sid(p_author) THEN RAISE EXCEPTION 'SAME_SESSION: the task owner cannot verify it' USING ERRCODE = '23514'; END IF;
       SELECT h.author_id INTO v_reporter FROM ledger.history h
-       WHERE h.entity = 'task' AND h.entity_id = p_id AND h.op = 'TRANSITION' AND h.to_state = 'REPORTED_DONE' ORDER BY h.id DESC LIMIT 1;
+       WHERE h.entity = 'task' AND h.entity_id = p_id AND h.op = 'TRANSITION' AND h.to_state = 'REPORTED_DONE'
+         AND h.from_state IS DISTINCT FROM 'VERIFIED' ORDER BY h.id DESC LIMIT 1;
       IF ledger._sid(v_reporter) = ledger._sid(p_author) THEN
         RAISE EXCEPTION 'SAME_SESSION: the session that reported the task done cannot verify it' USING ERRCODE = '23514';
       END IF;
@@ -335,15 +336,15 @@ BEGIN
 END $f$;
 
 -- record_fix (scope 'fix' on the defect's project): add (or update CI of) a fix commit; an OPEN defect moves to SOURCE_FIXED
--- in the same transaction unless p_mark_source_fixed = false.
+-- in the same transaction unless p_mark_source_fixed = false. Recording a new fix commit assigns owner_actor_id to p_author.
 CREATE OR REPLACE FUNCTION ledger.record_fix(p_request uuid, p_author text, p_defect text, p_repo text, p_commit text, p_reason text,
                                   p_branch text DEFAULT NULL, p_ci_ref text DEFAULT NULL, p_ci_conclusion text DEFAULT NULL,
                                   p_ci_completed_at timestamptz DEFAULT NULL, p_mark_source_fixed boolean DEFAULT true)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = ledger, pg_temp AS $f$
-DECLARE prior jsonb; v_status text; v_ver int; v_project text; old_fix ledger.defect_fix; changes jsonb := '{}'; v_hist bigint; v_trans bigint; v_fix bigint;
+DECLARE prior jsonb; v_status text; v_ver int; v_project text; v_owner text; v_next_owner text; old_fix ledger.defect_fix; changes jsonb := '{}'; v_hist bigint; v_trans bigint; v_fix bigint;
 BEGIN
   -- Lock the defect first: the SOURCE_FIXED check and the fix insert then see the same state (no write skew).
-  SELECT status, version, project_id INTO v_status, v_ver, v_project FROM ledger.defect WHERE id = p_defect FOR UPDATE;
+  SELECT status, version, project_id, owner_actor_id INTO v_status, v_ver, v_project, v_owner FROM ledger.defect WHERE id = p_defect FOR UPDATE;
   IF v_status IS NULL THEN RAISE EXCEPTION 'record_fix: defect % not found', p_defect USING ERRCODE = '22023'; END IF;
   PERFORM ledger._begin(p_author, 'fix', v_project);
   PERFORM ledger._check_reason(p_reason);
@@ -357,6 +358,7 @@ BEGIN
     v_hist := ledger._hist(p_author, 'defect_fix', p_defect || '@' || p_commit, 'CREATE', NULL, NULL,
                 jsonb_build_object('repo', jsonb_build_array(NULL, p_repo), 'branch', jsonb_build_array(NULL, p_branch), 'ci_ref', jsonb_build_array(NULL, p_ci_ref), 'ci_conclusion', jsonb_build_array(NULL, p_ci_conclusion)),
                 p_reason, p_ci_ref, NULL, p_request);
+    v_next_owner := p_author;
   ELSE
     IF p_ci_ref IS NULL THEN RAISE EXCEPTION 'record_fix: fix already recorded; pass CI data to update it' USING ERRCODE = '22023'; END IF;
     IF old_fix.ci_ref IS DISTINCT FROM p_ci_ref THEN changes := changes || jsonb_build_object('ci_ref', jsonb_build_array(old_fix.ci_ref, p_ci_ref)); END IF;
@@ -366,15 +368,24 @@ BEGIN
     UPDATE ledger.defect_fix SET ci_ref = p_ci_ref, ci_conclusion = p_ci_conclusion, ci_completed_at = p_ci_completed_at WHERE id = old_fix.id;
     v_fix := old_fix.id;
     v_hist := ledger._hist(p_author, 'defect_fix', p_defect || '@' || p_commit, 'EDIT', NULL, NULL, changes, p_reason, p_ci_ref, NULL, p_request);
+    v_next_owner := v_owner;
   END IF;
   IF v_status = 'OPEN' AND p_mark_source_fixed THEN
-    UPDATE ledger.defect SET status = 'SOURCE_FIXED', version = version + 1, updated_at = clock_timestamp() WHERE id = p_defect;
+    UPDATE ledger.defect SET status = 'SOURCE_FIXED', owner_actor_id = v_next_owner, version = version + 1, updated_at = clock_timestamp() WHERE id = p_defect;
     v_trans := ledger._hist(p_author, 'defect', p_defect, 'TRANSITION', 'OPEN', 'SOURCE_FIXED',
-                 jsonb_build_object('fix', jsonb_build_array(NULL, p_commit)), p_reason, p_ci_ref, NULL, p_request);
+                 jsonb_build_object('fix', jsonb_build_array(NULL, p_commit))
+                 || CASE WHEN v_owner IS DISTINCT FROM v_next_owner THEN jsonb_build_object('owner_actor_id', jsonb_build_array(v_owner, v_next_owner)) ELSE '{}'::jsonb END,
+                 p_reason, p_ci_ref, NULL, p_request);
     v_status := 'SOURCE_FIXED'; v_ver := v_ver + 1;
+  ELSIF v_owner IS DISTINCT FROM v_next_owner THEN
+    UPDATE ledger.defect SET owner_actor_id = v_next_owner, version = version + 1, updated_at = clock_timestamp() WHERE id = p_defect;
+    v_trans := ledger._hist(p_author, 'defect', p_defect, 'EDIT', NULL, NULL,
+                 jsonb_build_object('owner_actor_id', jsonb_build_array(v_owner, v_next_owner)),
+                 p_reason, p_ci_ref, NULL, p_request);
+    v_ver := v_ver + 1;
   END IF;
   RETURN ledger._finish(p_request, jsonb_build_object('status', 'COMMITTED', 'defect', p_defect, 'fix_id', v_fix, 'defect_status', v_status,
-                        'version', v_ver, 'history_id', v_hist, 'transition_history_id', v_trans, 'author', p_author, 'login', session_user));
+                        'owner_actor_id', v_next_owner, 'version', v_ver, 'history_id', v_hist, 'transition_history_id', v_trans, 'author', p_author, 'login', session_user));
 END $f$;
 
 -- link: defect_task | relation kinds (same_site, caused_by, blocks, same_family, same_fix_unit) -> scope 'defect' on the
@@ -563,7 +574,8 @@ DROP FUNCTION IF EXISTS ledger.codes(text);
 -- ---------- views ----------
 DROP VIEW IF EXISTS ledger.v_defect, ledger.v_history, ledger.v_attention;
 CREATE VIEW ledger.v_defect AS
-SELECT d.id, d.project_id, d.title, d.category, d.severity, d.status, d.merged_into, d.owner_actor_id, d.version, d.updated_at, d.created_by,
+SELECT d.id, d.project_id, d.title, d.category, d.severity, d.status, d.merged_into, coalesce(d.owner_actor_id, lf.recorded_by) AS owner_actor_id, d.version, d.updated_at, d.created_by,
+       lf.recorded_by AS fixed_by, lf.recorded_at AS fixed_at,
        h.at AS last_change_at, h.author_id AS last_author, h.login AS last_login, h.actor_assurance AS last_assurance, h.op AS last_op, h.reason AS last_reason,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('commit', f.commit_sha, 'repo', f.repo, 'branch', f.branch, 'ci', f.ci_ref,
                                                      'ci_conclusion', f.ci_conclusion, 'by', f.recorded_by) ORDER BY f.id)
@@ -582,6 +594,7 @@ SELECT d.id, d.project_id, d.title, d.category, d.severity, d.status, d.merged_i
                        SELECT 'merged_behavior', m.id, NULL, m.behavior, NULL, NULL, NULL, NULL, m.created_at
                          FROM ledger.defect m JOIN src ON src.id = m.id WHERE m.id <> d.id) c), '[]') AS cases
 FROM ledger.defect d
+LEFT JOIN LATERAL (SELECT f.recorded_by, f.recorded_at FROM ledger.defect_fix f WHERE f.defect_id = d.id ORDER BY f.id DESC LIMIT 1) lf ON true
 LEFT JOIN LATERAL (SELECT x.* FROM ledger.history x WHERE x.entity = 'defect' AND x.entity_id = d.id AND x.op <> 'IMPORT'
                    ORDER BY x.at DESC, x.id DESC LIMIT 1) h ON true;
 
