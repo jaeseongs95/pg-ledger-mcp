@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -155,4 +156,125 @@ test('S11: Antigravity call_mcp_tool targets only ledger Arguments and preserves
   for (const Arguments of [null, [], 7, '{', '[]', 'null', '"text"']) {
     assert.equal(a.decision(invoke(a, a.event('call_mcp_tool', { ServerName: 't0001sink', ToolName: 'ledger_save', Arguments }))), 'deny');
   }
+});
+function validateIsolatedCodexSink(serverName, inventory) {
+  if (!/^t0001sink[a-z0-9_-]*$/.test(String(serverName ?? ''))) throw new Error('Unexpected TEST server name');
+  if (!Array.isArray(inventory) || inventory.length !== 1) throw new Error('EXPECTED_SINGLE_TEST_SERVER');
+  for (const server of inventory) {
+    if (server?.name !== serverName) throw new Error('UNEXPECTED_MCP_SERVER');
+  }
+  return serverName;
+}
+function canonicalSha256(value) {
+  const canonical = JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.entries(item).sort(([x], [y]) => x.localeCompare(y))) : item);
+  return createHash('sha256').update(canonical).digest('hex');
+}
+function* collectObjects(value) {
+  if (Array.isArray(value)) {
+    for (const item of value) yield* collectObjects(item);
+  } else if (value && typeof value === 'object') {
+    yield value;
+    for (const item of Object.values(value)) yield* collectObjects(item);
+  } else if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+    try { yield* collectObjects(JSON.parse(value)); } catch {}
+  }
+}
+function parseAgyToolStep(event, alias, expected) {
+  const step = event?.step_update ?? {};
+  if (event?.event !== 'step_update' || step.step_type !== 'tool') return null;
+  const info = step.tool_info ?? {};
+  if (step.tool_name !== 'call_mcp_tool' || info.name !== 'call_mcp_tool') throw new Error('UNEXPECTED_NATIVE_TOOL');
+  const envelope = info.parameters ?? {};
+  let inner = envelope.Arguments;
+  if (typeof inner === 'string') inner = JSON.parse(inner);
+  if (envelope.ServerName !== alias || !inner || typeof inner !== 'object' || Array.isArray(inner)) throw new Error('UNEXPECTED_MODEL_MCP_TARGET');
+  const digest = canonicalSha256(inner);
+  if (expected.get(digest) !== envelope.ToolName) throw new Error('MODEL_INPUT_CHANGED');
+  const binding = `${step.conversation_id}:${step.step_index}`;
+  const call = {
+    toolUseIdSha256: createHash('sha256').update(binding).digest('hex'),
+    bindingKind: 'conversation_id:step_index',
+    conversationId: step.conversation_id,
+    stepIndex: step.step_index,
+    server: alias,
+    tool: envelope.ToolName,
+    argumentsType: typeof envelope.Arguments,
+    normalizedInputSha256: digest,
+    reservedPresent: Object.hasOwn(inner, '_hostAttestation'),
+  };
+  let result = null;
+  if (step.state === 'DONE') {
+    const facts = [...collectObjects(info.output)];
+    result = {
+      toolUseIdSha256: call.toolUseIdSha256,
+      isError: Boolean(info.error) || facts.some(o => o.success === false || o.isError === true),
+      authors: [...new Set(facts.filter(o => typeof o.author === 'string').map(o => o.author))].sort(),
+      grants: facts.flatMap(o => Array.isArray(o.grants) ? o.grants.filter(g => g && typeof g === 'object').map(g => ({ project: g.project, scope: g.scope, expires_at: g.expires_at })) : []),
+    };
+  }
+  return [call, result];
+}
+test('S13: Codex isolated sink preflight rejects built-in connector collisions and stamps isolated sink names (D-0007)', () => {
+  const a = adapters[0];
+  const config = JSON.parse(readFileSync(resolve(root, 'clients/codex/hooks/hooks.json')));
+  const matcher = new RegExp(config.hooks.PreToolUse[0].matcher);
+  for (const invalid of ['codex_apps', 'ledger', 'app_ledger', '']) {
+    assert.throws(() => validateIsolatedCodexSink(invalid, [{ name: invalid, runtimeStatus: 'connected' }]), /Unexpected TEST server name/);
+  }
+  assert.throws(() => validateIsolatedCodexSink('t0001sink', [{ name: 't0001sink' }, { name: 'codex_apps' }]), /EXPECTED_SINGLE_TEST_SERVER/);
+  assert.throws(() => validateIsolatedCodexSink('t0001sink', [{ name: 'codex_apps' }]), /UNEXPECTED_MCP_SERVER/);
+  for (const server of ['t0001sink', 't0001sink_isolated-01']) {
+    assert.equal(validateIsolatedCodexSink(server, [{ name: server, runtimeStatus: 'connected' }]), server);
+    for (const op of tools) {
+      for (const prefix of ['ledger_', 'app_ledger_ledger_']) {
+        const name = `mcp__${server}__${prefix}${op}`;
+        assert.ok(matcher.test(name));
+        const out = invoke(a, a.event(name, { marker: 'D0007-isolated' }));
+        assert.equal(a.decision(out), 'allow');
+        assert.equal(a.args({}, out)._hostAttestation, `codex:${id}`);
+      }
+    }
+  }
+});
+test('S14: Antigravity stream-json step_update collector binds conversation_id:step_index and extracts tool results (D-0008)', () => {
+  const alias = 't0001sink';
+  const expected = new Map([[canonicalSha256({}), 'ledger_whoami']]);
+  const envelope = { ServerName: alias, ToolName: 'ledger_whoami', Arguments: {} };
+  const grant = { project: 'PG_LEDGER_MCP', scope: 'task', expires_at: '2026-11-08T00:00:00Z' };
+  const doneEvent = {
+    event: 'step_update',
+    step_update: {
+      conversation_id: id,
+      step_index: 12,
+      step_type: 'tool',
+      state: 'DONE',
+      tool_name: 'call_mcp_tool',
+      tool_info: {
+        name: 'call_mcp_tool',
+        parameters: envelope,
+        output: JSON.stringify({ success: true, data: [{ author: `gemini:${id}`, grants: [grant] }] }),
+      },
+    },
+  };
+  const [call, result] = parseAgyToolStep(doneEvent, alias, expected);
+  assert.equal(call.conversationId, id);
+  assert.equal(call.stepIndex, 12);
+  assert.equal(call.bindingKind, 'conversation_id:step_index');
+  assert.deepEqual(result.authors, [`gemini:${id}`]);
+  assert.deepEqual(result.grants, [grant]);
+  assert.equal(result.isError, false);
+  const activeEvent = structuredClone(doneEvent);
+  activeEvent.step_update.state = 'ACTIVE';
+  delete activeEvent.step_update.tool_info.output;
+  const [activeCall, activeResult] = parseAgyToolStep(activeEvent, alias, expected);
+  assert.equal(activeCall.toolUseIdSha256, call.toolUseIdSha256);
+  assert.equal(activeResult, null);
+  assert.equal(parseAgyToolStep({ event: 'result', result: { response: JSON.stringify(doneEvent) } }, alias, expected), null);
+  const changedInput = structuredClone(doneEvent);
+  changedInput.step_update.tool_info.parameters.Arguments = { _hostAttestation: null };
+  assert.throws(() => parseAgyToolStep(changedInput, alias, expected), /MODEL_INPUT_CHANGED/);
+  const wrongServer = structuredClone(doneEvent);
+  wrongServer.step_update.tool_info.parameters.ServerName = 'other';
+  assert.throws(() => parseAgyToolStep(wrongServer, alias, expected), /UNEXPECTED_MODEL_MCP_TARGET/);
 });

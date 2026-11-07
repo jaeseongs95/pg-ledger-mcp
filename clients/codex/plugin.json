@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "pg-ledger-host-attestation",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Fill ledger host attestation from Codex session metadata.",
   "extensions": {
     "com.openai": {

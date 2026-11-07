@@ -145,10 +145,8 @@ Codex and Claude use host `session_id`; Antigravity uses `conversationId`. All t
 for cached schemas, without adding an absent value. Only the host `_hostAttestation` determines the author on the server;
 the legacy field has no authority. No child-specific identity, permission or blocking layer is added.
 
-These packages need real host calls against TEST before production rollout. Native callback delivery, parent-id behavior,
-Windows command execution and the portal's `updated_tools` refresh are separate acceptance evidence. Installation/global hook
-changes/restarts are not performed by a source checkout. Roll out the three host hooks first, then migrate the server under
-its existing operator approval; otherwise writes without hooks fail with `HOST_ATTESTATION_REQUIRED`.
+Roll out the three host hooks first, then migrate the server under its existing operator approval; otherwise writes without
+hooks fail with `HOST_ATTESTATION_REQUIRED`.
 
 ## Test
 
