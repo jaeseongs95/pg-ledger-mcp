@@ -507,6 +507,19 @@
               <button type="button" id="tasks-reset-btn" class="btn btn-secondary btn-sm">초기화</button>
             </div>
 
+            <div class="pagination-bar">
+              <span id="tasks-page-info" class="page-info">조회 중...</span>
+              <div class="page-controls">
+                <select id="tasks-limit-select" aria-label="페이지당 과업 표시 개수">
+                  <option value="25">25건씩</option>
+                  <option value="50" selected>50건씩</option>
+                  <option value="100">100건씩</option>
+                </select>
+                <button type="button" id="tasks-prev-btn" class="btn btn-secondary btn-sm" disabled>이전</button>
+                <button type="button" id="tasks-next-btn" class="btn btn-secondary btn-sm" disabled>다음</button>
+              </div>
+            </div>
+
             <div id="tasks-state-box" class="state-box" hidden></div>
 
             <div class="table-responsive" id="tasks-table-wrap">

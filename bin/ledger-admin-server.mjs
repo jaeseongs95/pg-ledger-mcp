@@ -496,9 +496,11 @@ export function createAdminApp(config) {
         }
         const expiresAtMs = Date.now() + 12 * 3600 * 1000;
         const cookieVal = makeSessionCookieValue(adminToken, expiresAtMs);
+        const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+        const secureAttr = forwardedProto === 'https' ? '; Secure' : '';
         res.setHeader(
           'Set-Cookie',
-          `pgledger_admin_session=${encodeURIComponent(cookieVal)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200`
+          `pgledger_admin_session=${encodeURIComponent(cookieVal)}; Path=/; HttpOnly; SameSite=Strict${secureAttr}; Max-Age=43200`
         );
         sendJson(res, 200, {
           ok: true,
@@ -510,7 +512,9 @@ export function createAdminApp(config) {
       }
 
       if (pathname === '/api/auth/logout' && method === 'POST') {
-        res.setHeader('Set-Cookie', 'pgledger_admin_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
+        const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+        const secureAttr = forwardedProto === 'https' ? '; Secure' : '';
+        res.setHeader('Set-Cookie', `pgledger_admin_session=; Path=/; HttpOnly; SameSite=Strict${secureAttr}; Max-Age=0`);
         sendJson(res, 200, { ok: true, authenticated: false });
         return;
       }
@@ -752,6 +756,7 @@ export function createAdminApp(config) {
 
       // 4. Audit History Explorer (/api/history)
       if (pathname === '/api/history' && method === 'GET') {
+        const project = urlObj.searchParams.get('project') || '';
         const entity = urlObj.searchParams.get('entity') || '';
         const op = urlObj.searchParams.get('op') || '';
         const author = (urlObj.searchParams.get('author') || '').trim();
@@ -763,7 +768,25 @@ export function createAdminApp(config) {
         const data = await queryReaderJson(
           `WITH filtered_hist AS (
             SELECT * FROM ledger.v_history h
-            WHERE (:'entity' = '' OR h.entity = :'entity')
+            WHERE (:'project' = '' OR (
+              CASE
+                WHEN h.entity = 'task' THEN EXISTS (SELECT 1 FROM ledger.task t WHERE t.id = h.entity_id AND t.project_id = :'project')
+                WHEN h.entity = 'condition' THEN EXISTS (SELECT 1 FROM ledger.condition c WHERE c.id = h.entity_id AND c.project_id = :'project')
+                WHEN h.entity = 'condition_link' THEN EXISTS (SELECT 1 FROM ledger.condition c WHERE c.id = split_part(h.entity_id, '|', 1) AND c.project_id = :'project')
+                WHEN h.entity = 'defect' THEN EXISTS (SELECT 1 FROM ledger.defect d WHERE d.id = h.entity_id AND d.project_id = :'project')
+                WHEN h.entity = 'defect_fix' THEN EXISTS (SELECT 1 FROM ledger.defect d WHERE d.id = split_part(h.entity_id, '@', 1) AND d.project_id = :'project')
+                WHEN h.entity = 'defect_relation' THEN EXISTS (
+                  SELECT 1 FROM ledger.defect d
+                  WHERE (d.id = split_part(h.entity_id, '|', 1) OR d.id = split_part(h.entity_id, '|', 2))
+                    AND d.project_id = :'project'
+                )
+                WHEN h.entity IN ('defect_case', 'defect_task') THEN EXISTS (
+                  SELECT 1 FROM ledger.defect d WHERE d.id = split_part(h.entity_id, '|', 1) AND d.project_id = :'project'
+                )
+                ELSE false
+              END
+            ))
+              AND (:'entity' = '' OR h.entity = :'entity')
               AND (:'op' = '' OR h.op = :'op')
               AND (:'author' = '' OR h.author_id ILIKE '%' || :'author' || '%')
               AND (:'entity_id' = '' OR h.entity_id ILIKE '%' || :'entity_id' || '%')
@@ -781,7 +804,7 @@ export function createAdminApp(config) {
               FROM (SELECT * FROM filtered_hist ORDER BY at DESC, id DESC LIMIT (:'limit')::int OFFSET (:'offset')::int) fh
             ), '[]'::jsonb)
           );`,
-          { entity, op, author, entity_id: entityId, q, limit: String(limit), offset: String(offset) }
+          { project, entity, op, author, entity_id: entityId, q, limit: String(limit), offset: String(offset) }
         );
         sendJson(res, 200, data);
         return;

@@ -48,6 +48,7 @@ const state = {
   projects: [],
   codes: [],
   defectsPage: { limit: 50, offset: 0, total: 0 },
+  tasksPage: { limit: 50, offset: 0, total: 0 },
   historyPage: { limit: 50, offset: 0, total: 0 },
   seq: {
     overview: 0,
@@ -888,11 +889,20 @@ async function loadTasksAndConditions() {
     const q = $('tasks-search-input').value.trim();
     if (st) params.set('state', st);
     if (q) params.set('q', q);
+    params.set('limit', String(state.tasksPage.limit));
+    params.set('offset', String(state.tasksPage.offset));
 
     const data = await apiRequest(`/api/tasks?${params.toString()}`);
     if (reqId !== state.seq.tasks) return;
 
     const tasks = data.tasks || [];
+    state.tasksPage.total = Number(data.totalTasks || 0);
+    const start = state.tasksPage.total === 0 ? 0 : state.tasksPage.offset + 1;
+    const end = Math.min(state.tasksPage.total, state.tasksPage.offset + tasks.length);
+    $('tasks-page-info').textContent = `전체 ${state.tasksPage.total}건 중 ${start}–${end}건 표시`;
+    $('tasks-prev-btn').disabled = state.tasksPage.offset <= 0;
+    $('tasks-next-btn').disabled = state.tasksPage.offset + state.tasksPage.limit >= state.tasksPage.total;
+
     if (tasks.length === 0) {
       setStateBox('tasks-state-box', 'tasks-table-wrap', 'empty', '조건에 해당하는 과업이 없습니다.');
     } else {
@@ -974,6 +984,7 @@ async function loadHistory() {
   setStateBox('history-state-box', 'history-table-wrap', 'loading', '감사 이력을 조회하는 중입니다...');
   try {
     const params = new URLSearchParams();
+    if (state.globalProject) params.set('project', state.globalProject);
     const entity = $('history-entity-filter').value;
     const op = $('history-op-filter').value;
     const entityId = $('history-entity-id-input').value.trim();
@@ -1140,7 +1151,13 @@ function renderCodesTable() {
                     onConfirm: () => submitCodeChange({ ...c, active: false })
                   });
                 } else {
-                  submitCodeChange({ ...c, active: true });
+                  openConfirmModal({
+                    title: '공통 코드 재활성화 (Activate) 확인',
+                    desc: '비활성화된 공통 코드를 다시 활성(active = true) 상태로 전환합니다. 신규 결함·링크 작성 시 선택할 수 있게 되며, 즉시 DBHub 도구 설명이 재생성 및 재시작됩니다.',
+                    detail: `그룹: ${c.code_group}\n코드: ${c.code} (${c.name_ko})`,
+                    triggerEl: ev.currentTarget,
+                    onConfirm: () => submitCodeChange({ ...c, active: true })
+                  });
                 }
               }
             })
@@ -1170,10 +1187,10 @@ async function submitCodeChange(payload) {
   const s2 = $('sync-step-2');
   const s3 = $('sync-step-3');
   banner.hidden = false;
-  s1.className = 'done';
-  s2.className = '';
+  s1.className = 'active';
+  s2.className = 'active';
   s3.className = '';
-  titleEl.textContent = `공통 코드(${payload.code_group}/${payload.code}) 반영 및 DBHub 재시작 동기화 중...`;
+  titleEl.textContent = `공통 코드(${payload.code_group}/${payload.code}) 반영 및 DBHub 재시작 동기화 요청 중...`;
 
   const submitBtn = $('code-submit-btn');
   submitBtn.disabled = true;
@@ -1181,14 +1198,21 @@ async function submitCodeChange(payload) {
 
   try {
     const res = await apiRequest('/api/codes', { method: 'POST', body: payload });
-    s1.className = 'done';
-    s2.className = 'done';
-    s3.className = 'done';
-    titleEl.textContent = `동기화 완료 (${res.sync?.durationMs ?? 0}ms) — DBHub /healthz 정상 확인됨`;
+    const steps = Array.isArray(res.sync?.steps) ? res.sync.steps : [];
+    const healthOk = res.sync?.mcpHealth?.ok !== false;
+    s1.className = steps.includes('DB_UPDATED') ? 'done' : '';
+    s2.className = steps.includes('DBHUB_RESTARTED') ? 'done' : '';
+    s3.className = healthOk ? 'done' : 'failed';
+    titleEl.textContent = healthOk
+      ? `동기화 완료 (${res.sync?.durationMs ?? 0}ms) — DBHub /healthz 정상 확인됨`
+      : `동기화 경고 (${res.sync?.durationMs ?? 0}ms) — DBHub /healthz 응답을 확인하세요`;
     showToast(`공통 코드 ${payload.code_group}/${payload.code} 반영 및 DBHub 동기화 완료`);
     await loadSettingsTab();
     await loadOverview();
   } catch (e) {
+    s1.className = 'failed';
+    s2.className = 'failed';
+    s3.className = 'failed';
     titleEl.textContent = `동기화 실패: ${e.message}`;
     const errBanner = $('code-form-error');
     errBanner.textContent = e.message;
@@ -1264,6 +1288,8 @@ function initEvents() {
   $('global-project-select').addEventListener('change', (e) => {
     state.globalProject = e.target.value;
     state.defectsPage.offset = 0;
+    state.tasksPage.offset = 0;
+    state.historyPage.offset = 0;
     refreshActiveTab();
   });
 
@@ -1394,13 +1420,30 @@ function initEvents() {
     loadDefects();
   });
 
-  // Tasks Filters
-  $('tasks-state-filter').addEventListener('change', loadTasksAndConditions);
-  $('tasks-search-btn').addEventListener('click', loadTasksAndConditions);
-  bindImeSafeEnter($('tasks-search-input'), loadTasksAndConditions);
+  // Tasks Filters & Pagination
+  const resetTasksOffsetAndLoad = () => {
+    state.tasksPage.offset = 0;
+    loadTasksAndConditions();
+  };
+  $('tasks-state-filter').addEventListener('change', resetTasksOffsetAndLoad);
+  $('tasks-search-btn').addEventListener('click', resetTasksOffsetAndLoad);
+  bindImeSafeEnter($('tasks-search-input'), resetTasksOffsetAndLoad);
   $('tasks-reset-btn').addEventListener('click', () => {
     $('tasks-state-filter').value = '';
     $('tasks-search-input').value = '';
+    resetTasksOffsetAndLoad();
+  });
+  $('tasks-limit-select').addEventListener('change', (e) => {
+    state.tasksPage.limit = Number(e.target.value) || 50;
+    state.tasksPage.offset = 0;
+    loadTasksAndConditions();
+  });
+  $('tasks-prev-btn').addEventListener('click', () => {
+    state.tasksPage.offset = Math.max(0, state.tasksPage.offset - state.tasksPage.limit);
+    loadTasksAndConditions();
+  });
+  $('tasks-next-btn').addEventListener('click', () => {
+    state.tasksPage.offset += state.tasksPage.limit;
     loadTasksAndConditions();
   });
 

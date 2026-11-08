@@ -54,6 +54,10 @@ await check("public /healthz and static assets include CSP and security headers"
   assert.equal(html.status, 200);
   assert.match(html.text, /pg-ledger-mcp/i);
   assert.match(html.text, /skip-link/);
+  assert.match(html.text, /id="tasks-page-info"/);
+  assert.match(html.text, /id="tasks-limit-select"/);
+  assert.match(html.text, /id="tasks-prev-btn"/);
+  assert.match(html.text, /id="tasks-next-btn"/);
 
   const css = await rawRequest("/styles.css");
   assert.equal(css.status, 200);
@@ -63,6 +67,8 @@ await check("public /healthz and static assets include CSP and security headers"
   assert.equal(js.status, 200);
   assert.match(js.text, /isComposing/);
   assert.match(js.text, /isSafeHttpUrl/);
+  assert.match(js.text, /공통 코드 재활성화 \(Activate\) 확인/);
+  assert.match(js.text, /s1\.className = 'active'/);
 });
 
 await check("unauthenticated /api/overview is rejected with 401", async () => {
@@ -179,14 +185,22 @@ await check("read-only explorer endpoints return overview, defects, defect detai
   assert.equal(detail.json?.defect?.id, firstId);
   assert.ok(Array.isArray(detail.json?.history));
 
-  const tasks = await rawRequest(`/api/tasks?project=${encodeURIComponent(project)}`, { headers });
+  const tasks = await rawRequest(`/api/tasks?project=${encodeURIComponent(project)}&limit=1&offset=0`, { headers });
   assert.equal(tasks.status, 200);
   assert.ok(Array.isArray(tasks.json?.tasks));
+  assert.equal(tasks.json?.limit, 1);
+  assert.equal(tasks.json?.offset, 0);
+  assert.ok(Number(tasks.json?.totalTasks) >= 1);
   assert.ok(Array.isArray(tasks.json?.conditions));
 
-  const history = await rawRequest(`/api/history?limit=10`, { headers });
+  const history = await rawRequest(`/api/history?project=${encodeURIComponent(project)}&limit=10`, { headers });
   assert.equal(history.status, 200);
   assert.ok(history.json?.items?.length >= 1);
+
+  const historyNonExistentProj = await rawRequest(`/api/history?project=nonexistent_project_zzz&limit=10`, { headers });
+  assert.equal(historyNonExistentProj.status, 200);
+  assert.equal(historyNonExistentProj.json?.total, 0);
+  assert.equal(historyNonExistentProj.json?.items?.length, 0);
 
   const grants = await rawRequest("/api/grants", { headers });
   assert.equal(grants.status, 200);
@@ -324,6 +338,21 @@ await check("owner mutations: common code delete is refused; code-set updates DB
   const uiUxRow = codesAfter.json?.items?.find((c) => c.code === "UI_UX");
   assert.ok(uiUxRow, "UI_UX row still exists in common_code");
   assert.equal(uiUxRow.active, false);
+});
+
+await check("HTTPS proxy header (X-Forwarded-Proto: https) adds Secure flag to session cookie", async () => {
+  const httpsLoginRes = await rawRequest("/api/auth/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "pg-ledger-admin",
+      "X-Forwarded-Proto": "https",
+    },
+    body: JSON.stringify({ token: adminToken }),
+  });
+  assert.equal(httpsLoginRes.status, 200);
+  const setCookie = httpsLoginRes.headers.get("set-cookie") || "";
+  assert.match(setCookie, /;\s*Secure/i);
 });
 
 if (process.exitCode) {

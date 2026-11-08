@@ -304,9 +304,36 @@ pass_if 'reapply preserves creators' "$(pgsu -d "$DB" -tAc "select string_agg(id
 pass_if 'created_by migration is recorded once' "$(pgsu -d "$DB" -tAc "select count(*) from ledger._migration where step='created_by'")" 1
 [ "$(sed -n 's/^DBHUB_AUTH_TOKEN=//p' "/etc/$NAME/env")" = "$TOKEN" ] && echo "PASS  token kept" || { echo "FAIL  token changed"; fail=1; }
 [ "$(sed -n 's/^PGLEDGER_ADMIN_TOKEN=//p' "/etc/$NAME/env")" = "$ADMIN_TOKEN" ] && echo "PASS  admin token kept" || { echo "FAIL  admin token changed"; fail=1; }
-echo "== One-click installer idempotency check"
+echo "== One-click installer idempotency & piped execution check"
 "$REPO/deploy/one-click-install.sh" --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --admin-port "$ADMIN_PORT" --name "$NAME" >/dev/null
+( cd /tmp && bash -s -- --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --admin-port "$ADMIN_PORT" --name "$NAME" --repo-dir "$REPO" < "$REPO/deploy/one-click-install.sh" >/dev/null ) \
+  && echo "PASS  one-click installer works when piped via stdin outside repo" \
+  || { echo "FAIL  one-click installer piped execution failed"; fail=1; }
 [ "$(sed -n 's/^PGLEDGER_ADMIN_TOKEN=//p' "/etc/$NAME/env")" = "$ADMIN_TOKEN" ] && echo "PASS  one-click installer preserves existing installation and tokens" || { echo "FAIL  one-click installer altered admin token"; fail=1; }
+
+echo "== Custom domain & Cloudflare/Nginx setup automation (deploy/setup-domain.sh)"
+"$REPO/deploy/setup-domain.sh" --name "$NAME" --domain jaeseong.dev --mode allowlist-only >/dev/null
+grep -q 'ledger-mcp.jaeseong.dev' "/etc/$NAME/env" && grep -q 'ledger-admin.jaeseong.dev' "/etc/$NAME/env" \
+  && echo "PASS  setup-domain.sh updated DBHUB_ALLOWED_HOSTS and PGLEDGER_ADMIN_ALLOWED_HOSTS" \
+  || { echo "FAIL  setup-domain.sh did not update /etc/$NAME/env allowlists"; fail=1; }
+curl -fsS -H "Host: ledger-admin.jaeseong.dev" "$ADMIN_URL/healthz" | grep -q '"service"' \
+  && echo "PASS  Admin server accepts configured custom domain Host header (ledger-admin.jaeseong.dev)" \
+  || { echo "FAIL  Admin server rejected custom domain Host header"; fail=1; }
+evil_status=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: evil.example.com" "$ADMIN_URL/healthz")
+[ "$evil_status" = "403" ] && echo "PASS  Admin server still blocks unlisted Host header with 403 ($evil_status)" \
+  || { echo "FAIL  Admin server did not block evil Host header (got $evil_status)"; fail=1; }
+tmp_cf="/tmp/$NAME-cloudflared-test.yml"
+tmp_ng="/tmp/$NAME-nginx-test.conf"
+rm -f "$tmp_cf" "$tmp_ng"
+"$REPO/deploy/setup-domain.sh" --name "$NAME" --domain jaeseong.dev --mode cloudflared-config --cloudflared-config "$tmp_cf" >/dev/null
+grep -q "hostname: ledger-mcp.jaeseong.dev" "$tmp_cf" && grep -q "hostname: ledger-admin.jaeseong.dev" "$tmp_cf" \
+  && echo "PASS  setup-domain.sh generated cloudflared ingress rules" \
+  || { echo "FAIL  setup-domain.sh cloudflared config missing expected ingress"; fail=1; }
+"$REPO/deploy/setup-domain.sh" --name "$NAME" --domain jaeseong.dev --mode nginx --nginx-conf "$tmp_ng" --nginx-dry-run >/dev/null
+grep -q "server_name ledger-mcp.jaeseong.dev;" "$tmp_ng" && grep -q "server_name ledger-admin.jaeseong.dev;" "$tmp_ng" \
+  && echo "PASS  setup-domain.sh generated Nginx reverse-proxy config" \
+  || { echo "FAIL  setup-domain.sh nginx config missing server_name"; fail=1; }
+rm -f "$tmp_cf" "$tmp_ng"
 n=$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect where project_id = '$PROJECT'")
 [ "$n" = 8 ] && echo "PASS  data kept ($n defects)" || { echo "FAIL  defects after re-install: $n"; fail=1; }
 pass_if 'cases kept by the re-install' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect_case" 2>&1 || true)" "$cases"

@@ -81,23 +81,45 @@ The Debian and Ubuntu defaults already allow it.
 
 ### One-Click Install
 
-To provision the database (if missing), install the schema, start the MCP service (`127.0.0.1:8765`), and start the Admin Web Console (`127.0.0.1:8766`) in one step:
+To provision the database (if missing), install the schema, start the MCP service (`127.0.0.1:8765`), and start the Admin Web Console (`127.0.0.1:8865`) in one step:
 
 ```sh
 sudo deploy/one-click-install.sh
 ```
 
-Or directly via `curl` on a target Linux host:
+Or directly via `curl` on a target Linux host (automatically clones into `/opt/<name>/repo` when run outside a checkout):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/jaeseongs95/pg-ledger-mcp/main/deploy/one-click-install.sh | sudo bash
 ```
 
+### Custom Domain & Cloudflare Automation (e.g. `jaeseong.dev`)
+
+If you own a Cloudflare-managed domain (for example `jaeseong.dev`), `deploy/setup-domain.sh` (or `deploy/one-click-install.sh --domain <domain>`) automates `DBHUB_ALLOWED_HOSTS` and `PGLEDGER_ADMIN_ALLOWED_HOSTS` configuration as well as Cloudflare Tunnel / Nginx routing:
+
+```sh
+# 1. One-click install + custom domain setup
+sudo deploy/one-click-install.sh --domain jaeseong.dev
+
+# 2. Cloudflare Tunnel API automation (updates remote tunnel ingress + creates proxied CNAME records)
+sudo CF_API_TOKEN="<cloudflare-api-token>" deploy/setup-domain.sh \
+  --name pg-ledger-mcp \
+  --domain jaeseong.dev \
+  --mode cloudflare-api \
+  --cf-tunnel-id "<tunnel-uuid>"
+
+# 3. Local cloudflared config.yml or Nginx reverse proxy automation
+sudo deploy/setup-domain.sh --name pg-ledger-mcp --domain jaeseong.dev --mode cloudflared-config
+sudo deploy/setup-domain.sh --name pg-ledger-mcp --domain jaeseong.dev --mode nginx --certbot-email admin@jaeseong.dev
+```
+
+By default, `--domain jaeseong.dev` maps `ledger-mcp.jaeseong.dev -> http://127.0.0.1:<mcp-port>` and `ledger-admin.jaeseong.dev -> http://127.0.0.1:<admin-port>` (override with `--mcp-host` and `--admin-host`).
+
 ### Standard Install & CLI Administration
 
 ```sh
 sudo -u postgres createdb ledger
-sudo deploy/install.sh --db ledger --mcp-port 8765 --admin-port 8766 --allowed-hosts ledger-mcp.example.com
+sudo deploy/install.sh --db ledger --mcp-port 8765 --admin-port 8865 --allowed-hosts ledger-mcp.example.com --admin-allowed-hosts ledger-admin.example.com
 sudo bin/ledger-admin project-add web WEB "Web shop"
 sudo bin/ledger-admin category-add BUG "결함" "명세와 다른 동작" --name-en Bug --description-en "Behaviour differs from the specification"
 sudo bin/ledger-admin code-set RELATION_KIND duplicates "중복" "a가 b를 반복" --name-en Duplicates --description-en "a repeats b"
@@ -218,6 +240,7 @@ deploy/render-tools.sh  active bilingual codes → DBHub tool definitions
 clients/claude/      Claude Code marketplace plugin (PreToolUse)
 deploy/install.sh     install / re-apply, passwords, DBHub, systemd units, smoke checks
 deploy/one-click-install.sh  zero-config one-click installer for PostgreSQL + MCP + Admin Console
+deploy/setup-domain.sh  custom domain allowlist + Cloudflare Tunnel / Nginx automation
 deploy/pg-ledger-mcp-admin.service  systemd unit for the Admin Web Console
 bin/ledger-admin      projects, common codes, grants, and 'serve' subcommand (owner operations)
 bin/ledger-admin-server.mjs  zero-dependency HTTP server for the Admin Web Console

@@ -3,7 +3,8 @@
 # Run as root on the database host. Safe to re-run: tables are created once, functions/views/grants are re-applied,
 # passwords and the bearer token are kept, the service is restarted.
 #
-#   sudo deploy/install.sh --db ledger [--pg-port 5432] [--mcp-port 8765] [--admin-port 8766] [--allowed-hosts mcp.example.com] [--name pg-ledger-mcp]
+#   sudo deploy/install.sh --db ledger [--pg-port 5432] [--mcp-port 8765] [--admin-port 8865]
+#                          [--allowed-hosts mcp.example.com] [--admin-allowed-hosts admin.example.com] [--name pg-ledger-mcp]
 #                          [--schema-only] [--skip-admin] [--reset-passwords]
 #
 # The roles ledger_owner/author/reviewer/reader are cluster-wide, so one PostgreSQL cluster serves one ledger instance.
@@ -18,6 +19,7 @@ PG_PORT=5432
 MCP_PORT=8765
 ADMIN_PORT=
 ALLOWED_HOSTS=
+ADMIN_ALLOWED_HOSTS=
 SCHEMA_ONLY=0
 SKIP_ADMIN=0
 RESET_PASSWORDS=0
@@ -33,6 +35,7 @@ while [ $# -gt 0 ]; do
     --mcp-port) MCP_PORT=${2:?}; shift 2 ;;
     --admin-port) ADMIN_PORT=${2:?}; shift 2 ;;
     --allowed-hosts) ALLOWED_HOSTS=${2:?}; shift 2 ;;
+    --admin-allowed-hosts) ADMIN_ALLOWED_HOSTS=${2:?}; shift 2 ;;
     --name) NAME=${2:?}; shift 2 ;;
     --schema-only) SCHEMA_ONLY=1; shift ;;
     --skip-admin) SKIP_ADMIN=1; shift ;;
@@ -108,8 +111,10 @@ if [ "$ADMIN_TOKEN" = "$TOKEN" ]; then ADMIN_TOKEN=$(rand_hex 32); fi
 [ -n "$ADMIN_PORT" ] || ADMIN_PORT=$(envget PGLEDGER_ADMIN_PORT)
 [ -n "$ADMIN_PORT" ] || ADMIN_PORT=$((MCP_PORT + 100))
 [ -n "$ALLOWED_HOSTS" ] || ALLOWED_HOSTS=$(envget DBHUB_ALLOWED_HOSTS)
+[ -n "$ADMIN_ALLOWED_HOSTS" ] || ADMIN_ALLOWED_HOSTS=$(envget PGLEDGER_ADMIN_ALLOWED_HOSTS)
 # loopback always stays allowed: the smoke check below and local clients use it
 case ",$ALLOWED_HOSTS," in *,127.0.0.1,*) ;; *) ALLOWED_HOSTS=${ALLOWED_HOSTS:+$ALLOWED_HOSTS,}localhost,127.0.0.1 ;; esac
+case ",$ADMIN_ALLOWED_HOSTS," in *,127.0.0.1,*) ;; *) ADMIN_ALLOWED_HOSTS=${ADMIN_ALLOWED_HOSTS:+$ADMIN_ALLOWED_HOSTS,}localhost,127.0.0.1 ;; esac
 
 # Passwords travel in the environment of psql (readable only by root and postgres), never on a command line,
 # and the statements are not logged.
@@ -133,6 +138,7 @@ PGLEDGER_READER_PASSWORD=$READER_PW
 DBHUB_AUTH_TOKEN=$TOKEN
 PGLEDGER_ADMIN_TOKEN=$ADMIN_TOKEN
 DBHUB_ALLOWED_HOSTS=$ALLOWED_HOSTS
+PGLEDGER_ADMIN_ALLOWED_HOSTS=$ADMIN_ALLOWED_HOSTS
 EOF
 chmod 0600 "$tmp"; mv -f "$tmp" "$ENV_FILE"
 echo "passwords and bearer tokens: $ENV_FILE (root only)"
