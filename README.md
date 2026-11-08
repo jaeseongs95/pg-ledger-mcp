@@ -95,11 +95,24 @@ curl -fsSL https://raw.githubusercontent.com/jaeseongs95/pg-ledger-mcp/main/depl
 
 ### Custom Domain & Cloudflare Automation (e.g. `jaeseong.dev`)
 
-If you own a Cloudflare-managed domain (for example `jaeseong.dev`), `deploy/setup-domain.sh` (or `deploy/one-click-install.sh --domain <domain>`) automates `DBHUB_ALLOWED_HOSTS` and `PGLEDGER_ADMIN_ALLOWED_HOSTS` configuration as well as Cloudflare Tunnel / Nginx routing:
+If you own a Cloudflare-managed domain (for example `jaeseong.dev`), `deploy/setup-domain.sh` (or `deploy/one-click-install.sh --domain <domain>`) automates `DBHUB_ALLOWED_HOSTS` and `PGLEDGER_ADMIN_ALLOWED_HOSTS`, generates a **10-year self-signed ECDSA P-256 Origin TLS certificate** (`/etc/<name>/tls/cert.pem` & `key.pem`) for Cloudflare `Full` SSL, and optionally configures **Google OAuth 2.0** login alongside token / `/?token=` URL login:
 
 ```sh
-# 1. One-click install + custom domain setup
-sudo deploy/one-click-install.sh --domain jaeseong.dev
+# 1. One-click install + Cloudflare Origin TLS + Google OAuth 2.0 (recommended for jaeseong.dev)
+curl -fsSL https://raw.githubusercontent.com/jaeseongs95/pg-ledger-mcp/main/deploy/one-click-install.sh | sudo \
+  PGLEDGER_DOMAIN="jaeseong.dev" \
+  PGLEDGER_ADMIN_GOOGLE_CLIENT_ID="<google-oauth-client-id>" \
+  PGLEDGER_ADMIN_GOOGLE_CLIENT_SECRET="<google-oauth-client-secret>" \
+  PGLEDGER_ADMIN_ALLOWED_EMAIL="you@example.com" \
+  bash
+
+# Or from a local checkout:
+sudo deploy/one-click-install.sh \
+  --domain jaeseong.dev \
+  --domain-mode origin-tls \
+  --google-client-id "<google-oauth-client-id>" \
+  --google-client-secret "<google-oauth-client-secret>" \
+  --allowed-email "you@example.com"
 
 # 2. Cloudflare Tunnel API automation (updates remote tunnel ingress + creates proxied CNAME records)
 sudo CF_API_TOKEN="<cloudflare-api-token>" deploy/setup-domain.sh \
@@ -113,7 +126,13 @@ sudo deploy/setup-domain.sh --name pg-ledger-mcp --domain jaeseong.dev --mode cl
 sudo deploy/setup-domain.sh --name pg-ledger-mcp --domain jaeseong.dev --mode nginx --certbot-email admin@jaeseong.dev
 ```
 
-By default, `--domain jaeseong.dev` maps `ledger-mcp.jaeseong.dev -> http://127.0.0.1:<mcp-port>` and `ledger-admin.jaeseong.dev -> http://127.0.0.1:<admin-port>` (override with `--mcp-host` and `--admin-host`).
+When using `--domain-mode origin-tls` (the default when `cloudflared` is not active), finish in the Cloudflare Dashboard (`jaeseong.dev`):
+
+1. **DNS -> Records**: Add an `A` record for `ledger-admin` pointing to the server public IP with **Proxy status: Proxied (Orange Cloud ON)**.
+2. **SSL/TLS -> Overview**: Set encryption mode to **Full** (pairs with the generated 10-year ECDSA P-256 certificate in `/etc/<name>/tls/`).
+3. **Rules -> Origin Rules**: Match `Hostname equals ledger-admin.jaeseong.dev` -> **Rewrite Destination Port** to `8865` (so `https://ledger-admin.jaeseong.dev` connects without `:8865` in the URL or Nginx on port 80/443).
+
+By default, `--domain jaeseong.dev` maps `ledger-mcp.jaeseong.dev` and `ledger-admin.jaeseong.dev` (override with `--mcp-host` and `--admin-host`).
 
 ### Standard Install & CLI Administration
 

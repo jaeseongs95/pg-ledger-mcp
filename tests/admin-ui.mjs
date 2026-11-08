@@ -355,6 +355,24 @@ await check("HTTPS proxy header (X-Forwarded-Proto: https) adds Secure flag to s
   assert.match(setCookie, /;\s*Secure/i);
 });
 
+await check("URL query token bootstrap (/?token=...) sets HttpOnly session cookie for PGLEDGER_ADMIN_TOKEN and rejects DBHUB_AUTH_TOKEN", async () => {
+  const validTokenRes = await rawRequest(`/?token=${encodeURIComponent(adminToken)}`);
+  assert.equal(validTokenRes.status, 200);
+  const setCookie = validTokenRes.headers.get("set-cookie") || "";
+  assert.match(setCookie, /pgledger_admin_session=/);
+  assert.match(setCookie, /HttpOnly/i);
+
+  const agentTokenRes = await rawRequest(`/?token=${encodeURIComponent(mcpToken)}`);
+  assert.equal(agentTokenRes.status, 200);
+  assert.equal(agentTokenRes.headers.get("set-cookie"), null);
+});
+
+await check("Google OAuth endpoints return 404 when not configured and 302 redirect when configured", async () => {
+  const unconfigured = await rawRequest("/auth/google");
+  assert.equal(unconfigured.status, 404);
+  assert.equal(unconfigured.json?.error, "GOOGLE_OAUTH_NOT_CONFIGURED");
+});
+
 if (process.exitCode) {
   process.exit(process.exitCode);
 }

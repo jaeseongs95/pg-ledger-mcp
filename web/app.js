@@ -38,6 +38,7 @@ const ATTENTION_META = {
 
 const state = {
   authenticated: false,
+  googleOAuthEnabled: false,
   instance: 'pg-ledger-mcp',
   mcpPort: 8765,
   adminPort: 8766,
@@ -216,6 +217,10 @@ function showAuthView(errorMsg = '') {
   state.authenticated = false;
   $('app-view').hidden = true;
   $('auth-view').hidden = false;
+  const oauthSec = $('oauth-login-section');
+  if (oauthSec) {
+    oauthSec.hidden = !state.googleOAuthEnabled;
+  }
   const errEl = $('login-error-msg');
   if (errorMsg) {
     errEl.textContent = errorMsg;
@@ -1559,21 +1564,37 @@ function initEvents() {
 
 async function bootstrap() {
   initEvents();
+  let initialAuthError = '';
+  try {
+    const url = new URL(window.location.href);
+    initialAuthError = url.searchParams.get('auth_error') || '';
+    if (url.searchParams.has('token') || url.searchParams.has('auth_error')) {
+      url.searchParams.delete('token');
+      url.searchParams.delete('auth_error');
+      const cleanSearch = url.searchParams.toString();
+      const nextUrl = `${url.pathname}${cleanSearch ? `?${cleanSearch}` : ''}${url.hash}`;
+      history.replaceState(null, '', nextUrl);
+    }
+  } catch {
+    // ignore URL parse error
+  }
+
   try {
     const sess = await apiRequest('/api/auth/session');
     state.instance = sess.instance || 'pg-ledger-mcp';
     state.mcpPort = sess.mcpPort || 8765;
     state.adminPort = sess.adminPort || 8766;
+    state.googleOAuthEnabled = Boolean(sess.googleOAuthEnabled);
     $('instance-badge').textContent = `${state.instance} (${sess.dbName || 'ledger'})`;
     if (sess.authenticated) {
       showAppView();
       const hashTab = location.hash.replace(/^#/, '');
       switchTab(hashTab || 'overview', { updateHash: false });
     } else {
-      showAuthView();
+      showAuthView(initialAuthError);
     }
   } catch {
-    showAuthView();
+    showAuthView(initialAuthError);
   }
 }
 

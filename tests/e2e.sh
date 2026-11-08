@@ -334,6 +334,20 @@ grep -q "server_name ledger-mcp.jaeseong.dev;" "$tmp_ng" && grep -q "server_name
   && echo "PASS  setup-domain.sh generated Nginx reverse-proxy config" \
   || { echo "FAIL  setup-domain.sh nginx config missing server_name"; fail=1; }
 rm -f "$tmp_cf" "$tmp_ng"
+PGLEDGER_ADMIN_GOOGLE_CLIENT_ID="test-client-id.apps.googleusercontent.com" \
+PGLEDGER_ADMIN_GOOGLE_CLIENT_SECRET="test-secret" \
+PGLEDGER_ADMIN_ALLOWED_EMAIL="owner@jaeseong.dev" \
+  "$REPO/deploy/one-click-install.sh" --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --admin-port "$ADMIN_PORT" --name "$NAME" --domain jaeseong.dev --domain-mode origin-tls >/dev/null
+[ -s "/etc/$NAME/tls/cert.pem" ] && [ -s "/etc/$NAME/tls/key.pem" ] \
+  && echo "PASS  origin-tls generated 10-year ECDSA P-256 certificate in /etc/$NAME/tls/" \
+  || { echo "FAIL  origin-tls certificate files missing"; fail=1; }
+curl -fsSk -H "Host: ledger-admin.jaeseong.dev" "https://127.0.0.1:$ADMIN_PORT/healthz" | grep -q '"tls":true' \
+  && echo "PASS  Admin server serves native HTTPS with Origin TLS certificate" \
+  || { echo "FAIL  Admin server native HTTPS health check failed"; fail=1; }
+oauth_loc=$(curl -sSk -o /dev/null -w '%{redirect_url}' -H "Host: ledger-admin.jaeseong.dev" "https://127.0.0.1:$ADMIN_PORT/auth/google")
+echo "$oauth_loc" | grep -q "accounts.google.com/o/oauth2/v2/auth" && echo "$oauth_loc" | grep -q "ledger-admin.jaeseong.dev%2Fauth%2Fgoogle%2Fcallback" \
+  && echo "PASS  Google OAuth /auth/google redirects to accounts.google.com with HTTPS callback URI" \
+  || { echo "FAIL  Google OAuth redirect failed (got: $oauth_loc)"; fail=1; }
 n=$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect where project_id = '$PROJECT'")
 [ "$n" = 8 ] && echo "PASS  data kept ($n defects)" || { echo "FAIL  defects after re-install: $n"; fail=1; }
 pass_if 'cases kept by the re-install' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect_case" 2>&1 || true)" "$cases"

@@ -8,8 +8,8 @@ Wants=network-online.target
 User=root
 Group=root
 EnvironmentFile=@ETC@/env
-# Admin web server listens on loopback only and requires PGLEDGER_ADMIN_TOKEN (rejecting DBHUB_AUTH_TOKEN).
-ExecStart=@NODE@ @REPO@/bin/ledger-admin-server.mjs --name @NAME@ --host 127.0.0.1 --port ${PGLEDGER_ADMIN_PORT}
+# Admin web server listens on PGLEDGER_ADMIN_BIND_HOST (default 127.0.0.1, or 0.0.0.0 when Origin TLS is configured) and requires PGLEDGER_ADMIN_TOKEN or Google OAuth.
+ExecStart=@NODE@ @REPO@/bin/ledger-admin-server.mjs --name @NAME@ --port ${PGLEDGER_ADMIN_PORT}
 Restart=on-failure
 RestartSec=5
 ProtectSystem=full

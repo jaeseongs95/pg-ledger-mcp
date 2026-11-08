@@ -112,6 +112,13 @@ if [ "$ADMIN_TOKEN" = "$TOKEN" ]; then ADMIN_TOKEN=$(rand_hex 32); fi
 [ -n "$ADMIN_PORT" ] || ADMIN_PORT=$((MCP_PORT + 100))
 [ -n "$ALLOWED_HOSTS" ] || ALLOWED_HOSTS=$(envget DBHUB_ALLOWED_HOSTS)
 [ -n "$ADMIN_ALLOWED_HOSTS" ] || ADMIN_ALLOWED_HOSTS=$(envget PGLEDGER_ADMIN_ALLOWED_HOSTS)
+ADMIN_BIND_HOST=${PGLEDGER_ADMIN_BIND_HOST:-$(envget PGLEDGER_ADMIN_BIND_HOST)}
+[ -n "$ADMIN_BIND_HOST" ] || ADMIN_BIND_HOST=127.0.0.1
+ADMIN_TLS_CERT=${PGLEDGER_ADMIN_TLS_CERT:-$(envget PGLEDGER_ADMIN_TLS_CERT)}
+ADMIN_TLS_KEY=${PGLEDGER_ADMIN_TLS_KEY:-$(envget PGLEDGER_ADMIN_TLS_KEY)}
+GOOGLE_CLIENT_ID=${PGLEDGER_ADMIN_GOOGLE_CLIENT_ID:-$(envget PGLEDGER_ADMIN_GOOGLE_CLIENT_ID)}
+GOOGLE_CLIENT_SECRET=${PGLEDGER_ADMIN_GOOGLE_CLIENT_SECRET:-$(envget PGLEDGER_ADMIN_GOOGLE_CLIENT_SECRET)}
+ALLOWED_EMAIL=${PGLEDGER_ADMIN_ALLOWED_EMAIL:-$(envget PGLEDGER_ADMIN_ALLOWED_EMAIL)}
 # loopback always stays allowed: the smoke check below and local clients use it
 case ",$ALLOWED_HOSTS," in *,127.0.0.1,*) ;; *) ALLOWED_HOSTS=${ALLOWED_HOSTS:+$ALLOWED_HOSTS,}localhost,127.0.0.1 ;; esac
 case ",$ADMIN_ALLOWED_HOSTS," in *,127.0.0.1,*) ;; *) ADMIN_ALLOWED_HOSTS=${ADMIN_ALLOWED_HOSTS:+$ADMIN_ALLOWED_HOSTS,}localhost,127.0.0.1 ;; esac
@@ -132,6 +139,7 @@ PGLEDGER_PGPORT=$PG_PORT
 PGLEDGER_SSLMODE=disable
 PGLEDGER_MCP_PORT=$MCP_PORT
 PGLEDGER_ADMIN_PORT=$ADMIN_PORT
+PGLEDGER_ADMIN_BIND_HOST=$ADMIN_BIND_HOST
 PGLEDGER_AUTHOR_PASSWORD=$AUTHOR_PW
 PGLEDGER_REVIEWER_PASSWORD=$REVIEWER_PW
 PGLEDGER_READER_PASSWORD=$READER_PW
@@ -139,6 +147,11 @@ DBHUB_AUTH_TOKEN=$TOKEN
 PGLEDGER_ADMIN_TOKEN=$ADMIN_TOKEN
 DBHUB_ALLOWED_HOSTS=$ALLOWED_HOSTS
 PGLEDGER_ADMIN_ALLOWED_HOSTS=$ADMIN_ALLOWED_HOSTS
+PGLEDGER_ADMIN_TLS_CERT=$ADMIN_TLS_CERT
+PGLEDGER_ADMIN_TLS_KEY=$ADMIN_TLS_KEY
+PGLEDGER_ADMIN_GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
+PGLEDGER_ADMIN_GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
+PGLEDGER_ADMIN_ALLOWED_EMAIL=$ALLOWED_EMAIL
 EOF
 chmod 0600 "$tmp"; mv -f "$tmp" "$ENV_FILE"
 echo "passwords and bearer tokens: $ENV_FILE (root only)"
@@ -192,9 +205,15 @@ if [ "$SKIP_ADMIN" = 0 ]; then
   systemctl enable "$NAME-admin.service" >/dev/null
   systemctl restart "$NAME-admin.service"
 
-  admin_url=http://127.0.0.1:$ADMIN_PORT
+  admin_scheme=http
+  admin_curl_flags=(-fsS)
+  if [ -n "$ADMIN_TLS_CERT" ] && [ -n "$ADMIN_TLS_KEY" ] && [ -s "$ADMIN_TLS_CERT" ] && [ -s "$ADMIN_TLS_KEY" ]; then
+    admin_scheme=https
+    admin_curl_flags=(-fsSk)
+  fi
+  admin_url=${admin_scheme}://127.0.0.1:$ADMIN_PORT
   deadline=$((SECONDS + 30))
-  until systemctl is-active --quiet "$NAME-admin.service" && curl -fsS "$admin_url/healthz" 2>/dev/null | grep -q '"service"'; do
+  until systemctl is-active --quiet "$NAME-admin.service" && curl "${admin_curl_flags[@]}" "$admin_url/healthz" 2>/dev/null | grep -q '"service"'; do
     [ $SECONDS -lt $deadline ] || { journalctl -u "$NAME-admin" -n 40 --no-pager >&2; die "$NAME-admin did not answer $admin_url/healthz within 30 s"; }
     sleep 1
   done

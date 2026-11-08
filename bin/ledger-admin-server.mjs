@@ -4,8 +4,9 @@
 // and Tier 3 (Ledger Observability Plane: Triage v_attention, Defects v_defect, Tasks/Conditions, History v_history).
 // Tier 2 (Agent Workflow Plane: save, transition, record_fix, correct, review) is strictly excluded.
 
-import { createServer } from 'node:http';
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { dirname, resolve, join, extname } from 'node:path';
@@ -15,6 +16,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
 const WEB_ROOT = join(REPO_ROOT, 'web');
 const LEDGER_ADMIN_BIN = join(REPO_ROOT, 'bin', 'ledger-admin');
+const AUTH_WINDOW_MS = 60_000;
+const MAX_AUTH_FAILURES = 5;
+const AUTH_LOCKOUT_MS = 60_000;
 
 function parseEnvFile(filePath) {
   const out = {};
@@ -35,16 +39,40 @@ function parseEnvFile(filePath) {
 function parseArgs(argv) {
   let name = 'pg-ledger-mcp';
   let envFile = '';
-  let host = '127.0.0.1';
+  let host = '';
   let port = 0;
+  let tlsCertFile = '';
+  let tlsKeyFile = '';
+  let googleClientId = '';
+  let googleClientSecret = '';
+  let allowedEmail = '';
+
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--name') name = argv[++i] || '';
+    else if (a.startsWith('--name=')) name = a.slice('--name='.length);
     else if (a === '--env-file') envFile = argv[++i] || '';
-    else if (a === '--host') host = argv[++i] || '127.0.0.1';
+    else if (a.startsWith('--env-file=')) envFile = a.slice('--env-file='.length);
+    else if (a === '--host') host = argv[++i] || '';
+    else if (a.startsWith('--host=')) host = a.slice('--host='.length);
     else if (a === '--port') port = Number(argv[++i] || 0);
+    else if (a.startsWith('--port=')) port = Number(a.slice('--port='.length));
+    else if (a === '--tls-cert') tlsCertFile = argv[++i] || '';
+    else if (a.startsWith('--tls-cert=')) tlsCertFile = a.slice('--tls-cert='.length);
+    else if (a === '--tls-key') tlsKeyFile = argv[++i] || '';
+    else if (a.startsWith('--tls-key=')) tlsKeyFile = a.slice('--tls-key='.length);
+    else if (a === '--google-client-id') googleClientId = argv[++i] || '';
+    else if (a.startsWith('--google-client-id=')) googleClientId = a.slice('--google-client-id='.length);
+    else if (a === '--google-client-secret') googleClientSecret = argv[++i] || '';
+    else if (a.startsWith('--google-client-secret=')) googleClientSecret = a.slice('--google-client-secret='.length);
+    else if (a === '--allowed-email') allowedEmail = argv[++i] || '';
+    else if (a.startsWith('--allowed-email=')) allowedEmail = a.slice('--allowed-email='.length);
     else if (a === '-h' || a === '--help') {
-      console.log('Usage: ledger-admin-server.mjs [--name pg-ledger-mcp] [--env-file /etc/pg-ledger-mcp/env] [--host 127.0.0.1] [--port 8766]');
+      console.log(
+        'Usage: ledger-admin-server.mjs [--name pg-ledger-mcp] [--env-file /etc/pg-ledger-mcp/env] [--host 127.0.0.1] [--port 8865]\n' +
+          '                               [--tls-cert /etc/pg-ledger-mcp/tls/cert.pem] [--tls-key /etc/pg-ledger-mcp/tls/key.pem]\n' +
+          '                               [--google-client-id <id>] [--google-client-secret <secret>] [--allowed-email <email>]'
+      );
       process.exit(0);
     } else {
       console.error(`ledger-admin-server: unknown argument: ${a}`);
@@ -56,7 +84,7 @@ function parseArgs(argv) {
     process.exit(2);
   }
   if (!envFile) envFile = `/etc/${name}/env`;
-  return { name, envFile, host, port };
+  return { name, envFile, host, port, tlsCertFile, tlsKeyFile, googleClientId, googleClientSecret, allowedEmail };
 }
 
 function sha256Buf(str) {
@@ -253,8 +281,83 @@ export function createAdminApp(config) {
     readerPassword,
     adminToken,
     dbhubToken = '',
-    allowedHosts = new Set(['127.0.0.1', 'localhost', '[::1]'])
+    allowedHosts = new Set(['127.0.0.1', 'localhost', '[::1]']),
+    useTls = false,
+    googleClientId = '',
+    googleClientSecret = '',
+    allowedEmail = '',
+    googleOAuthTokenUrl = 'https://oauth2.googleapis.com/token',
+    googleOAuthUserInfoUrl = 'https://openidconnect.googleapis.com/v1/userinfo'
   } = config;
+
+  const trimmedClientId = String(googleClientId || '').trim();
+  const trimmedClientSecret = String(googleClientSecret || '').trim();
+  const allowedEmails = new Set(
+    String(allowedEmail || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const googleOAuthEnabled = Boolean(trimmedClientId && trimmedClientSecret && allowedEmails.size > 0);
+  const oauthStates = new Map(); // stateNonce -> expiresAtUnixMs
+  const authRateMap = new Map(); // clientIp -> { count, firstFailedAt, lockedUntil }
+
+  function signOAuthSessionCookie(email, expiresAtMs) {
+    const payload = Buffer.from(
+      JSON.stringify({
+        email: String(email).toLowerCase(),
+        exp: expiresAtMs
+      }),
+      'utf8'
+    ).toString('base64url');
+    const sig = createHmac('sha256', adminToken).update(`pgledger-oauth-session:${payload}`, 'utf8').digest('base64url');
+    return `oauth.${payload}.${sig}`;
+  }
+
+  function verifyOAuthSessionCookie(cookieVal) {
+    if (!googleOAuthEnabled || typeof cookieVal !== 'string' || !cookieVal.startsWith('oauth.')) return null;
+    const parts = cookieVal.split('.');
+    if (parts.length !== 3) return null;
+    const [, payload, sig] = parts;
+    const expectedSig = createHmac('sha256', adminToken).update(`pgledger-oauth-session:${payload}`, 'utf8').digest('base64url');
+    if (!safeEqualStrings(sig, expectedSig)) return null;
+    try {
+      const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+      if (!parsed || typeof parsed.email !== 'string' || typeof parsed.exp !== 'number') return null;
+      if (Date.now() > parsed.exp) return null;
+      const normalized = parsed.email.toLowerCase();
+      return allowedEmails.has(normalized) ? normalized : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function checkAndRecordAuthRate(ip, valid) {
+    const now = Date.now();
+    let record = authRateMap.get(ip);
+    if (record && record.lockedUntil > now) {
+      return { allowed: false, locked: true };
+    }
+    if (valid) {
+      authRateMap.delete(ip);
+      return { allowed: true, locked: false };
+    }
+    if (!record || now - record.firstFailedAt > AUTH_WINDOW_MS) {
+      record = { count: 1, firstFailedAt: now, lockedUntil: 0 };
+    } else {
+      record.count += 1;
+      if (record.count >= MAX_AUTH_FAILURES) {
+        record.lockedUntil = now + AUTH_LOCKOUT_MS;
+      }
+    }
+    authRateMap.set(ip, record);
+    return { allowed: false, locked: record.lockedUntil > now };
+  }
+
+  function isRequestHttps(req) {
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    return Boolean(useTls || forwardedProto === 'https');
+  }
 
   // Query helper using strictly read-only ledger_reader over TCP with psql -v bindings
   async function queryReaderJson(sql, vars = {}) {
@@ -356,14 +459,36 @@ export function createAdminApp(config) {
       return { ok: false, reason: 'INVALID_TOKEN' };
     }
     const cookies = parseCookies(req.headers.cookie || '');
-    if (cookies.pgledger_admin_session && verifySessionCookieValue(cookies.pgledger_admin_session, adminToken)) {
-      return { ok: true, mode: 'cookie' };
+    const cookieVal = cookies.pgledger_admin_session || '';
+    if (cookieVal) {
+      if (verifySessionCookieValue(cookieVal, adminToken)) {
+        return { ok: true, mode: 'cookie' };
+      }
+      const oauthEmail = verifyOAuthSessionCookie(cookieVal);
+      if (oauthEmail) {
+        return { ok: true, mode: 'google-oauth', email: oauthEmail };
+      }
     }
     return { ok: false, reason: 'UNAUTHENTICATED' };
   }
 
   function requireAuth(req, res) {
+    const clientIp = String(req.socket?.remoteAddress || 'unknown');
     const result = checkAuth(req);
+    const hasProvidedCred = Boolean(
+      (req.headers.authorization && req.headers.authorization.trim()) ||
+        (req.headers.cookie && req.headers.cookie.includes('pgledger_admin_session='))
+    );
+    if (hasProvidedCred || !result.ok) {
+      const rate = checkAndRecordAuthRate(`api:${clientIp}`, result.ok);
+      if (!rate.allowed && rate.locked) {
+        sendJson(res, 429, {
+          error: 'TOO_MANY_AUTH_FAILURES',
+          message: '반복된 인증 실패로 접속이 일시 차단되었습니다. 잠시 후 다시 시도하세요.'
+        });
+        return false;
+      }
+    }
     if (!result.ok) {
       if (result.reason === 'AGENT_TOKEN_FORBIDDEN') {
         sendJson(res, 401, {
@@ -374,7 +499,7 @@ export function createAdminApp(config) {
       }
       sendJson(res, 401, {
         error: 'UNAUTHORIZED',
-        message: '관리자 인증(PGLEDGER_ADMIN_TOKEN)이 필요합니다.'
+        message: '관리자 인증(PGLEDGER_ADMIN_TOKEN 또는 허용된 Google 계정 로그인)이 필요합니다.'
       });
       return false;
     }
@@ -389,7 +514,7 @@ export function createAdminApp(config) {
     '.svg': 'image/svg+xml'
   };
 
-  function serveStatic(pathname, res) {
+  function serveStatic(pathname, res, extraHeaders = {}) {
     const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
     if (rel.includes('..') || rel.includes('\\')) {
       sendJson(res, 400, { error: 'INVALID_PATH', message: '잘못된 경로입니다.' });
@@ -406,7 +531,8 @@ export function createAdminApp(config) {
     applySecurityHeaders(res, false);
     res.writeHead(200, {
       'Content-Type': contentType,
-      'Content-Length': content.length
+      'Content-Length': content.length,
+      ...extraHeaders
     });
     res.end(content);
   }
@@ -429,9 +555,11 @@ export function createAdminApp(config) {
     try {
       if (!verifyHostAndCsrf(req, res)) return;
 
-      const urlObj = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+      const isHttps = isRequestHttps(req);
+      const urlObj = new URL(req.url || '/', `${isHttps ? 'https' : 'http'}://${req.headers.host || '127.0.0.1'}`);
       const pathname = urlObj.pathname;
       const method = (req.method || 'GET').toUpperCase();
+      const clientIp = String(req.socket?.remoteAddress || 'unknown');
 
       // Public liveness endpoints
       if (method === 'GET' && (pathname === '/healthz' || pathname === '/api/healthz')) {
@@ -440,14 +568,159 @@ export function createAdminApp(config) {
           service: 'pg-ledger-admin',
           instance: name,
           adminPort,
-          mcpPort
+          mcpPort,
+          tls: useTls,
+          googleOAuthEnabled
         });
         return;
       }
 
-      // Static frontend assets
+      // Google OAuth 2.0 Login & Callback (matching opendiy-remote pattern)
+      if (method === 'GET' && (pathname === '/auth/google' || pathname === '/auth/google/login')) {
+        if (!googleOAuthEnabled) {
+          sendJson(res, 404, {
+            error: 'GOOGLE_OAUTH_NOT_CONFIGURED',
+            message: '이 서버에는 Google OAuth 로그인이 설정되어 있지 않습니다.'
+          });
+          return;
+        }
+        const now = Date.now();
+        for (const [k, exp] of oauthStates) {
+          if (exp < now) oauthStates.delete(k);
+        }
+        if (oauthStates.size >= 256) {
+          const oldest = oauthStates.keys().next().value;
+          if (oldest) oauthStates.delete(oldest);
+        }
+        const stateNonce = randomBytes(24).toString('hex');
+        oauthStates.set(stateNonce, now + 10 * 60 * 1000);
+        const origin = `${isHttps ? 'https' : 'http'}://${req.headers.host || '127.0.0.1'}`;
+        const redirectUri = `${origin}/auth/google/callback`;
+        const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        authUrl.searchParams.set('client_id', trimmedClientId);
+        authUrl.searchParams.set('redirect_uri', redirectUri);
+        authUrl.searchParams.set('response_type', 'code');
+        authUrl.searchParams.set('scope', 'openid email profile');
+        authUrl.searchParams.set('state', stateNonce);
+        authUrl.searchParams.set('prompt', 'select_account');
+        applySecurityHeaders(res, true);
+        res.writeHead(302, { Location: authUrl.toString(), 'Cache-Control': 'no-store' });
+        res.end();
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/auth/google/callback') {
+        if (!googleOAuthEnabled) {
+          sendJson(res, 404, {
+            error: 'GOOGLE_OAUTH_NOT_CONFIGURED',
+            message: '이 서버에는 Google OAuth 로그인이 설정되어 있지 않습니다.'
+          });
+          return;
+        }
+        const stateParam = urlObj.searchParams.get('state') || '';
+        const codeParam = urlObj.searchParams.get('code') || '';
+        const exp = oauthStates.get(stateParam);
+        oauthStates.delete(stateParam);
+        if (!stateParam || !codeParam || !exp || Date.now() > exp) {
+          applySecurityHeaders(res, true);
+          res.writeHead(302, {
+            Location: '/?auth_error=' + encodeURIComponent('OAuth 인증 상태(state)가 만료되었거나 유효하지 않습니다. 다시 시도해 주세요.'),
+            'Cache-Control': 'no-store'
+          });
+          res.end();
+          return;
+        }
+        const origin = `${isHttps ? 'https' : 'http'}://${req.headers.host || '127.0.0.1'}`;
+        const redirectUri = `${origin}/auth/google/callback`;
+        try {
+          const tokenRes = await fetch(googleOAuthTokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              code: codeParam,
+              client_id: trimmedClientId,
+              client_secret: trimmedClientSecret,
+              redirect_uri: redirectUri,
+              grant_type: 'authorization_code'
+            }).toString()
+          });
+          if (!tokenRes.ok) {
+            throw new Error(`Google 토큰 교환 실패 (HTTP ${tokenRes.status})`);
+          }
+          const tokenJson = await tokenRes.json();
+          const accessToken = String(tokenJson.access_token || '');
+          if (!accessToken) {
+            throw new Error('Google 액세스 토큰을 받지 못했습니다.');
+          }
+          const userRes = await fetch(googleOAuthUserInfoUrl, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (!userRes.ok) {
+            throw new Error(`Google 사용자 정보 조회 실패 (HTTP ${userRes.status})`);
+          }
+          const userInfo = await userRes.json();
+          const email = String(userInfo.email || '').trim().toLowerCase();
+          const verified = userInfo.email_verified === true || userInfo.verified_email === true;
+          if (!email || !verified || !allowedEmails.has(email)) {
+            checkAndRecordAuthRate(`login:${clientIp}`, false);
+            applySecurityHeaders(res, true);
+            res.writeHead(302, {
+              Location: '/?auth_error=' + encodeURIComponent(`허용되지 않은 Google 계정(${email || '알 수 없음'})입니다. 소유자 계정으로만 접속할 수 있습니다.`),
+              'Cache-Control': 'no-store'
+            });
+            res.end();
+            return;
+          }
+          checkAndRecordAuthRate(`login:${clientIp}`, true);
+          const expiresAtMs = Date.now() + 7 * 24 * 3600 * 1000;
+          const cookieVal = signOAuthSessionCookie(email, expiresAtMs);
+          const secureAttr = isHttps ? '; Secure' : '';
+          applySecurityHeaders(res, true);
+          res.writeHead(302, {
+            Location: '/',
+            'Cache-Control': 'no-store',
+            'Set-Cookie': `pgledger_admin_session=${encodeURIComponent(cookieVal)}; Path=/; HttpOnly; SameSite=Lax${secureAttr}; Max-Age=604800`
+          });
+          res.end();
+        } catch (oauthErr) {
+          applySecurityHeaders(res, true);
+          res.writeHead(302, {
+            Location: '/?auth_error=' + encodeURIComponent(`Google 로그인 처리 중 오류가 발생했습니다: ${String(oauthErr.message || oauthErr)}`),
+            'Cache-Control': 'no-store'
+          });
+          res.end();
+        }
+        return;
+      }
+
+      if ((method === 'GET' || method === 'POST') && pathname === '/auth/logout') {
+        const secureAttr = isHttps ? '; Secure' : '';
+        applySecurityHeaders(res, true);
+        res.writeHead(302, {
+          Location: '/',
+          'Cache-Control': 'no-store',
+          'Set-Cookie': `pgledger_admin_session=; Path=/; HttpOnly; SameSite=Strict${secureAttr}; Max-Age=0`
+        });
+        res.end();
+        return;
+      }
+
+      // Static frontend assets (with ?token=<PGLEDGER_ADMIN_TOKEN> URL bootstrap support matching opendiy-remote)
       if (method === 'GET' && !pathname.startsWith('/api/')) {
-        serveStatic(pathname, res);
+        const extraHeaders = {};
+        const urlToken = (urlObj.searchParams.get('token') || '').trim();
+        if (urlToken && pathname === '/') {
+          const isValidUrlToken =
+            !(dbhubToken && safeEqualStrings(urlToken, dbhubToken)) && safeEqualStrings(urlToken, adminToken);
+          const rate = checkAndRecordAuthRate(`login:${clientIp}`, isValidUrlToken);
+          if (rate.allowed && isValidUrlToken) {
+            const expiresAtMs = Date.now() + 12 * 3600 * 1000;
+            const cookieVal = makeSessionCookieValue(adminToken, expiresAtMs);
+            const secureAttr = isHttps ? '; Secure' : '';
+            extraHeaders['Set-Cookie'] = `pgledger_admin_session=${encodeURIComponent(cookieVal)}; Path=/; HttpOnly; SameSite=Strict${secureAttr}; Max-Age=43200`;
+          }
+        }
+        serveStatic(pathname, res, extraHeaders);
         return;
       }
 
@@ -465,6 +738,9 @@ export function createAdminApp(config) {
         const auth = checkAuth(req);
         sendJson(res, 200, {
           authenticated: auth.ok,
+          authMode: auth.mode || null,
+          email: auth.email || null,
+          googleOAuthEnabled,
           instance: name,
           dbName,
           mcpPort,
@@ -481,13 +757,23 @@ export function createAdminApp(config) {
           return;
         }
         if (dbhubToken && safeEqualStrings(token, dbhubToken)) {
+          checkAndRecordAuthRate(`login:${clientIp}`, false);
           sendJson(res, 401, {
             error: 'AGENT_TOKEN_FORBIDDEN',
             message: 'DBHUB_AUTH_TOKEN(에이전트용 MCP 공유 토큰)으로는 관리자 페이지에 로그인할 수 없습니다. /etc/' + name + '/env의 PGLEDGER_ADMIN_TOKEN을 입력해 주세요.'
           });
           return;
         }
-        if (!safeEqualStrings(token, adminToken)) {
+        const validToken = safeEqualStrings(token, adminToken);
+        const rate = checkAndRecordAuthRate(`login:${clientIp}`, validToken);
+        if (!rate.allowed) {
+          if (rate.locked) {
+            sendJson(res, 429, {
+              error: 'TOO_MANY_AUTH_FAILURES',
+              message: '반복된 인증 실패로 로그인이 60초간 일시 차단되었습니다. 잠시 후 다시 시도하세요.'
+            });
+            return;
+          }
           sendJson(res, 401, {
             error: 'INVALID_ADMIN_TOKEN',
             message: 'PGLEDGER_ADMIN_TOKEN이 일치하지 않습니다.'
@@ -496,8 +782,7 @@ export function createAdminApp(config) {
         }
         const expiresAtMs = Date.now() + 12 * 3600 * 1000;
         const cookieVal = makeSessionCookieValue(adminToken, expiresAtMs);
-        const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
-        const secureAttr = forwardedProto === 'https' ? '; Secure' : '';
+        const secureAttr = isHttps ? '; Secure' : '';
         res.setHeader(
           'Set-Cookie',
           `pgledger_admin_session=${encodeURIComponent(cookieVal)}; Path=/; HttpOnly; SameSite=Strict${secureAttr}; Max-Age=43200`
@@ -512,8 +797,7 @@ export function createAdminApp(config) {
       }
 
       if (pathname === '/api/auth/logout' && method === 'POST') {
-        const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
-        const secureAttr = forwardedProto === 'https' ? '; Secure' : '';
+        const secureAttr = isHttps ? '; Secure' : '';
         res.setHeader('Set-Cookie', `pgledger_admin_session=; Path=/; HttpOnly; SameSite=Strict${secureAttr}; Max-Age=0`);
         sendJson(res, 200, { ok: true, authenticated: false });
         return;
@@ -1115,16 +1399,28 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const pgPort = Number(getEnv('PGLEDGER_PGPORT', '5432'));
   const mcpPort = Number(getEnv('PGLEDGER_MCP_PORT', '8765'));
   const adminPort = cli.port || Number(getEnv('PGLEDGER_ADMIN_PORT', String(mcpPort + 1)));
+  const bindHost = cli.host || getEnv('PGLEDGER_ADMIN_BIND_HOST', '127.0.0.1');
   const readerPassword = getEnv('PGLEDGER_READER_PASSWORD');
   const adminToken = getEnv('PGLEDGER_ADMIN_TOKEN');
   const dbhubToken = getEnv('DBHUB_AUTH_TOKEN');
+  const tlsCertFile = cli.tlsCertFile || getEnv('PGLEDGER_ADMIN_TLS_CERT');
+  const tlsKeyFile = cli.tlsKeyFile || getEnv('PGLEDGER_ADMIN_TLS_KEY');
+  const googleClientId = cli.googleClientId || getEnv('PGLEDGER_ADMIN_GOOGLE_CLIENT_ID');
+  const googleClientSecret = cli.googleClientSecret || getEnv('PGLEDGER_ADMIN_GOOGLE_CLIENT_SECRET');
+  const allowedEmail = cli.allowedEmail || getEnv('PGLEDGER_ADMIN_ALLOWED_EMAIL');
+  const googleOAuthTokenUrl = getEnv('PGLEDGER_ADMIN_GOOGLE_TOKEN_URL', 'https://oauth2.googleapis.com/token');
+  const googleOAuthUserInfoUrl = getEnv(
+    'PGLEDGER_ADMIN_GOOGLE_USERINFO_URL',
+    'https://openidconnect.googleapis.com/v1/userinfo'
+  );
+
   const rawAllowedHosts = [
     getEnv('PGLEDGER_ADMIN_ALLOWED_HOSTS'),
     getEnv('DBHUB_ALLOWED_HOSTS'),
     '127.0.0.1',
     'localhost',
     '[::1]',
-    cli.host
+    bindHost
   ]
     .filter(Boolean)
     .join(',');
@@ -1143,6 +1439,20 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.exit(1);
   }
 
+  let tlsCert = '';
+  let tlsKey = '';
+  if (tlsCertFile || tlsKeyFile) {
+    if (!tlsCertFile || !tlsKeyFile || !existsSync(tlsCertFile) || !existsSync(tlsKeyFile)) {
+      console.error(
+        `ledger-admin-server: TLS cert/key files not found (cert=${tlsCertFile || 'none'}, key=${tlsKeyFile || 'none'})`
+      );
+      process.exit(1);
+    }
+    tlsCert = readFileSync(tlsCertFile, 'utf8');
+    tlsKey = readFileSync(tlsKeyFile, 'utf8');
+  }
+  const useTls = Boolean(tlsCert && tlsKey);
+
   const app = createAdminApp({
     name: cli.name,
     dbName,
@@ -1153,13 +1463,20 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     readerPassword,
     adminToken,
     dbhubToken,
-    allowedHosts
+    allowedHosts,
+    useTls,
+    googleClientId,
+    googleClientSecret,
+    allowedEmail,
+    googleOAuthTokenUrl,
+    googleOAuthUserInfoUrl
   });
 
-  const server = createServer(app);
-  server.listen(adminPort, cli.host, () => {
+  const server = useTls ? createHttpsServer({ cert: tlsCert, key: tlsKey }, app) : createHttpServer(app);
+  server.listen(adminPort, bindHost, () => {
+    const scheme = useTls ? 'https' : 'http';
     console.log(
-      `pg-ledger-admin (${cli.name}) listening on http://${cli.host}:${adminPort} (DB=${dbName}@${pgHost}:${pgPort}, MCP=${mcpPort})`
+      `pg-ledger-admin (${cli.name}) listening on ${scheme}://${bindHost}:${adminPort} (DB=${dbName}@${pgHost}:${pgPort}, MCP=${mcpPort}, TLS=${useTls})`
     );
   });
 

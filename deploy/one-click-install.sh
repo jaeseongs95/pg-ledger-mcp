@@ -6,24 +6,28 @@
 #   sudo deploy/one-click-install.sh [--db ledger] [--pg-port 5432] [--mcp-port 8765] [--admin-port 8865]
 #                                    [--name pg-ledger-mcp] [--allowed-hosts mcp.example.com] [--admin-allowed-hosts admin.example.com]
 #                                    [--domain jaeseong.dev] [--mcp-host ledger-mcp.jaeseong.dev] [--admin-host ledger-admin.jaeseong.dev]
-#                                    [--domain-mode auto|cloudflare-api|cloudflared-config|nginx|allowlist-only] [--cf-tunnel-id <uuid>]
+#                                    [--domain-mode auto|origin-tls|cloudflare-api|cloudflared-config|nginx|allowlist-only] [--cf-tunnel-id <uuid>]
+#                                    [--google-client-id <id>] [--google-client-secret <secret>] [--allowed-email <email>]
 #                                    [--repo-dir /opt/pg-ledger-mcp/repo] [--repo-url https://github.com/jaeseongs95/pg-ledger-mcp.git] [--branch main]
 #                                    [--project <id> <CODE> <title>] [--skip-admin] [--reset-passwords]
 set -euo pipefail
 umask 077
 
-NAME=pg-ledger-mcp
-DB=ledger
-PG_PORT=5432
-MCP_PORT=8765
-ADMIN_PORT=
-ALLOWED_HOSTS=
-ADMIN_ALLOWED_HOSTS=
-BASE_DOMAIN=
-MCP_HOST=
-ADMIN_HOST=
-DOMAIN_MODE=auto
+NAME=${PGLEDGER_NAME:-pg-ledger-mcp}
+DB=${PGLEDGER_DB:-ledger}
+PG_PORT=${PGLEDGER_PGPORT:-5432}
+MCP_PORT=${PGLEDGER_MCP_PORT:-8765}
+ADMIN_PORT=${PGLEDGER_ADMIN_PORT:-}
+ALLOWED_HOSTS=${DBHUB_ALLOWED_HOSTS:-}
+ADMIN_ALLOWED_HOSTS=${PGLEDGER_ADMIN_ALLOWED_HOSTS:-}
+BASE_DOMAIN=${PGLEDGER_DOMAIN:-}
+MCP_HOST=${PGLEDGER_MCP_HOST:-}
+ADMIN_HOST=${PGLEDGER_ADMIN_HOST:-}
+DOMAIN_MODE=${PGLEDGER_DOMAIN_MODE:-auto}
 CF_TUNNEL_ID=${CF_TUNNEL_ID:-}
+GOOGLE_CLIENT_ID=${PGLEDGER_ADMIN_GOOGLE_CLIENT_ID:-}
+GOOGLE_CLIENT_SECRET=${PGLEDGER_ADMIN_GOOGLE_CLIENT_SECRET:-}
+ALLOWED_EMAIL=${PGLEDGER_ADMIN_ALLOWED_EMAIL:-}
 REPO_DIR=
 REPO_URL=${PGLEDGER_REPO_URL:-https://github.com/jaeseongs95/pg-ledger-mcp.git}
 REPO_BRANCH=${PGLEDGER_REPO_BRANCH:-main}
@@ -40,7 +44,8 @@ one-click-install.sh : One-click zero-config installer for pg-ledger-mcp (Postgr
   sudo deploy/one-click-install.sh [--db ledger] [--pg-port 5432] [--mcp-port 8765] [--admin-port 8865]
                                    [--name pg-ledger-mcp] [--allowed-hosts mcp.example.com] [--admin-allowed-hosts admin.example.com]
                                    [--domain jaeseong.dev] [--mcp-host ledger-mcp.jaeseong.dev] [--admin-host ledger-admin.jaeseong.dev]
-                                   [--domain-mode auto|cloudflare-api|cloudflared-config|nginx|allowlist-only] [--cf-tunnel-id <uuid>]
+                                   [--domain-mode auto|origin-tls|cloudflare-api|cloudflared-config|nginx|allowlist-only] [--cf-tunnel-id <uuid>]
+                                   [--google-client-id <id>] [--google-client-secret <secret>] [--allowed-email <email>]
                                    [--repo-dir /opt/pg-ledger-mcp/repo] [--repo-url <url>] [--branch main]
                                    [--project <id> <CODE> <title>] [--skip-admin] [--reset-passwords]
 USAGE
@@ -61,6 +66,9 @@ while [ $# -gt 0 ]; do
     --admin-host) ADMIN_HOST=${2:?}; shift 2 ;;
     --domain-mode) DOMAIN_MODE=${2:?}; shift 2 ;;
     --cf-tunnel-id) CF_TUNNEL_ID=${2:?}; shift 2 ;;
+    --google-client-id) GOOGLE_CLIENT_ID=${2:?}; shift 2 ;;
+    --google-client-secret) GOOGLE_CLIENT_SECRET=${2:?}; shift 2 ;;
+    --allowed-email) ALLOWED_EMAIL=${2:?}; shift 2 ;;
     --repo-dir) REPO_DIR=${2:?}; shift 2 ;;
     --repo-url) REPO_URL=${2:?}; shift 2 ;;
     --branch) REPO_BRANCH=${2:?}; shift 2 ;;
@@ -112,9 +120,28 @@ if [ -z "$REPO" ]; then
 fi
 
 echo "== [1/4] Checking host prerequisites (PostgreSQL >= 15, Node.js >= 22.5, systemd)"
-for c in psql pg_dump runuser node npm curl systemctl; do
+for c in psql pg_dump runuser curl systemctl; do
   command -v "$c" >/dev/null || die "missing required command: $c"
 done
+
+NEED_NODE=1
+if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+  if node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>22||(a===22&&b>=5)?0:1)' 2>/dev/null; then
+    NEED_NODE=0
+    echo "    Found Node.js $(node -v)"
+  fi
+fi
+
+if [ "$NEED_NODE" = 1 ]; then
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "    Installing Node.js 22 LTS from NodeSource..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    apt-get install -y nodejs
+    echo "    Installed Node.js $(node -v)"
+  else
+    die "Node.js >= 22.5 is required (found $(command -v node >/dev/null && node -v || echo 'none'))"
+  fi
+fi
 
 psql_major=$(psql --version | sed -E 's/[^0-9]*([0-9]+).*/\1/')
 [ "$psql_major" -ge 15 ] || die "psql 15 or newer is required (found $psql_major)"
@@ -141,7 +168,10 @@ install_args=(--db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --admin-por
 [ "$SKIP_ADMIN" = 0 ] || install_args+=(--skip-admin)
 [ "$RESET_PASSWORDS" = 0 ] || install_args+=(--reset-passwords)
 
-"$REPO/deploy/install.sh" "${install_args[@]}"
+PGLEDGER_ADMIN_GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+PGLEDGER_ADMIN_GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
+PGLEDGER_ADMIN_ALLOWED_EMAIL="$ALLOWED_EMAIL" \
+  "$REPO/deploy/install.sh" "${install_args[@]}"
 
 if [ -n "$INIT_PROJECT_ID" ]; then
   echo "== [3b/4] Ensuring initial project '$INIT_PROJECT_ID' ($INIT_PROJECT_CODE)"
@@ -165,15 +195,25 @@ if [ -n "$BASE_DOMAIN" ] || [ -n "$MCP_HOST" ] || [ -n "$ADMIN_HOST" ]; then
   "$REPO/deploy/setup-domain.sh" "${domain_args[@]}"
 fi
 
+ENV_FILE=/etc/$NAME/env
+envget() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 || true; }
+ADMIN_TLS_CERT=$(envget PGLEDGER_ADMIN_TLS_CERT)
+ADMIN_TLS_KEY=$(envget PGLEDGER_ADMIN_TLS_KEY)
+ADMIN_SCHEME=http
+ADMIN_CURL_FLAGS=(-fsS)
+if [ -n "$ADMIN_TLS_CERT" ] && [ -n "$ADMIN_TLS_KEY" ] && [ -s "$ADMIN_TLS_CERT" ] && [ -s "$ADMIN_TLS_KEY" ]; then
+  ADMIN_SCHEME=https
+  ADMIN_CURL_FLAGS=(-fsSk)
+fi
+
 echo "== [4/4] Verifying service readiness"
 curl -fsS "http://127.0.0.1:$MCP_PORT/healthz" >/dev/null \
   || die "MCP endpoint http://127.0.0.1:$MCP_PORT/healthz failed health check"
 if [ "$SKIP_ADMIN" = 0 ]; then
-  curl -fsS "http://127.0.0.1:$ADMIN_PORT/healthz" | grep -q '"service"' \
-    || die "Admin web console http://127.0.0.1:$ADMIN_PORT/healthz failed health check"
+  curl "${ADMIN_CURL_FLAGS[@]}" "${ADMIN_SCHEME}://127.0.0.1:$ADMIN_PORT/healthz" | grep -q '"service"' \
+    || die "Admin web console ${ADMIN_SCHEME}://127.0.0.1:$ADMIN_PORT/healthz failed health check"
 fi
 
-ENV_FILE=/etc/$NAME/env
 cat <<EOF
 ======================================================================
 pg-ledger-mcp one-click installation completed!
@@ -190,8 +230,9 @@ pg-ledger-mcp one-click installation completed!
 
   [2] Admin Web Console (Owner Control + Read-Only Explorer)
       Service   : $( [ "$SKIP_ADMIN" = 0 ] && echo "$NAME-admin.service" || echo "skipped (--skip-admin)" )
-      Local URL : http://127.0.0.1:$ADMIN_PORT
+      Local URL : ${ADMIN_SCHEME}://127.0.0.1:$ADMIN_PORT
       Auth Key  : PGLEDGER_ADMIN_TOKEN (in $ENV_FILE; separated from agent token)
+      OAuth     : $( [ -n "$(envget PGLEDGER_ADMIN_ALLOWED_EMAIL)" ] && echo "Google OAuth enabled ($(envget PGLEDGER_ADMIN_ALLOWED_EMAIL))" || echo "Token login (or set PGLEDGER_ADMIN_GOOGLE_CLIENT_ID/SECRET/ALLOWED_EMAIL)" )
       SSH Tunnel: ssh -L $ADMIN_PORT:127.0.0.1:$ADMIN_PORT <user>@<host>
 ======================================================================
 EOF

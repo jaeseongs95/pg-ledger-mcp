@@ -4,7 +4,7 @@
 #
 #   sudo deploy/setup-domain.sh [--name pg-ledger-mcp] [--domain jaeseong.dev]
 #                               [--mcp-host ledger-mcp.jaeseong.dev] [--admin-host ledger-admin.jaeseong.dev]
-#                               [--mode auto|cloudflare-api|cloudflared-config|nginx|allowlist-only]
+#                               [--mode auto|origin-tls|cloudflare-api|cloudflared-config|nginx|allowlist-only]
 #                               [--cf-tunnel-id <uuid>] [--cf-zone jaeseong.dev]
 #                               [--cloudflared-config /etc/cloudflared/config.yml]
 #                               [--nginx-conf /etc/nginx/sites-available/<name>.conf] [--nginx-dry-run] [--certbot-email <email>]
@@ -127,6 +127,24 @@ echo "  DBHUB_ALLOWED_HOSTS=$NEW_MCP_HOSTS"
 echo "  PGLEDGER_ADMIN_ALLOWED_HOSTS=$NEW_ADMIN_HOSTS"
 
 # Restart active services so new Host/Origin allowlists take effect immediately, and wait for /healthz readiness
+restart_and_wait_admin() {
+  if systemctl is-active --quiet "$NAME-admin.service" 2>/dev/null; then
+    systemctl restart "$NAME-admin.service"
+    local cert key scheme="http" flags=(-fsS)
+    cert=$(envget PGLEDGER_ADMIN_TLS_CERT)
+    key=$(envget PGLEDGER_ADMIN_TLS_KEY)
+    if [ -n "$cert" ] && [ -n "$key" ] && [ -s "$cert" ] && [ -s "$key" ]; then
+      scheme="https"
+      flags=(-fsSk)
+    fi
+    local deadline=$((SECONDS + 30))
+    until systemctl is-active --quiet "$NAME-admin.service" && curl "${flags[@]}" "${scheme}://127.0.0.1:$ADMIN_PORT/healthz" 2>/dev/null | grep -q '"service"'; do
+      [ $SECONDS -lt $deadline ] || die "$NAME-admin.service did not answer ${scheme}://127.0.0.1:$ADMIN_PORT/healthz after restart"
+      sleep 1
+    done
+  fi
+}
+
 if systemctl is-active --quiet "$NAME.service" 2>/dev/null; then
   systemctl restart "$NAME.service"
   deadline=$((SECONDS + 30))
@@ -135,14 +153,7 @@ if systemctl is-active --quiet "$NAME.service" 2>/dev/null; then
     sleep 1
   done
 fi
-if systemctl is-active --quiet "$NAME-admin.service" 2>/dev/null; then
-  systemctl restart "$NAME-admin.service"
-  deadline=$((SECONDS + 30))
-  until systemctl is-active --quiet "$NAME-admin.service" && curl -fsS "http://127.0.0.1:$ADMIN_PORT/healthz" 2>/dev/null | grep -q '"service"'; do
-    [ $SECONDS -lt $deadline ] || die "$NAME-admin.service did not answer http://127.0.0.1:$ADMIN_PORT/healthz after restart"
-    sleep 1
-  done
-fi
+restart_and_wait_admin
 
 # ---------- 2. Auto-detect mode if 'auto' ----------
 if [ "$MODE" = "auto" ]; then
@@ -150,10 +161,9 @@ if [ "$MODE" = "auto" ]; then
     MODE="cloudflare-api"
   elif [ -f "$CLOUDFLARED_CONFIG" ]; then
     MODE="cloudflared-config"
-  elif command -v nginx >/dev/null 2>&1; then
-    MODE="nginx"
   else
-    MODE="allowlist-only"
+    # Default to 9722eb40 (opendiy-remote) pattern: 10-year ECDSA P-256 Origin TLS + Cloudflare Full SSL + Origin Rules
+    MODE="origin-tls"
   fi
 fi
 
@@ -172,6 +182,69 @@ fi
 case "$MODE" in
   allowlist-only)
     echo "mode=allowlist-only: Host/Origin allowlists updated and services restarted."
+    ;;
+
+  origin-tls)
+    TLS_DIR="/etc/$NAME/tls"
+    TLS_CERT="$TLS_DIR/cert.pem"
+    TLS_KEY="$TLS_DIR/key.pem"
+    install -d -m 0755 "$TLS_DIR"
+    if [ ! -s "$TLS_CERT" ] || [ ! -s "$TLS_KEY" ]; then
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+        -nodes -keyout "$TLS_KEY" -out "$TLS_CERT" \
+        -days 3650 -subj "/CN=${ADMIN_HOST:-$NAME}" >/dev/null 2>&1
+      chmod 0600 "$TLS_KEY"
+      chmod 0644 "$TLS_CERT"
+      echo "mode=origin-tls: Generated 10-year ECDSA P-256 Origin TLS certificate ($TLS_CERT)"
+    else
+      echo "mode=origin-tls: Reusing existing Origin TLS certificate ($TLS_CERT)"
+    fi
+
+    BIND_HOST=${PGLEDGER_ADMIN_BIND_HOST:-0.0.0.0}
+    node - "$ENV_FILE" "$BIND_HOST" "$TLS_CERT" "$TLS_KEY" <<'TLS_ENV_EOF'
+const fs = require('node:fs');
+const [envPath, bindHost, certPath, keyPath] = process.argv.slice(2);
+const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+const updates = {
+  PGLEDGER_ADMIN_BIND_HOST: bindHost,
+  PGLEDGER_ADMIN_TLS_CERT: certPath,
+  PGLEDGER_ADMIN_TLS_KEY: keyPath
+};
+const seen = new Set();
+const out = lines
+  .filter((l, idx, arr) => !(idx === arr.length - 1 && l === ''))
+  .map((line) => {
+    for (const [k, v] of Object.entries(updates)) {
+      if (line.startsWith(`${k}=`)) {
+        seen.add(k);
+        return `${k}=${v}`;
+      }
+    }
+    return line;
+  });
+for (const [k, v] of Object.entries(updates)) {
+  if (!seen.has(k)) out.push(`${k}=${v}`);
+}
+const tmp = `${envPath}.tmp.${process.pid}`;
+fs.writeFileSync(tmp, out.join('\n') + '\n', { mode: 0o600 });
+fs.renameSync(tmp, envPath);
+TLS_ENV_EOF
+
+    restart_and_wait_admin
+    PUBLIC_IP=$(curl -fsSL --max-time 3 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]' || hostname -I 2>/dev/null | awk '{print $1}' || echo "<SERVER_PUBLIC_IP>")
+    cat <<CF_GUIDE
+  [Cloudflare DNS + Full SSL + Origin Rules 설정 안내 (jaeseong.dev 방식)]
+  1. Cloudflare DNS -> 레코드 추가:
+     - 유형(Type): A
+     - 이름(Name): ${ADMIN_HOST:-ledger-admin.jaeseong.dev}
+     - IPv4 주소 : ${PUBLIC_IP}
+     - 프록시 상태: 프록시됨 (주황색 구름 ON)
+  2. Cloudflare SSL/TLS -> 개요(Overview):
+     - 암호화 모드: Full (전체) 선택 (서버의 10년 만기 ECDSA P-256 인증서로 구간 암호화)
+  3. Cloudflare Rules -> Origin Rules (원본 규칙) 생성:
+     - 조건: Hostname equals "${ADMIN_HOST:-ledger-admin.jaeseong.dev}"
+     - 동작: Destination Port -> Rewrite to ${ADMIN_PORT}
+CF_GUIDE
     ;;
 
   cloudflare-api)
@@ -386,7 +459,7 @@ EOF
     ;;
 
   *)
-    die "unknown --mode: $MODE (use auto, cloudflare-api, cloudflared-config, nginx, or allowlist-only)"
+    die "unknown --mode: $MODE (use auto, origin-tls, cloudflare-api, cloudflared-config, nginx, or allowlist-only)"
     ;;
 esac
 
