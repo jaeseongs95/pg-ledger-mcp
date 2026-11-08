@@ -61,8 +61,8 @@ echo "== [2/4] Ensuring PostgreSQL database '$DB' exists on port $PG_PORT"
 runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -p "$PG_PORT" -d postgres -tAc "SELECT 1" >/dev/null \
   || die "cannot connect to PostgreSQL on port $PG_PORT as postgres"
 
-db_exists=$(runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -p "$PG_PORT" -d postgres -v db="$DB" -tAc \
-  "SELECT 1 FROM pg_database WHERE datname = :'db'")
+db_exists=$(runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -p "$PG_PORT" -d postgres -v db="$DB" -tA \
+  <<<"SELECT 1 FROM pg_database WHERE datname = :'db'")
 if [ "$db_exists" != "1" ]; then
   echo "creating database '$DB' (UTF8)"
   runuser -u postgres -- createdb -p "$PG_PORT" -E UTF8 "$DB"
@@ -80,8 +80,8 @@ install_args=(--db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --admin-por
 
 if [ -n "$INIT_PROJECT_ID" ]; then
   echo "== [3b/4] Ensuring initial project '$INIT_PROJECT_ID' ($INIT_PROJECT_CODE)"
-  exists_proj=$(runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -p "$PG_PORT" -d "$DB" -v id="$INIT_PROJECT_ID" -tAc \
-    "SELECT 1 FROM ledger.project WHERE id = :'id'")
+  exists_proj=$(runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -p "$PG_PORT" -d "$DB" -v id="$INIT_PROJECT_ID" -tA \
+    <<<"SELECT 1 FROM ledger.project WHERE id = :'id'")
   if [ "$exists_proj" != "1" ]; then
     "$REPO/bin/ledger-admin" --name "$NAME" project-add "$INIT_PROJECT_ID" "$INIT_PROJECT_CODE" "$INIT_PROJECT_TITLE" >/dev/null
     echo "registered project: $INIT_PROJECT_ID ($INIT_PROJECT_CODE)"

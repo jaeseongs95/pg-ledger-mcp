@@ -106,7 +106,7 @@ if [ "$RESET_PASSWORDS" = 1 ]; then AUTHOR_PW=; REVIEWER_PW=; READER_PW=; fi
 [ -n "$ADMIN_TOKEN" ] || ADMIN_TOKEN=$(rand_hex 32)
 if [ "$ADMIN_TOKEN" = "$TOKEN" ]; then ADMIN_TOKEN=$(rand_hex 32); fi
 [ -n "$ADMIN_PORT" ] || ADMIN_PORT=$(envget PGLEDGER_ADMIN_PORT)
-[ -n "$ADMIN_PORT" ] || ADMIN_PORT=$((MCP_PORT + 1))
+[ -n "$ADMIN_PORT" ] || ADMIN_PORT=$((MCP_PORT + 100))
 [ -n "$ALLOWED_HOSTS" ] || ALLOWED_HOSTS=$(envget DBHUB_ALLOWED_HOSTS)
 # loopback always stays allowed: the smoke check below and local clients use it
 case ",$ALLOWED_HOSTS," in *,127.0.0.1,*) ;; *) ALLOWED_HOSTS=${ALLOWED_HOSTS:+$ALLOWED_HOSTS,}localhost,127.0.0.1 ;; esac
@@ -188,7 +188,7 @@ if [ "$SKIP_ADMIN" = 0 ]; then
 
   admin_url=http://127.0.0.1:$ADMIN_PORT
   deadline=$((SECONDS + 30))
-  until curl -fsS "$admin_url/healthz" >/dev/null 2>&1; do
+  until systemctl is-active --quiet "$NAME-admin.service" && curl -fsS "$admin_url/healthz" 2>/dev/null | grep -q '"service"'; do
     [ $SECONDS -lt $deadline ] || { journalctl -u "$NAME-admin" -n 40 --no-pager >&2; die "$NAME-admin did not answer $admin_url/healthz within 30 s"; }
     sleep 1
   done
