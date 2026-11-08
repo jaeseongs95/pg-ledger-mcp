@@ -44,6 +44,7 @@ await check("public /healthz and static assets include CSP and security headers"
   const health = await rawRequest("/healthz");
   assert.equal(health.status, 200);
   assert.equal(health.json?.ok, true);
+  assert.equal(health.json?.service, "pg-ledger-admin");
   assert.equal(health.headers.get("x-frame-options"), "DENY");
   assert.equal(health.headers.get("x-content-type-options"), "nosniff");
   assert.match(health.headers.get("content-security-policy") || "", /default-src 'self'/);
@@ -67,8 +68,7 @@ await check("public /healthz and static assets include CSP and security headers"
 await check("unauthenticated /api/overview is rejected with 401", async () => {
   const res = await rawRequest("/api/overview");
   assert.equal(res.status, 401);
-  assert.equal(res.json?.ok, false);
-  assert.equal(res.json?.error?.code, "UNAUTHORIZED");
+  assert.equal(res.json?.error, "UNAUTHORIZED");
 });
 
 await check("DBHUB_AUTH_TOKEN is explicitly rejected on login and Bearer auth (AGENT_TOKEN_FORBIDDEN)", async () => {
@@ -76,7 +76,7 @@ await check("DBHUB_AUTH_TOKEN is explicitly rejected on login and Bearer auth (A
     headers: { Authorization: `Bearer ${mcpToken}` },
   });
   assert.equal(bearerRes.status, 401);
-  assert.equal(bearerRes.json?.error?.code, "AGENT_TOKEN_FORBIDDEN");
+  assert.equal(bearerRes.json?.error, "AGENT_TOKEN_FORBIDDEN");
 
   const loginRes = await rawRequest("/api/auth/login", {
     method: "POST",
@@ -87,7 +87,7 @@ await check("DBHUB_AUTH_TOKEN is explicitly rejected on login and Bearer auth (A
     body: JSON.stringify({ token: mcpToken }),
   });
   assert.equal(loginRes.status, 401);
-  assert.equal(loginRes.json?.error?.code, "AGENT_TOKEN_FORBIDDEN");
+  assert.equal(loginRes.json?.error, "AGENT_TOKEN_FORBIDDEN");
 });
 
 await check("CSRF defenses reject missing X-Requested-With or cross-site Sec-Fetch-Site", async () => {
@@ -100,7 +100,7 @@ await check("CSRF defenses reject missing X-Requested-With or cross-site Sec-Fet
     body: JSON.stringify({ id: "csrf_test", code: "CSRF", title: "Should fail" }),
   });
   assert.equal(noHeader.status, 403);
-  assert.equal(noHeader.json?.error?.code, "CSRF_HEADER_REQUIRED");
+  assert.equal(noHeader.json?.error, "CSRF_HEADER_REQUIRED");
 
   const crossSite = await rawRequest("/api/projects", {
     method: "POST",
@@ -113,7 +113,7 @@ await check("CSRF defenses reject missing X-Requested-With or cross-site Sec-Fet
     body: JSON.stringify({ id: "csrf_test", code: "CSRF", title: "Should fail" }),
   });
   assert.equal(crossSite.status, 403);
-  assert.equal(crossSite.json?.error?.code, "CROSS_SITE_FORBIDDEN");
+  assert.equal(crossSite.json?.error, "CSRF_CROSS_SITE_BLOCKED");
 });
 
 await check("Tier 2 agent workflow endpoints are refused with 403 AGENT_WORKFLOW_FORBIDDEN", async () => {
@@ -128,7 +128,7 @@ await check("Tier 2 agent workflow endpoints are refused with 403 AGENT_WORKFLOW
       body: JSON.stringify({}),
     });
     assert.equal(res.status, 403, `expected 403 for ${path}`);
-    assert.equal(res.json?.error?.code, "AGENT_WORKFLOW_FORBIDDEN");
+    assert.equal(res.json?.error, "AGENT_WORKFLOW_FORBIDDEN");
   }
 });
 
@@ -150,48 +150,51 @@ await check("login with PGLEDGER_ADMIN_TOKEN issues HttpOnly SameSite=Strict ses
   assert.match(setCookie, /SameSite=Strict/i);
   sessionCookie = setCookie.split(";")[0];
 
-  const statusRes = await rawRequest("/api/auth/status", {
+  const statusRes = await rawRequest("/api/auth/session", {
     headers: { Cookie: sessionCookie },
   });
   assert.equal(statusRes.status, 200);
-  assert.equal(statusRes.json?.data?.authenticated, true);
+  assert.equal(statusRes.json?.authenticated, true);
 });
 
 await check("read-only explorer endpoints return overview, defects, defect detail, tasks, history, grants, codes", async () => {
   const headers = { Cookie: sessionCookie };
 
-  const overview = await rawRequest(`/api/overview?project_id=${encodeURIComponent(project)}`, { headers });
+  const overview = await rawRequest(`/api/overview?project=${encodeURIComponent(project)}`, { headers });
   assert.equal(overview.status, 200);
-  assert.equal(overview.json?.ok, true);
-  assert.ok(Array.isArray(overview.json?.data?.attention));
-  assert.ok(Array.isArray(overview.json?.data?.projects));
+  assert.ok(Array.isArray(overview.json?.attention));
+  assert.equal(overview.json?.mcpHealth?.ok, true);
 
-  const defects = await rawRequest(`/api/defects?project_id=${encodeURIComponent(project)}`, { headers });
+  const projects = await rawRequest("/api/projects", { headers });
+  assert.equal(projects.status, 200);
+  assert.ok(projects.json?.items?.some((p) => p.id === project));
+
+  const defects = await rawRequest(`/api/defects?project=${encodeURIComponent(project)}`, { headers });
   assert.equal(defects.status, 200);
-  assert.ok(defects.json?.data?.items?.length >= 1, "expected at least 1 defect in e2e project");
+  assert.ok(defects.json?.items?.length >= 1, "expected at least 1 defect in e2e project");
 
-  const firstId = defects.json.data.items[0].id;
+  const firstId = defects.json.items[0].id;
   const detail = await rawRequest(`/api/defects/${encodeURIComponent(firstId)}`, { headers });
   assert.equal(detail.status, 200);
-  assert.equal(detail.json?.data?.defect?.id, firstId);
-  assert.ok(Array.isArray(detail.json?.data?.history));
+  assert.equal(detail.json?.defect?.id, firstId);
+  assert.ok(Array.isArray(detail.json?.history));
 
-  const tasks = await rawRequest(`/api/tasks?project_id=${encodeURIComponent(project)}`, { headers });
+  const tasks = await rawRequest(`/api/tasks?project=${encodeURIComponent(project)}`, { headers });
   assert.equal(tasks.status, 200);
-  assert.ok(Array.isArray(tasks.json?.data?.tasks));
-  assert.ok(Array.isArray(tasks.json?.data?.conditions));
+  assert.ok(Array.isArray(tasks.json?.tasks));
+  assert.ok(Array.isArray(tasks.json?.conditions));
 
-  const history = await rawRequest(`/api/history?project_id=${encodeURIComponent(project)}&limit=10`, { headers });
+  const history = await rawRequest(`/api/history?limit=10`, { headers });
   assert.equal(history.status, 200);
-  assert.ok(history.json?.data?.items?.length >= 1);
+  assert.ok(history.json?.items?.length >= 1);
 
   const grants = await rawRequest("/api/grants", { headers });
   assert.equal(grants.status, 200);
-  assert.ok(grants.json?.data?.items?.some((g) => g.project_id === project));
+  assert.ok(grants.json?.items?.some((g) => g.project === project));
 
   const codes = await rawRequest("/api/codes", { headers });
   assert.equal(codes.status, 200);
-  assert.ok(codes.json?.data?.items?.some((c) => c.code === "BUG"));
+  assert.ok(codes.json?.items?.some((c) => c.code === "BUG"));
 });
 
 await check("owner mutations: grant + revoke session scopes via Admin API", async () => {
@@ -203,18 +206,18 @@ await check("owner mutations: grant + revoke session scopes via Admin API", asyn
       "X-Requested-With": "pg-ledger-admin",
     },
     body: JSON.stringify({
-      session_id: "gemini:admin-ui-test",
-      project_id: project,
+      author_id: "gemini:admin-ui-test",
+      project: project,
       scopes: ["defect", "task"],
-      until: "2099-12-31T00:00:00Z",
+      expires_at: "2099-12-31T00:00:00Z",
       note: "granted via admin-ui e2e test",
     }),
   });
-  assert.equal(grantRes.status, 200, `grant failed: ${grantRes.text}`);
+  assert.equal(grantRes.status, 201, `grant failed: ${grantRes.text}`);
 
   const listAfterGrant = await rawRequest("/api/grants", { headers: { Cookie: sessionCookie } });
-  const grantedScopes = listAfterGrant.json.data.items
-    .filter((g) => g.session_id === "gemini:admin-ui-test" && g.project_id === project)
+  const grantedScopes = listAfterGrant.json.items
+    .filter((g) => g.author_id === "gemini:admin-ui-test" && g.project === project)
     .map((g) => g.scope)
     .sort();
   assert.deepEqual(grantedScopes, ["defect", "task"]);
@@ -227,16 +230,16 @@ await check("owner mutations: grant + revoke session scopes via Admin API", asyn
       "X-Requested-With": "pg-ledger-admin",
     },
     body: JSON.stringify({
-      session_id: "gemini:admin-ui-test",
-      project_id: project,
-      scopes: ["task"],
+      author_id: "gemini:admin-ui-test",
+      project: project,
+      scope: "task",
     }),
   });
   assert.equal(revokeRes.status, 200, `revoke failed: ${revokeRes.text}`);
 
   const listAfterRevoke = await rawRequest("/api/grants", { headers: { Cookie: sessionCookie } });
-  const remainingScopes = listAfterRevoke.json.data.items
-    .filter((g) => g.session_id === "gemini:admin-ui-test" && g.project_id === project)
+  const remainingScopes = listAfterRevoke.json.items
+    .filter((g) => g.author_id === "gemini:admin-ui-test" && g.project === project)
     .map((g) => g.scope);
   assert.deepEqual(remainingScopes, ["defect"]);
 
@@ -249,9 +252,8 @@ await check("owner mutations: grant + revoke session scopes via Admin API", asyn
       "X-Requested-With": "pg-ledger-admin",
     },
     body: JSON.stringify({
-      session_id: "gemini:admin-ui-test",
-      project_id: project,
-      scopes: [],
+      author_id: "gemini:admin-ui-test",
+      project: project,
     }),
   });
 });
@@ -265,7 +267,7 @@ await check("owner mutations: common code delete is refused; code-set updates DB
     },
   });
   assert.equal(delRes.status, 405);
-  assert.equal(delRes.json?.error?.code, "CODE_DELETE_FORBIDDEN");
+  assert.equal(delRes.json?.error, "COMMON_CODE_DELETE_FORBIDDEN");
 
   const codeSetRes = await rawRequest("/api/codes", {
     method: "POST",
@@ -286,7 +288,8 @@ await check("owner mutations: common code delete is refused; code-set updates DB
     }),
   });
   assert.equal(codeSetRes.status, 200, `code-set failed: ${codeSetRes.text}`);
-  assert.equal(codeSetRes.json?.data?.syncStages?.length, 3);
+  assert.equal(codeSetRes.json?.sync?.steps?.length, 4);
+  assert.equal(codeSetRes.json?.sync?.mcpHealth?.ok, true);
 
   // Verify via MCP tools/list that the newly added active code is live on DBHub
   const mcp = await connect(mcpUrl, mcpToken);
@@ -319,10 +322,10 @@ await check("owner mutations: common code delete is refused; code-set updates DB
   });
   assert.equal(retireRes.status, 200);
 
-  const codesAfter = await rawRequest("/api/codes?code_group=DEFECT_CATEGORY", {
+  const codesAfter = await rawRequest("/api/codes?group=DEFECT_CATEGORY", {
     headers: { Cookie: sessionCookie },
   });
-  const uiUxRow = codesAfter.json?.data?.items?.find((c) => c.code === "UI_UX");
+  const uiUxRow = codesAfter.json?.items?.find((c) => c.code === "UI_UX");
   assert.ok(uiUxRow, "UI_UX row still exists in common_code");
   assert.equal(uiUxRow.active, false);
 });

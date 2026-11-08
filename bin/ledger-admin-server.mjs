@@ -947,6 +947,14 @@ export function createAdminApp(config) {
       }
 
       // 7. Common Codes Management (/api/codes)
+      if (pathname === '/api/codes' && method === 'DELETE') {
+        sendJson(res, 405, {
+          error: 'COMMON_CODE_DELETE_FORBIDDEN',
+          message: '공통 코드는 과거 원장 참조 무결성(ledger._code_keep 트리거)을 위해 삭제할 수 없습니다. active=false(비활성화/Retire)를 사용하세요.'
+        });
+        return;
+      }
+
       if (pathname === '/api/codes' && method === 'GET') {
         const group = urlObj.searchParams.get('group') || '';
         const data = await queryReaderJson(
