@@ -37,8 +37,8 @@ cleanup() {
     for log in "$ATOMIC_DIR"/*.log; do [ ! -f "$log" ] || cp "$log" "$EVIDENCE_DIR/interrupted-$(basename "$log")"; done
   fi
   echo "TEST evidence: $EVIDENCE_DIR"
-  systemctl disable --now "$NAME.service" >/dev/null 2>&1 || true
-  rm -f "/etc/systemd/system/$NAME.service"; systemctl daemon-reload
+  systemctl disable --now "$NAME.service" "$NAME-admin.service" >/dev/null 2>&1 || true
+  rm -f "/etc/systemd/system/$NAME.service" "/etc/systemd/system/$NAME-admin.service"; systemctl daemon-reload
   rm -rf "/etc/$NAME" "/var/backups/$NAME"
   pgsu -d postgres -c "DROP DATABASE IF EXISTS $DB" || true
   if [ -n "$OLD" ]; then rm -rf "$OLD"; fi
@@ -205,13 +205,20 @@ admin grant claude:e2e-author "$PROJECT" defect task fix verify --note "e2e"
 admin grant codex:e2e-reviewer "$PROJECT" fix verify --note "e2e"
 
 TOKEN=$(sed -n 's/^DBHUB_AUTH_TOKEN=//p' "/etc/$NAME/env")
+ADMIN_TOKEN=$(sed -n 's/^PGLEDGER_ADMIN_TOKEN=//p' "/etc/$NAME/env")
+ADMIN_PORT=$(sed -n 's/^PGLEDGER_ADMIN_PORT=//p' "/etc/$NAME/env")
+[ -n "$ADMIN_TOKEN" ] && [ "$ADMIN_TOKEN" != "$TOKEN" ] && echo "PASS  PGLEDGER_ADMIN_TOKEN is distinct from DBHUB_AUTH_TOKEN" || { echo "FAIL  PGLEDGER_ADMIN_TOKEN missing or identical to DBHUB_AUTH_TOKEN"; fail=1; }
 URL=http://127.0.0.1:$MCP_PORT/mcp
+ADMIN_URL=http://127.0.0.1:$ADMIN_PORT
 echo "== Claude hook contract (synthetic host input)"
 node --test "$REPO/tests/claude-hook.mjs" || fail=1
 node "$REPO/tests/host-attestation.mjs" "$REPO" || fail=1
 
 echo "== MCP scenario"
 DBHUB_AUTH_TOKEN=$TOKEN node "$REPO/tests/e2e.mjs" "$URL" "$PROJECT" "$CODE" || fail=1
+
+echo "== Admin Web Console & Security E2E"
+PGLEDGER_ADMIN_TOKEN=$ADMIN_TOKEN DBHUB_AUTH_TOKEN=$TOKEN node "$REPO/tests/admin-ui.mjs" "$ADMIN_URL" "$URL" "$PROJECT" "$CODE" || fail=1
 
 echo "== race: a case recorded while its defect is being merged"
 # A gate session holds an advisory lock. The merge takes the defect row lock, then waits at the gate. The case starts
@@ -296,6 +303,10 @@ pass_if 'reapply preserves every semantic row' "$(snapshot)" "$before_reapply"
 pass_if 'reapply preserves creators' "$(pgsu -d "$DB" -tAc "select string_agg(id||':'||created_by,',' order by id) from ledger.defect")" "$creators"
 pass_if 'created_by migration is recorded once' "$(pgsu -d "$DB" -tAc "select count(*) from ledger._migration where step='created_by'")" 1
 [ "$(sed -n 's/^DBHUB_AUTH_TOKEN=//p' "/etc/$NAME/env")" = "$TOKEN" ] && echo "PASS  token kept" || { echo "FAIL  token changed"; fail=1; }
+[ "$(sed -n 's/^PGLEDGER_ADMIN_TOKEN=//p' "/etc/$NAME/env")" = "$ADMIN_TOKEN" ] && echo "PASS  admin token kept" || { echo "FAIL  admin token changed"; fail=1; }
+echo "== One-click installer idempotency check"
+"$REPO/deploy/one-click-install.sh" --db "$DB" --pg-port "$PG_PORT" --mcp-port "$MCP_PORT" --admin-port "$ADMIN_PORT" --name "$NAME" >/dev/null
+[ "$(sed -n 's/^PGLEDGER_ADMIN_TOKEN=//p' "/etc/$NAME/env")" = "$ADMIN_TOKEN" ] && echo "PASS  one-click installer preserves existing installation and tokens" || { echo "FAIL  one-click installer altered admin token"; fail=1; }
 n=$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect where project_id = '$PROJECT'")
 [ "$n" = 8 ] && echo "PASS  data kept ($n defects)" || { echo "FAIL  defects after re-install: $n"; fail=1; }
 pass_if 'cases kept by the re-install' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.defect_case" 2>&1 || true)" "$cases"

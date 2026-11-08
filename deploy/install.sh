@@ -3,8 +3,8 @@
 # Run as root on the database host. Safe to re-run: tables are created once, functions/views/grants are re-applied,
 # passwords and the bearer token are kept, the service is restarted.
 #
-#   sudo deploy/install.sh --db ledger [--pg-port 5432] [--mcp-port 8765] [--allowed-hosts mcp.example.com] [--name pg-ledger-mcp]
-#                          [--schema-only] [--reset-passwords]
+#   sudo deploy/install.sh --db ledger [--pg-port 5432] [--mcp-port 8765] [--admin-port 8766] [--allowed-hosts mcp.example.com] [--name pg-ledger-mcp]
+#                          [--schema-only] [--skip-admin] [--reset-passwords]
 #
 # The roles ledger_owner/author/reviewer/reader are cluster-wide, so one PostgreSQL cluster serves one ledger instance.
 set -euo pipefail
@@ -16,8 +16,10 @@ NAME=pg-ledger-mcp
 DB=
 PG_PORT=5432
 MCP_PORT=8765
+ADMIN_PORT=
 ALLOWED_HOSTS=
 SCHEMA_ONLY=0
+SKIP_ADMIN=0
 RESET_PASSWORDS=0
 PREFIX=/opt/pg-ledger-mcp
 SVC_USER=pg-ledger-mcp
@@ -29,9 +31,11 @@ while [ $# -gt 0 ]; do
     --db) DB=${2:?}; shift 2 ;;
     --pg-port) PG_PORT=${2:?}; shift 2 ;;
     --mcp-port) MCP_PORT=${2:?}; shift 2 ;;
+    --admin-port) ADMIN_PORT=${2:?}; shift 2 ;;
     --allowed-hosts) ALLOWED_HOSTS=${2:?}; shift 2 ;;
     --name) NAME=${2:?}; shift 2 ;;
     --schema-only) SCHEMA_ONLY=1; shift ;;
+    --skip-admin) SKIP_ADMIN=1; shift ;;
     --reset-passwords) RESET_PASSWORDS=1; shift ;;
     -h|--help) usage ;;
     *) echo "unknown argument: $1" >&2; usage 2 ;;
@@ -40,6 +44,9 @@ done
 [ -n "$DB" ] || usage 2
 [[ "$NAME" =~ ^[a-z][a-z0-9-]{0,40}$ ]] || die "--name must match ^[a-z][a-z0-9-]{0,40}$"
 [[ "$PG_PORT" =~ ^[0-9]+$ && "$MCP_PORT" =~ ^[0-9]+$ ]] || die "ports must be numbers"
+if [ -n "$ADMIN_PORT" ]; then
+  [[ "$ADMIN_PORT" =~ ^[0-9]+$ ]] || die "--admin-port must be a number"
+fi
 [ "$(id -u)" = 0 ] || die "run as root"
 ETC=/etc/$NAME
 ENV_FILE=$ETC/env
@@ -90,11 +97,16 @@ Another installation may use them. Re-run with --reset-passwords to set new ones
 fi
 AUTHOR_PW=$(envget PGLEDGER_AUTHOR_PASSWORD); REVIEWER_PW=$(envget PGLEDGER_REVIEWER_PASSWORD); READER_PW=$(envget PGLEDGER_READER_PASSWORD)
 TOKEN=$(envget DBHUB_AUTH_TOKEN)
+ADMIN_TOKEN=$(envget PGLEDGER_ADMIN_TOKEN)
 if [ "$RESET_PASSWORDS" = 1 ]; then AUTHOR_PW=; REVIEWER_PW=; READER_PW=; fi
 [ -n "$AUTHOR_PW" ] || AUTHOR_PW=$(rand_hex 24)
 [ -n "$REVIEWER_PW" ] || REVIEWER_PW=$(rand_hex 24)
 [ -n "$READER_PW" ] || READER_PW=$(rand_hex 24)
 [ -n "$TOKEN" ] || TOKEN=$(rand_hex 32)
+[ -n "$ADMIN_TOKEN" ] || ADMIN_TOKEN=$(rand_hex 32)
+if [ "$ADMIN_TOKEN" = "$TOKEN" ]; then ADMIN_TOKEN=$(rand_hex 32); fi
+[ -n "$ADMIN_PORT" ] || ADMIN_PORT=$(envget PGLEDGER_ADMIN_PORT)
+[ -n "$ADMIN_PORT" ] || ADMIN_PORT=$((MCP_PORT + 1))
 [ -n "$ALLOWED_HOSTS" ] || ALLOWED_HOSTS=$(envget DBHUB_ALLOWED_HOSTS)
 # loopback always stays allowed: the smoke check below and local clients use it
 case ",$ALLOWED_HOSTS," in *,127.0.0.1,*) ;; *) ALLOWED_HOSTS=${ALLOWED_HOSTS:+$ALLOWED_HOSTS,}localhost,127.0.0.1 ;; esac
@@ -114,14 +126,16 @@ PGLEDGER_PGHOST=127.0.0.1
 PGLEDGER_PGPORT=$PG_PORT
 PGLEDGER_SSLMODE=disable
 PGLEDGER_MCP_PORT=$MCP_PORT
+PGLEDGER_ADMIN_PORT=$ADMIN_PORT
 PGLEDGER_AUTHOR_PASSWORD=$AUTHOR_PW
 PGLEDGER_REVIEWER_PASSWORD=$REVIEWER_PW
 PGLEDGER_READER_PASSWORD=$READER_PW
 DBHUB_AUTH_TOKEN=$TOKEN
+PGLEDGER_ADMIN_TOKEN=$ADMIN_TOKEN
 DBHUB_ALLOWED_HOSTS=$ALLOWED_HOSTS
 EOF
 chmod 0600 "$tmp"; mv -f "$tmp" "$ENV_FILE"
-echo "passwords and bearer token: $ENV_FILE (root only)"
+echo "passwords and bearer tokens: $ENV_FILE (root only)"
 
 # each login must be able to log in over TCP with its password (pg_hba must allow 127.0.0.1 with scram-sha-256)
 for pair in "ledger_author:$AUTHOR_PW" "ledger_reviewer:$REVIEWER_PW" "ledger_reader:$READER_PW"; do
@@ -162,3 +176,21 @@ until curl -fsS "$url/healthz" >/dev/null 2>&1; do
 done
 DBHUB_AUTH_TOKEN=$TOKEN "$NODE" "$REPO/bin/mcp-call.mjs" "$url/mcp" check
 echo "$NAME is serving $url/mcp (allowed hosts: $ALLOWED_HOSTS). Clients need: Authorization: Bearer <DBHUB_AUTH_TOKEN from $ENV_FILE>"
+
+if [ "$SKIP_ADMIN" = 0 ]; then
+  chmod -R a+rX "$REPO/bin" "$REPO/deploy" "$REPO/mcp" "$REPO/web" 2>/dev/null || true
+  sed -e "s#@NAME@#$NAME#g" -e "s#@NODE@#$NODE#g" -e "s#@REPO@#$REPO#g" -e "s#@ETC@#$ETC#g" \
+    "$REPO/deploy/pg-ledger-mcp-admin.service" > "/etc/systemd/system/$NAME-admin.service"
+  chmod 0644 "/etc/systemd/system/$NAME-admin.service"
+  systemctl daemon-reload
+  systemctl enable "$NAME-admin.service" >/dev/null
+  systemctl restart "$NAME-admin.service"
+
+  admin_url=http://127.0.0.1:$ADMIN_PORT
+  deadline=$((SECONDS + 30))
+  until curl -fsS "$admin_url/healthz" >/dev/null 2>&1; do
+    [ $SECONDS -lt $deadline ] || { journalctl -u "$NAME-admin" -n 40 --no-pager >&2; die "$NAME-admin did not answer $admin_url/healthz within 30 s"; }
+    sleep 1
+  done
+  echo "$NAME-admin is serving $admin_url (Admin Console). Sign in with PGLEDGER_ADMIN_TOKEN from $ENV_FILE"
+fi

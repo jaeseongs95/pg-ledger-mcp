@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pg-ledger-mcp 관리자 콘솔</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a href="#main-content" class="skip-link">본문으로 건너뛰기</a>
+
+  <!-- 전역 알림 영역 (Screen Reader Polite Live Region) -->
+  <div id="toast-region" class="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- 1. 로그인 화면 (PGLEDGER_ADMIN_TOKEN 전용) -->
+  <main id="auth-view" class="auth-wrapper" hidden>
+    <section class="auth-card" aria-labelledby="auth-title">
+      <div class="auth-header">
+        <span class="brand-badge">pg-ledger-mcp</span>
+        <h1 id="auth-title">소유자 관리자 콘솔 로그인</h1>
+        <p class="auth-subtitle">
+          이 콘솔은 시스템 소유자(<code>user:owner</code>) 전용 제어 및 원장 관측 화면입니다.
+        </p>
+      </div>
+
+      <div class="security-callout" role="note">
+        <strong>보안 경계 안내</strong>
+        <ul>
+          <li>서버 호스트의 <code>/etc/&lt;instance&gt;/env</code>에 기록된 <code>PGLEDGER_ADMIN_TOKEN</code>을 입력하세요.</li>
+          <li>에이전트 클라이언트용 공유 토큰(<code>DBHUB_AUTH_TOKEN</code>)은 권한 상승 방지를 위해 거부됩니다.</li>
+        </ul>
+      </div>
+
+      <form id="login-form" novalidate>
+        <div class="field-group">
+          <label for="login-token-input">관리자 토큰 (<code>PGLEDGER_ADMIN_TOKEN</code>)</label>
+          <div class="input-with-action">
+            <input
+              id="login-token-input"
+              name="token"
+              type="password"
+              autocomplete="current-password"
+              required
+              placeholder="64자리 16진수 관리자 토큰 입력"
+              aria-describedby="login-error-msg"
+            >
+            <button type="button" id="toggle-token-visibility" class="btn btn-secondary btn-sm" aria-label="토큰 표시 전환">
+              표시
+            </button>
+          </div>
+        </div>
+        <div id="login-error-msg" class="error-banner" role="alert" hidden></div>
+        <button type="submit" id="login-submit-btn" class="btn btn-primary btn-block">
+          관리자 콘솔 접속
+        </button>
+      </form>
+    </section>
+  </main>
+
+  <!-- 2. 메인 관리자 콘솔 화면 -->
+  <div id="app-view" class="app-layout" hidden>
+    <header class="top-header">
+      <div class="header-left">
+        <span class="brand-badge">pg-ledger-mcp</span>
+        <h1 class="app-title">관리자 콘솔</h1>
+        <span id="instance-badge" class="meta-pill" title="인스턴스 및 데이터베이스">pg-ledger-mcp</span>
+        <span class="meta-pill role-pill" title="읽기: ledger_reader / 제어: ledger_owner">
+          읽기: <code>ledger_reader</code> · 제어: <code>ledger_owner</code>
+        </span>
+      </div>
+
+      <div class="header-right">
+        <div class="global-filter">
+          <label for="global-project-select" class="sr-only">전역 프로젝트 필터</label>
+          <select id="global-project-select" aria-label="전역 프로젝트 필터">
+            <option value="">전체 프로젝트</option>
+          </select>
+        </div>
+
+        <span id="mcp-health-badge" class="status-pill status-neutral" title="DBHub MCP 엔드포인트 상태">
+          MCP 확인 중...
+        </span>
+
+        <button type="button" id="header-attention-btn" class="status-pill status-ok" title="주의 필요 항목 보기로 이동">
+          주의 항목 <strong id="header-attention-count">0</strong>건
+        </button>
+
+        <button type="button" id="global-refresh-btn" class="btn btn-secondary btn-sm">
+          새로고침
+        </button>
+        <button type="button" id="logout-btn" class="btn btn-ghost btn-sm">
+          로그아웃
+        </button>
+      </div>
+    </header>
+
+    <div class="authority-banner" role="note">
+      <span>
+        <strong>권한 분리 원칙:</strong>
+        이 웹 콘솔은 <strong>소유자 제어(프로젝트·세션 권한·공통코드)</strong>와 <strong>원장 관측(Explorer)</strong> 전용입니다.
+        결함·과업 상태 전이(<code>VERIFIED</code> 등), 수정 커밋 등록(<code>record_fix</code>), 감사 이력 정정(<code>correct</code>)은
+        호스트 증명(<code>_hostAttestation</code>)과 세션 권한이 부여된 MCP 에이전트 세션에서만 수행됩니다.
+      </span>
+    </div>
+
+    <nav class="primary-nav" aria-label="관리자 주요 기능 탭">
+      <div class="tab-list" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          id="tab-btn-overview"
+          aria-controls="panel-overview"
+          aria-selected="true"
+          data-tab="overview"
+          class="tab-btn active"
+        >
+          1. 트리아지 &amp; 현황
+          <span id="tab-badge-attention" class="tab-count-badge" hidden>0</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-btn-grants"
+          aria-controls="panel-grants"
+          aria-selected="false"
+          data-tab="grants"
+          class="tab-btn"
+          tabindex="-1"
+        >
+          2. 세션 권한 제어
+          <span id="tab-badge-grants" class="tab-count-badge">0</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-btn-explorer"
+          aria-controls="panel-explorer"
+          aria-selected="false"
+          data-tab="explorer"
+          class="tab-btn"
+          tabindex="-1"
+        >
+          3. 원장 탐색기
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-btn-settings"
+          aria-controls="panel-settings"
+          aria-selected="false"
+          data-tab="settings"
+          class="tab-btn"
+          tabindex="-1"
+        >
+          4. 프로젝트 &amp; 공통코드
+        </button>
+      </div>
+    </nav>
+
+    <main id="main-content" class="main-container">
+      <!-- 탭 1: 트리아지 & 현황 (Overview & Attention Hub) -->
+      <section id="panel-overview" role="tabpanel" aria-labelledby="tab-btn-overview" class="tab-panel">
+        <div class="section-header">
+          <div>
+            <h2>트리아지 관심사 허브 (<code>ledger.v_attention</code>)</h2>
+            <p class="section-desc">
+              에이전트 협업 중 정체되거나 불변식 점검이 필요한 5대 이상 징후입니다. 카드를 클릭하면 해당 조건으로 즉시 필터링합니다.
+            </p>
+          </div>
+        </div>
+
+        <div id="attention-cards-grid" class="attention-grid" aria-label="5대 이상 징후 요약 카드">
+          <!-- JS에서 렌더링 -->
+        </div>
+
+        <div class="card mt-16">
+          <div class="card-header">
+            <div>
+              <h3 id="attention-list-title">조치 필요 항목 목록</h3>
+              <p class="card-subtitle" id="attention-filter-indicator">전체 이상 징후 표시 중</p>
+            </div>
+            <div class="card-actions">
+              <button type="button" id="clear-attention-filter-btn" class="btn btn-secondary btn-sm" hidden>
+                분류 필터 해제
+              </button>
+            </div>
+          </div>
+          <div id="overview-attention-state" class="state-box" hidden></div>
+          <div class="table-responsive" id="overview-attention-table-wrap">
+            <table class="data-table" aria-labelledby="attention-list-title">
+              <thead>
+                <tr>
+                  <th>이상 징후 분류</th>
+                  <th>대상 구분</th>
+                  <th>ID</th>
+                  <th>프로젝트</th>
+                  <th>현재 상태 / 심각도</th>
+                  <th>제목</th>
+                  <th>담당 세션</th>
+                  <th>최근 갱신</th>
+                  <th>동작</th>
+                </tr>
+              </thead>
+              <tbody id="overview-attention-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="metrics-grid mt-24">
+          <div class="card">
+            <h3>결함 상태별 분포 (<code>ledger.defect</code>)</h3>
+            <div id="metric-defect-status" class="metric-pills"></div>
+          </div>
+          <div class="card">
+            <h3>결함 심각도별 분포</h3>
+            <div id="metric-defect-severity" class="metric-pills"></div>
+          </div>
+          <div class="card">
+            <h3>과업 상태별 분포 (<code>ledger.task</code>)</h3>
+            <div id="metric-task-state" class="metric-pills"></div>
+          </div>
+          <div class="card">
+            <h3>운영 제어 요약</h3>
+            <div id="metric-owner-summary" class="metric-pills"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 탭 2: 세션 권한 제어 (Session Grants) -->
+      <section id="panel-grants" role="tabpanel" aria-labelledby="tab-btn-grants" class="tab-panel" hidden>
+        <div class="grid-two-col">
+          <!-- 좌측: 권한 부여 폼 -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>새 세션 권한 부여 (<code>ledger.grant_session</code>)</h2>
+                <p class="card-subtitle">
+                  에이전트 세션에 프로젝트별 쓰기·검수 권한을 부여합니다. 동일 키의 기존 활성 권한은 안전하게 갱신됩니다.
+                </p>
+              </div>
+            </div>
+
+            <form id="grant-form" novalidate>
+              <div class="field-group">
+                <label for="grant-author-input">작성자 세션 ID (<code>author_id</code>) *</label>
+                <input
+                  id="grant-author-input"
+                  name="author_id"
+                  type="text"
+                  required
+                  placeholder="예: claude:5970f17b-... 또는 gemini:e28d5789-..."
+                >
+                <div class="quick-pills" aria-label="벤더 접두사 빠른 입력">
+                  <span class="quick-label">빠른 접두사:</span>
+                  <button type="button" class="chip-btn" data-prefix="claude:">claude:</button>
+                  <button type="button" class="chip-btn" data-prefix="codex:">codex:</button>
+                  <button type="button" class="chip-btn" data-prefix="gemini:">gemini:</button>
+                </div>
+              </div>
+
+              <div class="field-group">
+                <label for="grant-project-select">대상 프로젝트 (<code>project</code>) *</label>
+                <select id="grant-project-select" name="project" required>
+                  <option value="">프로젝트 선택...</option>
+                </select>
+              </div>
+
+              <fieldset class="field-group">
+                <legend>권한 범위 선택 (<code>scope</code> 매트릭스, 다중 선택 가능) *</legend>
+                <div class="scope-matrix">
+                  <label class="checkbox-card">
+                    <input type="checkbox" name="grant_scope" value="defect" checked>
+                    <div>
+                      <strong><code>defect</code> (결함)</strong>
+                      <span>결함 생성·편집·병합·케이스 기록·링크</span>
+                    </div>
+                  </label>
+                  <label class="checkbox-card">
+                    <input type="checkbox" name="grant_scope" value="task" checked>
+                    <div>
+                      <strong><code>task</code> (과업·조건)</strong>
+                      <span>과업 및 릴리스 조건 생성·편집·상태 전이</span>
+                    </div>
+                  </label>
+                  <label class="checkbox-card">
+                    <input type="checkbox" name="grant_scope" value="fix">
+                    <div>
+                      <strong><code>fix</code> (수정 커밋)</strong>
+                      <span><code>ledger_record_fix</code>로 수정 커밋 SHA 기록</span>
+                    </div>
+                  </label>
+                  <label class="checkbox-card">
+                    <input type="checkbox" name="grant_scope" value="verify">
+                    <div>
+                      <strong><code>verify</code> (독립 검수)</strong>
+                      <span><code>ledger_reviewer</code> 로그인의 VERIFIED/MET 판정</span>
+                    </div>
+                  </label>
+                </div>
+              </fieldset>
+
+              <div class="field-group">
+                <label for="grant-expires-input">만료 시각 (<code>expires_at</code>, 비워두면 무기한)</label>
+                <div class="quick-pills mb-8" aria-label="만료 시간 프리셋">
+                  <button type="button" class="chip-btn" data-expiry-hours="1">+1시간</button>
+                  <button type="button" class="chip-btn" data-expiry-hours="4">+4시간</button>
+                  <button type="button" class="chip-btn" data-expiry-hours="24">+24시간</button>
+                  <button type="button" class="chip-btn" data-expiry-hours="168">+7일</button>
+                  <button type="button" class="chip-btn" data-expiry-hours="0">무기한(초기화)</button>
+                </div>
+                <input id="grant-expires-input" name="expires_at" type="datetime-local">
+              </div>
+
+              <div class="field-group">
+                <label for="grant-note-input">부여 사유 / 비고 (<code>note</code>)</label>
+                <input
+                  id="grant-note-input"
+                  name="note"
+                  type="text"
+                  maxlength="500"
+                  placeholder="예: T-0005 구현 및 결함 수정 담당"
+                >
+              </div>
+
+              <div id="grant-form-error" class="error-banner" role="alert" hidden></div>
+
+              <button type="submit" id="grant-submit-btn" class="btn btn-primary btn-block">
+                선택한 범위 권한 부여
+              </button>
+            </form>
+          </div>
+
+          <!-- 우측: 세션 권한 목록 및 회수 -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>세션 권한 목록 (<code>ledger.session_grant</code>)</h2>
+                <p class="card-subtitle">
+                  권한 회수(Revoke) 시 실행 중인 에이전트의 쓰기 트랜잭션이 즉시 차단되므로 2단계 확인을 거칩니다.
+                </p>
+              </div>
+            </div>
+
+            <div class="filter-bar">
+              <select id="grants-status-filter" aria-label="권한 상태 필터">
+                <option value="live">활성 권한 (Live)</option>
+                <option value="expired">만료됨 (Expired)</option>
+                <option value="revoked">회수됨 (Revoked)</option>
+                <option value="all">전체 이력 (All)</option>
+              </select>
+              <select id="grants-scope-filter" aria-label="권한 범위 필터">
+                <option value="">모든 범위(Scope)</option>
+                <option value="defect">defect</option>
+                <option value="task">task</option>
+                <option value="fix">fix</option>
+                <option value="verify">verify</option>
+              </select>
+              <input
+                id="grants-search-input"
+                type="search"
+                placeholder="작성자 ID, 프로젝트, 비고 검색 (Enter)"
+                aria-label="세션 권한 검색"
+              >
+              <button type="button" id="grants-reset-filter-btn" class="btn btn-secondary btn-sm">
+                초기화
+              </button>
+            </div>
+
+            <div id="grants-state-box" class="state-box" hidden></div>
+
+            <div class="table-responsive" id="grants-table-wrap">
+              <table class="data-table" aria-label="세션 권한 목록">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>작성자 세션 (<code>author_id</code>)</th>
+                    <th>프로젝트</th>
+                    <th>범위 (<code>scope</code>)</th>
+                    <th>상태</th>
+                    <th>부여 시각 / 만료 시각</th>
+                    <th>비고</th>
+                    <th>제어</th>
+                  </tr>
+                </thead>
+                <tbody id="grants-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 탭 3: 원장 탐색기 (Ledger Explorer) -->
+      <section id="panel-explorer" role="tabpanel" aria-labelledby="tab-btn-explorer" class="tab-panel" hidden>
+        <div class="subnav-bar" role="tablist" aria-label="원장 탐색기 하위 보기">
+          <button type="button" class="subtab-btn active" data-subtab="defects" role="tab" aria-selected="true">
+            결함 원장 (<code>v_defect</code>)
+          </button>
+          <button type="button" class="subtab-btn" data-subtab="tasks" role="tab" aria-selected="false">
+            과업 &amp; 릴리스 조건 (<code>task</code> / <code>condition</code>)
+          </button>
+          <button type="button" class="subtab-btn" data-subtab="history" role="tab" aria-selected="false">
+            불변 감사 이력 (<code>v_history</code>)
+          </button>
+        </div>
+
+        <!-- 3-1. 결함 탐색기 -->
+        <div id="subpanel-defects" class="subpanel">
+          <div class="card">
+            <div class="filter-bar">
+              <select id="defects-status-filter" aria-label="결함 상태 필터">
+                <option value="">모든 상태</option>
+                <option value="OPEN">OPEN</option>
+                <option value="SOURCE_FIXED">SOURCE_FIXED</option>
+                <option value="VERIFIED">VERIFIED</option>
+                <option value="MERGED">MERGED</option>
+                <option value="NOT_DEFECT">NOT_DEFECT</option>
+                <option value="DISPUTED">DISPUTED</option>
+              </select>
+              <select id="defects-severity-filter" aria-label="결함 심각도 필터">
+                <option value="">모든 심각도</option>
+                <option value="P1">P1 (치명)</option>
+                <option value="P2">P2 (중대)</option>
+                <option value="P3">P3 (경미)</option>
+                <option value="UNRATED">UNRATED</option>
+              </select>
+              <select id="defects-category-filter" aria-label="결함 분류 필터">
+                <option value="">모든 분류(Category)</option>
+              </select>
+              <select id="defects-attention-filter" aria-label="이상 징후 필터">
+                <option value="">모든 주의 상태</option>
+                <option value="OPEN_WITH_FIX">OPEN_WITH_FIX</option>
+                <option value="FIXED_WITHOUT_COMMIT">FIXED_WITHOUT_COMMIT</option>
+                <option value="OPEN_NO_OWNER">OPEN_NO_OWNER</option>
+              </select>
+              <input
+                id="defects-search-input"
+                type="search"
+                placeholder="ID, 제목, 현상, 원인, 담당/수정 세션 검색 (Enter)"
+                aria-label="결함 검색어"
+              >
+              <button type="button" id="defects-search-btn" class="btn btn-primary btn-sm">검색</button>
+              <button type="button" id="defects-reset-btn" class="btn btn-secondary btn-sm">초기화</button>
+            </div>
+
+            <div class="pagination-bar">
+              <span id="defects-page-info" class="page-info">조회 중...</span>
+              <div class="page-controls">
+                <label for="defects-limit-select" class="sr-only">페이지 크기</label>
+                <select id="defects-limit-select" aria-label="결함 페이지 크기">
+                  <option value="25">25건씩</option>
+                  <option value="50" selected>50건씩</option>
+                  <option value="100">100건씩</option>
+                </select>
+                <button type="button" id="defects-prev-btn" class="btn btn-secondary btn-sm" disabled>이전</button>
+                <button type="button" id="defects-next-btn" class="btn btn-secondary btn-sm" disabled>다음</button>
+              </div>
+            </div>
+
+            <div id="defects-state-box" class="state-box" hidden></div>
+
+            <div class="table-responsive" id="defects-table-wrap">
+              <table class="data-table" aria-label="결함 목록">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>프로젝트</th>
+                    <th>심각도</th>
+                    <th>분류</th>
+                    <th>상태</th>
+                    <th>제목</th>
+                    <th>담당 세션 / 수정 세션</th>
+                    <th>케이스 / 픽스</th>
+                    <th>갱신 시각</th>
+                    <th>상세</th>
+                  </tr>
+                </thead>
+                <tbody id="defects-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3-2. 과업 & 조건 탐색기 -->
+        <div id="subpanel-tasks" class="subpanel" hidden>
+          <div class="card">
+            <div class="card-header">
+              <h3>과업 목록 (<code>ledger.task</code>)</h3>
+            </div>
+            <div class="filter-bar">
+              <select id="tasks-state-filter" aria-label="과업 상태 필터">
+                <option value="">모든 상태</option>
+                <option value="PLANNED">PLANNED</option>
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="BLOCKED">BLOCKED</option>
+                <option value="REPORTED_DONE">REPORTED_DONE</option>
+                <option value="VERIFIED">VERIFIED</option>
+                <option value="CANCELLED">CANCELLED</option>
+                <option value="UNKNOWN">UNKNOWN</option>
+              </select>
+              <input
+                id="tasks-search-input"
+                type="search"
+                placeholder="과업 ID, 제목, 목적, 담당 세션 검색 (Enter)"
+                aria-label="과업 검색어"
+              >
+              <button type="button" id="tasks-search-btn" class="btn btn-primary btn-sm">검색</button>
+              <button type="button" id="tasks-reset-btn" class="btn btn-secondary btn-sm">초기화</button>
+            </div>
+
+            <div id="tasks-state-box" class="state-box" hidden></div>
+
+            <div class="table-responsive" id="tasks-table-wrap">
+              <table class="data-table" aria-label="과업 목록">
+                <thead>
+                  <tr>
+                    <th>과업 ID</th>
+                    <th>프로젝트</th>
+                    <th>상태</th>
+                    <th>제목 &amp; 목적</th>
+                    <th>완료 조건 (<code>success_condition</code>)</th>
+                    <th>담당 / 생성자</th>
+                    <th>연결 결함 / 조건</th>
+                    <th>갱신 시각</th>
+                  </tr>
+                </thead>
+                <tbody id="tasks-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card mt-24">
+            <div class="card-header">
+              <h3>릴리스 조건 목록 (<code>ledger.condition</code>)</h3>
+            </div>
+            <div id="conditions-state-box" class="state-box" hidden></div>
+            <div class="table-responsive" id="conditions-table-wrap">
+              <table class="data-table" aria-label="릴리스 조건 목록">
+                <thead>
+                  <tr>
+                    <th>조건 ID</th>
+                    <th>프로젝트</th>
+                    <th>릴리스 / 목표</th>
+                    <th>코드</th>
+                    <th>상태</th>
+                    <th>조건 내용</th>
+                    <th>연결된 과업 / 결함</th>
+                    <th>갱신 시각</th>
+                  </tr>
+                </thead>
+                <tbody id="conditions-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3-3. 불변 감사 이력 탐색기 -->
+        <div id="subpanel-history" class="subpanel" hidden>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3>불변 감사 이력 (<code>ledger.v_history</code>)</h3>
+                <p class="card-subtitle">
+                  PostgreSQL 트리거(<code>history_no_update</code>, <code>history_no_truncate</code>)로 보호되는 추가 전용(Append-Only) 감사 로그입니다.
+                </p>
+              </div>
+            </div>
+
+            <div class="filter-bar">
+              <select id="history-entity-filter" aria-label="엔티티 종류 필터">
+                <option value="">모든 엔티티</option>
+                <option value="defect">defect</option>
+                <option value="task">task</option>
+                <option value="condition">condition</option>
+                <option value="defect_fix">defect_fix</option>
+                <option value="defect_case">defect_case</option>
+                <option value="defect_task">defect_task</option>
+                <option value="defect_relation">defect_relation</option>
+                <option value="condition_link">condition_link</option>
+              </select>
+              <select id="history-op-filter" aria-label="작업 종류 필터">
+                <option value="">모든 작업(op)</option>
+                <option value="CREATE">CREATE</option>
+                <option value="UPDATE">UPDATE</option>
+                <option value="TRANSITION">TRANSITION</option>
+                <option value="FIX">FIX</option>
+                <option value="CASE">CASE</option>
+                <option value="LINK">LINK</option>
+                <option value="UNLINK">UNLINK</option>
+                <option value="CORRECT">CORRECT</option>
+              </select>
+              <input
+                id="history-entity-id-input"
+                type="search"
+                placeholder="대상 ID (예: PG_LEDGER_MCP-D-0001)"
+                aria-label="대상 엔티티 ID 필터"
+              >
+              <input
+                id="history-author-input"
+                type="search"
+                placeholder="작성자 세션 ID 필터"
+                aria-label="작성자 필터"
+              >
+              <input
+                id="history-search-input"
+                type="search"
+                placeholder="사유(reason) 또는 변경 JSON 검색 (Enter)"
+                aria-label="감사 이력 검색어"
+              >
+              <button type="button" id="history-search-btn" class="btn btn-primary btn-sm">검색</button>
+              <button type="button" id="history-reset-btn" class="btn btn-secondary btn-sm">초기화</button>
+            </div>
+
+            <div class="pagination-bar">
+              <span id="history-page-info" class="page-info">조회 중...</span>
+              <div class="page-controls">
+                <button type="button" id="history-prev-btn" class="btn btn-secondary btn-sm" disabled>이전</button>
+                <button type="button" id="history-next-btn" class="btn btn-secondary btn-sm" disabled>다음</button>
+              </div>
+            </div>
+
+            <div id="history-state-box" class="state-box" hidden></div>
+
+            <div class="table-responsive" id="history-table-wrap">
+              <table class="data-table" aria-label="감사 이력 목록">
+                <thead>
+                  <tr>
+                    <th>이력 ID</th>
+                    <th>시각</th>
+                    <th>대상 엔티티 / ID</th>
+                    <th>작업 (<code>op</code>)</th>
+                    <th>상태 변화</th>
+                    <th>작성자 / DB 로그인</th>
+                    <th>사유 (<code>reason</code>) &amp; 증빙</th>
+                    <th>변경 내용 (<code>changes</code>)</th>
+                  </tr>
+                </thead>
+                <tbody id="history-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 탭 4: 프로젝트 & 공통코드 제어 (Projects & Common Codes) -->
+      <section id="panel-settings" role="tabpanel" aria-labelledby="tab-btn-settings" class="tab-panel" hidden>
+        <!-- 프로젝트 섹션 -->
+        <div class="grid-two-col">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>새 프로젝트 등록 (<code>ledger.project</code>)</h2>
+                <p class="card-subtitle">
+                  결함 채번 접두사(<code>&lt;CODE&gt;-D-0001</code>)와 과업 소속 단위가 되는 프로젝트를 등록합니다.
+                </p>
+              </div>
+            </div>
+
+            <form id="project-form" novalidate>
+              <div class="field-group">
+                <label for="project-id-input">프로젝트 식별자 (<code>id</code>) *</label>
+                <input
+                  id="project-id-input"
+                  name="id"
+                  type="text"
+                  required
+                  placeholder="예: PG_LEDGER_MCP 또는 my-project"
+                >
+              </div>
+              <div class="field-group">
+                <label for="project-code-input">결함 채번 코드 (<code>code</code>, 대문자 <code>^[A-Z][A-Z0-9_]{0,31}$</code>) *</label>
+                <input
+                  id="project-code-input"
+                  name="code"
+                  type="text"
+                  required
+                  placeholder="예: PG_LEDGER_MCP"
+                >
+                <small id="project-code-preview" class="field-hint">채번 예시: <code>CODE-D-0001</code></small>
+              </div>
+              <div class="field-group">
+                <label for="project-title-input">프로젝트 제목 (<code>title</code>) *</label>
+                <input
+                  id="project-title-input"
+                  name="title"
+                  type="text"
+                  required
+                  maxlength="200"
+                  placeholder="예: PostgreSQL 불변 결함·과업 원장 MCP 서버"
+                >
+              </div>
+              <div id="project-form-error" class="error-banner" role="alert" hidden></div>
+              <button type="submit" id="project-submit-btn" class="btn btn-primary btn-block">
+                프로젝트 추가
+              </button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>등록된 프로젝트 목록</h2>
+            </div>
+            <div id="projects-state-box" class="state-box" hidden></div>
+            <div class="table-responsive" id="projects-table-wrap">
+              <table class="data-table" aria-label="프로젝트 목록">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>채번 코드</th>
+                    <th>제목</th>
+                    <th>결함 (OPEN/전체)</th>
+                    <th>과업 수</th>
+                    <th>활성 권한</th>
+                    <th>생성자</th>
+                  </tr>
+                </thead>
+                <tbody id="projects-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 공통 코드 섹션 -->
+        <div class="card mt-24">
+          <div class="card-header">
+            <div>
+              <h2>공통 코드 관리 및 DBHub 도구 정의 동기화 (<code>ledger.common_code</code>)</h2>
+              <p class="card-subtitle">
+                공통 코드는 과거 원장 참조 무결성(<code>ledger._code_keep</code> 트리거)을 위해 <strong>삭제하거나 코드명을 변경할 수 없으며, 비활성화(Retire)만 허용</strong>됩니다.
+                코드 저장 또는 활성/비활성 전환 시 <code>/etc/&lt;name&gt;/dbhub.toml</code> 재렌더링 및 DBHub 서비스 재시작이 자동 수행됩니다.
+              </p>
+            </div>
+          </div>
+
+          <!-- 3단계 동기화 상태 배너 -->
+          <div id="code-sync-banner" class="sync-banner" role="status" aria-live="polite" hidden>
+            <div class="sync-title" id="code-sync-title">DBHub 도구 정의 동기화 진행 중...</div>
+            <ol class="sync-steps">
+              <li id="sync-step-1">1. PostgreSQL <code>ledger.common_code</code> 반영</li>
+              <li id="sync-step-2">2. <code>deploy/render-tools.sh</code> 실행 및 DBHub 서비스 재시작</li>
+              <li id="sync-step-3">3. DBHub <code>/healthz</code> 응답 정상 확인</li>
+            </ol>
+          </div>
+
+          <div class="grid-two-col mt-16">
+            <!-- 공통 코드 추가/편집 폼 -->
+            <div class="subcard">
+              <h3 id="code-form-heading">공통 코드 추가 / 수정 (<code>code-set</code>)</h3>
+              <form id="code-form" novalidate>
+                <div class="field-group">
+                  <label for="code-group-select">코드 그룹 (<code>code_group</code>) *</label>
+                  <select id="code-group-select" name="code_group" required>
+                    <option value="DEFECT_CATEGORY">DEFECT_CATEGORY (결함 분류)</option>
+                    <option value="DEFECT_SEVERITY">DEFECT_SEVERITY (결함 심각도)</option>
+                    <option value="RELATION_KIND">RELATION_KIND (관계 종류)</option>
+                  </select>
+                </div>
+                <div class="field-row">
+                  <div class="field-group">
+                    <label for="code-value-input">코드 식별자 (<code>code</code>) *</label>
+                    <input
+                      id="code-value-input"
+                      name="code"
+                      type="text"
+                      required
+                      placeholder="예: SEC 또는 regression_of"
+                    >
+                  </div>
+                  <div class="field-group">
+                    <label for="code-sort-input">정렬 순서 (<code>sort_order</code>)</label>
+                    <input id="code-sort-input" name="sort_order" type="number" value="10">
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label for="code-name-ko-input">한국어 이름 (<code>name_ko</code>) *</label>
+                  <input id="code-name-ko-input" name="name_ko" type="text" required placeholder="예: 권한·신뢰 경계">
+                </div>
+                <div class="field-group">
+                  <label for="code-desc-ko-input">한국어 설명 (<code>description_ko</code>) *</label>
+                  <input id="code-desc-ko-input" name="description_ko" type="text" required placeholder="예: 권한 확인·신원·경로 경계가 우회되거나 신뢰하면 안 되는 값을 신뢰한다">
+                </div>
+                <div class="field-group">
+                  <label for="code-name-en-input">영어 이름 (<code>name_en</code>, 비워두면 한국어와 동일)</label>
+                  <input id="code-name-en-input" name="name_en" type="text" placeholder="예: Authorization and trust boundaries">
+                </div>
+                <div class="field-group">
+                  <label for="code-desc-en-input">영어 설명 (<code>description_en</code>, 비워두면 한국어와 동일)</label>
+                  <input id="code-desc-en-input" name="description_en" type="text" placeholder="예: Authorization, identity or path boundaries are bypassed">
+                </div>
+                <div class="field-group">
+                  <label class="checkbox-inline">
+                    <input id="code-active-checkbox" name="active" type="checkbox" checked>
+                    <span>활성 상태 (<code>active = true</code>, 새 결함·링크 작성 시 선택 허용)</span>
+                  </label>
+                </div>
+                <div id="code-form-error" class="error-banner" role="alert" hidden></div>
+                <div class="form-actions">
+                  <button type="submit" id="code-submit-btn" class="btn btn-primary">
+                    저장 및 DBHub 도구 동기화
+                  </button>
+                  <button type="button" id="code-reset-btn" class="btn btn-secondary">
+                    입력 초기화
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- 공통 코드 목록 -->
+            <div>
+              <div class="filter-bar">
+                <select id="codes-group-filter" aria-label="코드 그룹 필터">
+                  <option value="">모든 코드 그룹</option>
+                  <option value="DEFECT_CATEGORY">DEFECT_CATEGORY</option>
+                  <option value="DEFECT_SEVERITY">DEFECT_SEVERITY</option>
+                  <option value="RELATION_KIND">RELATION_KIND</option>
+                </select>
+              </div>
+              <div id="codes-state-box" class="state-box" hidden></div>
+              <div class="table-responsive" id="codes-table-wrap">
+                <table class="data-table" aria-label="공통 코드 목록">
+                  <thead>
+                    <tr>
+                      <th>그룹</th>
+                      <th>코드</th>
+                      <th>한국어 / 영어 명칭</th>
+                      <th>설명</th>
+                      <th>정렬</th>
+                      <th>상태</th>
+                      <th>제어</th>
+                    </tr>
+                  </thead>
+                  <tbody id="codes-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 우측 슬라이드아웃 결함 상세 드로어 (Detail Drawer) -->
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+  <aside
+    id="detail-drawer"
+    class="detail-drawer"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="drawer-title"
+    hidden
+  >
+    <div class="drawer-header">
+      <div>
+        <div class="drawer-badges" id="drawer-badges"></div>
+        <h2 id="drawer-title" class="drawer-title">결함 상세</h2>
+      </div>
+      <button type="button" id="drawer-close-btn" class="btn btn-secondary btn-sm" aria-label="상세 패널 닫기 (Esc)">
+        닫기 (Esc)
+      </button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
+
+  <!-- 2단계 확인 모달 (권한 회수 / 공통코드 비활성화 확인용) -->
+  <div id="confirm-modal-backdrop" class="modal-backdrop" hidden>
+    <div
+      id="confirm-modal"
+      class="modal-card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-modal-title"
+      aria-describedby="confirm-modal-desc"
+    >
+      <h2 id="confirm-modal-title">작업 확인</h2>
+      <p id="confirm-modal-desc" class="modal-desc"></p>
+      <div id="confirm-modal-detail" class="modal-detail"></div>
+      <div class="modal-actions">
+        <button type="button" id="confirm-cancel-btn" class="btn btn-secondary">취소 (Esc)</button>
+        <button type="button" id="confirm-accept-btn" class="btn btn-danger">확인 및 실행</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

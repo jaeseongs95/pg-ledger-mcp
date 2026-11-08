@@ -1,0 +1,26 @@
+# Template rendered by deploy/install.sh (@...@ placeholders). One unit per ledger instance.
+[Unit]
+Description=pg-ledger-mcp (@NAME@): ledger admin web console
+After=network-online.target postgresql.service @NAME@.service
+Wants=network-online.target
+
+[Service]
+User=root
+Group=root
+EnvironmentFile=@ETC@/env
+# Admin web server listens on loopback only and requires PGLEDGER_ADMIN_TOKEN (rejecting DBHUB_AUTH_TOKEN).
+ExecStart=@NODE@ @REPO@/bin/ledger-admin-server.mjs --name @NAME@ --host 127.0.0.1 --port ${PGLEDGER_ADMIN_PORT}
+Restart=on-failure
+RestartSec=5
+ProtectSystem=full
+ReadWritePaths=@ETC@
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

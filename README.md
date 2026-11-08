@@ -79,9 +79,25 @@ Requirements: Linux with systemd, PostgreSQL 15+ (and its psql) on the same host
 The ledger logins connect to `127.0.0.1` with a password, so `pg_hba.conf` must allow `host … 127.0.0.1/32 scram-sha-256`.
 The Debian and Ubuntu defaults already allow it.
 
+### One-Click Install
+
+To provision the database (if missing), install the schema, start the MCP service (`127.0.0.1:8765`), and start the Admin Web Console (`127.0.0.1:8766`) in one step:
+
+```sh
+sudo deploy/one-click-install.sh
+```
+
+Or directly via `curl` on a target Linux host:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jaeseongs95/pg-ledger-mcp/main/deploy/one-click-install.sh | sudo bash
+```
+
+### Standard Install & CLI Administration
+
 ```sh
 sudo -u postgres createdb ledger
-sudo deploy/install.sh --db ledger --mcp-port 8765 --allowed-hosts ledger-mcp.example.com
+sudo deploy/install.sh --db ledger --mcp-port 8765 --admin-port 8766 --allowed-hosts ledger-mcp.example.com
 sudo bin/ledger-admin project-add web WEB "Web shop"
 sudo bin/ledger-admin category-add BUG "결함" "명세와 다른 동작" --name-en Bug --description-en "Behaviour differs from the specification"
 sudo bin/ledger-admin code-set RELATION_KIND duplicates "중복" "a가 b를 반복" --name-en Duplicates --description-en "a repeats b"
@@ -92,10 +108,22 @@ sudo bin/ledger-admin grant codex:9a8b7c6d web verify
 `install.sh` does the following:
 
 1. Creates the roles, the `ledger` schema and the functions.
-2. Generates passwords and a bearer token into `/etc/pg-ledger-mcp/env` (mode 0600, root).
+2. Generates passwords and two distinct bearer tokens (`DBHUB_AUTH_TOKEN` for MCP agents, `PGLEDGER_ADMIN_TOKEN` for the human owner) into `/etc/pg-ledger-mcp/env` (mode 0600, root).
 3. Installs DBHub 1.5.1 under `/opt/pg-ledger-mcp`.
-4. Starts `pg-ledger-mcp.service` on `127.0.0.1:<mcp-port>`.
-5. Checks the tool list over MCP.
+4. Starts `pg-ledger-mcp.service` on `127.0.0.1:<mcp-port>` and `pg-ledger-mcp-admin.service` on `127.0.0.1:<admin-port>` (unless `--skip-admin` is passed).
+5. Checks the tool list over MCP and verifies `/healthz` on the Admin Web Console.
+
+## Admin Web Console
+
+The Admin Web Console (`pg-ledger-mcp-admin.service`, or `sudo bin/ledger-admin serve`) runs on `127.0.0.1:8766` by default and provides a zero-dependency web interface for human ledger owners:
+
+- **Strict Privilege Separation**: Authenticates exclusively with `PGLEDGER_ADMIN_TOKEN` (`HttpOnly; SameSite=Strict` cookie or `Authorization: Bearer`) and explicitly rejects `DBHUB_AUTH_TOKEN` (`401 AGENT_TOKEN_FORBIDDEN`) so an AI agent holding the MCP token cannot self-grant permissions.
+- **CSRF & Browser Hardening**: Enforces loopback binding (`127.0.0.1`), `Host`/`Origin`/`Sec-Fetch-Site` validation, `X-Requested-With: pg-ledger-admin` on all mutations, strict Content Security Policy (`default-src 'self'`), and DOM `textContent` rendering.
+- **Owner Governance (Tier 1) & Read-Only Explorer (Tier 3)**:
+  - **Triage Overview**: Live `ledger.v_attention` anomaly cards with deep-link filtering and project health counters.
+  - **Session Grants**: 4-scope matrix (`defect`, `task`, `fix`, `verify`), expiration presets, and 2-step confirmation before revoking grants.
+  - **Projects & Common Codes**: Register projects and manage `DEFECT_CATEGORY`, `SEVERITY`, and `RELATION_KIND` with active/retire toggles (respecting `ledger._code_keep` no-delete rule) and a 3-stage DBHub synchronization indicator.
+  - **Ledger Explorer**: Read-only search and inspection across `ledger.v_defect` (with slide-out detail drawer), `ledger.task`, `ledger.condition`, and `ledger.v_history` (agent workflow mutations remain strictly in MCP tools with `_hostAttestation`).
 
 Re-running it applies tables, backfill, replacement constraints, functions, views and grants in one PostgreSQL transaction after a `pg_dump` of the schema to `/var/backups/pg-ledger-mcp/`.
 Existing ledger tables remain locked until the replacement constraints and triggers commit together. A schema-phase failure rolls the entire schema unit back; old concurrent writers see either the original constraints or their complete replacements.
@@ -188,10 +216,14 @@ mcp/dbhub.toml        DBHub sources (one per login) and tool definitions
 deploy/apply-schema.sh  complete schema transaction and table locks
 deploy/render-tools.sh  active bilingual codes → DBHub tool definitions
 clients/claude/      Claude Code marketplace plugin (PreToolUse)
-deploy/install.sh     install / re-apply, passwords, DBHub, systemd unit, smoke check
-bin/ledger-admin      projects, common codes, grants (owner operations)
+deploy/install.sh     install / re-apply, passwords, DBHub, systemd units, smoke checks
+deploy/one-click-install.sh  zero-config one-click installer for PostgreSQL + MCP + Admin Console
+deploy/pg-ledger-mcp-admin.service  systemd unit for the Admin Web Console
+bin/ledger-admin      projects, common codes, grants, and 'serve' subcommand (owner operations)
+bin/ledger-admin-server.mjs  zero-dependency HTTP server for the Admin Web Console
+web/                  Admin Web Console static frontend (index.html, styles.css, app.js)
 bin/mcp-call.mjs      tiny MCP client: check, list, call
-tests/                end-to-end test
+tests/                end-to-end MCP, upgrade, and Admin Web Console tests
 ```
 
 ## License

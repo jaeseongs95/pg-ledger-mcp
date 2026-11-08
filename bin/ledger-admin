@@ -9,12 +9,13 @@
 #                                                                         scope: defect | task | fix | verify
 #   ledger-admin [--name ...] revoke <author-id> [<project-id> [<scope>]]
 #   ledger-admin [--name ...] grants [<author-id>]                       live grants
+#   ledger-admin [--name ...] serve [--port 8766] [--host 127.0.0.1]     start the admin web server
 # Database and port come from /etc/<name>/env (written by deploy/install.sh). Values are passed as psql variables.
 set -euo pipefail
 NAME=pg-ledger-mcp
 if [ "${1:-}" = --name ]; then NAME=${2:?}; shift 2; fi
 ENV_FILE=/etc/$NAME/env
-usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 [ $# -ge 1 ] || usage 2
 [ -r "$ENV_FILE" ] || { echo "ledger-admin: $ENV_FILE not readable (run as root after deploy/install.sh)" >&2; exit 1; }
 DB=$(sed -n 's/^PGLEDGER_DB=//p' "$ENV_FILE" | tail -n 1)
@@ -97,6 +98,9 @@ SELECT id, author_id, project, scope, granted_at, expires_at, note FROM ledger.s
  WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) AND (:'author' = '' OR author_id = :'author')
  ORDER BY author_id, project, scope;
 SQL
+    ;;
+  serve)
+    exec node "$(dirname "$0")/ledger-admin-server.mjs" --name "$NAME" "$@"
     ;;
   -h|--help) usage ;;
   *) echo "unknown command: $cmd" >&2; usage 2 ;;
