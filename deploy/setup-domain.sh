@@ -126,12 +126,22 @@ echo "updated $ENV_FILE:"
 echo "  DBHUB_ALLOWED_HOSTS=$NEW_MCP_HOSTS"
 echo "  PGLEDGER_ADMIN_ALLOWED_HOSTS=$NEW_ADMIN_HOSTS"
 
-# Restart active services so new Host/Origin allowlists take effect immediately
+# Restart active services so new Host/Origin allowlists take effect immediately, and wait for /healthz readiness
 if systemctl is-active --quiet "$NAME.service" 2>/dev/null; then
   systemctl restart "$NAME.service"
+  deadline=$((SECONDS + 30))
+  until curl -fsS "http://127.0.0.1:$MCP_PORT/healthz" >/dev/null 2>&1; do
+    [ $SECONDS -lt $deadline ] || die "$NAME.service did not answer http://127.0.0.1:$MCP_PORT/healthz after restart"
+    sleep 1
+  done
 fi
 if systemctl is-active --quiet "$NAME-admin.service" 2>/dev/null; then
   systemctl restart "$NAME-admin.service"
+  deadline=$((SECONDS + 30))
+  until systemctl is-active --quiet "$NAME-admin.service" && curl -fsS "http://127.0.0.1:$ADMIN_PORT/healthz" 2>/dev/null | grep -q '"service"'; do
+    [ $SECONDS -lt $deadline ] || die "$NAME-admin.service did not answer http://127.0.0.1:$ADMIN_PORT/healthz after restart"
+    sleep 1
+  done
 fi
 
 # ---------- 2. Auto-detect mode if 'auto' ----------
