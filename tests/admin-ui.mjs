@@ -293,13 +293,9 @@ await check("owner mutations: common code delete is refused; code-set updates DB
 
   // Verify via MCP tools/list that the newly added active code is live on DBHub
   const mcp = await connect(mcpUrl, mcpToken);
-  try {
-    const tools = await mcp.toolDefinitions();
-    const saveTool = tools.find((t) => t.name === "ledger_save");
-    assert.ok(saveTool?.description?.includes("UI_UX"), "expected UI_UX in ledger_save tool description after code-set");
-  } finally {
-    await mcp.close();
-  }
+  const tools = await mcp.toolDefinitions();
+  const saveTool = tools.find((t) => t.name === "ledger_save");
+  assert.ok(saveTool?.description?.includes("UI_UX"), "expected UI_UX in ledger_save tool description after code-set");
 
   // Retire the code via active=false and confirm it remains in common_code as inactive
   const retireRes = await rawRequest("/api/codes", {

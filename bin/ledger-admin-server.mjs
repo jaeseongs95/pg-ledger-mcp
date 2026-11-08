@@ -605,7 +605,7 @@ export function createAdminApp(config) {
 
         const data = await queryReaderJson(
           `WITH filtered AS (
-            SELECT v.*, d.behavior, d.root_cause, d.disposition_reason, d.evidence_uri
+            SELECT v.*, d.behavior, d.root_cause
             FROM ledger.v_defect v
             JOIN ledger.defect d ON d.id = v.id
             WHERE (:'project' = '' OR v.project_id = :'project')
@@ -645,10 +645,17 @@ export function createAdminApp(config) {
               SELECT to_jsonb(v) || jsonb_build_object(
                 'behavior', d.behavior,
                 'root_cause', d.root_cause,
-                'disposition_reason', d.disposition_reason,
-                'evidence_uri', d.evidence_uri,
-                'evidence_sha256', d.evidence_sha256,
-                'created_at', d.created_at
+                'created_at', d.created_at,
+                'evidence_uri', (
+                  SELECT h.evidence_uri FROM ledger.history h
+                  WHERE h.entity = 'defect' AND h.entity_id = d.id AND h.evidence_uri IS NOT NULL
+                  ORDER BY h.at DESC, h.id DESC LIMIT 1
+                ),
+                'evidence_sha256', (
+                  SELECT h.evidence_sha256 FROM ledger.history h
+                  WHERE h.entity = 'defect' AND h.entity_id = d.id AND h.evidence_sha256 IS NOT NULL
+                  ORDER BY h.at DESC, h.id DESC LIMIT 1
+                )
               )
               FROM ledger.v_defect v
               JOIN ledger.defect d ON d.id = v.id
@@ -656,21 +663,20 @@ export function createAdminApp(config) {
             ),
             'relations', COALESCE((
               SELECT jsonb_agg(jsonb_build_object(
-                'defect_id', r.defect_id,
-                'related_id', r.related_id,
+                'a', r.a,
+                'b', r.b,
                 'kind', r.kind,
-                'created_by', r.created_by,
-                'created_at', r.created_at
-              ) ORDER BY r.defect_id, r.related_id)
+                'created_by', r.created_by
+              ) ORDER BY r.a, r.b, r.kind)
               FROM ledger.defect_relation r
-              WHERE r.defect_id = :'id' OR r.related_id = :'id'
+              WHERE r.a = :'id' OR r.b = :'id'
             ), '[]'::jsonb),
             'history', COALESCE((
               SELECT jsonb_agg(to_jsonb(h) ORDER BY h.at DESC, h.id DESC)
               FROM ledger.v_history h
               WHERE (h.entity = 'defect' AND h.entity_id = :'id')
                  OR (h.entity IN ('defect_fix', 'defect_case', 'defect_task', 'defect_relation')
-                     AND (split_part(h.entity_id, '@', 1) = :'id' OR split_part(h.entity_id, '|', 1) = :'id'))
+                     AND (split_part(h.entity_id, '@', 1) = :'id' OR split_part(h.entity_id, '|', 1) = :'id' OR split_part(h.entity_id, '|', 2) = :'id'))
             ), '[]'::jsonb)
           );`,
           { id: defectId }
@@ -729,7 +735,6 @@ export function createAdminApp(config) {
                 'state', c.state,
                 'version', c.version,
                 'created_by', c.created_by,
-                'updated_at', c.updated_at,
                 'links', COALESCE((
                   SELECT jsonb_agg(jsonb_build_object('task_id', cl.task_id, 'defect_id', cl.defect_id) ORDER BY cl.task_id, cl.defect_id)
                   FROM ledger.condition_link cl WHERE cl.condition_id = c.id
@@ -790,7 +795,6 @@ export function createAdminApp(config) {
             'code', p.code,
             'title', p.title,
             'created_by', p.created_by,
-            'created_at', p.created_at,
             'defect_count', (SELECT count(*)::int FROM ledger.defect d WHERE d.project_id = p.id),
             'open_defect_count', (SELECT count(*)::int FROM ledger.defect d WHERE d.project_id = p.id AND d.status = 'OPEN'),
             'task_count', (SELECT count(*)::int FROM ledger.task t WHERE t.project_id = p.id),
