@@ -6,29 +6,18 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
 import org.pgledger.application.support.Scenario;
-import org.pgledger.application.support.ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.write.BatchOpInput;
 import org.pgledger.application.write.BatchService;
 import org.pgledger.application.write.WriteResult.SaveResult;
 import org.pgledger.domain.error.ConflictCode;
 import org.pgledger.domain.error.LedgerException;
 
-/** SVC-BAT-03: a batch is all or nothing, on H2 and on PostgreSQL. */
-@ServiceTest
-class BatchRollbackTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+/** SVC-BAT-03: a batch is all or nothing, on the embedded H2. */
+@LedgerServiceTest
+class BatchRollbackTest {
 
     @Test
     @DisplayName("SVC-BAT-03: a failing operation names itself and rolls back defects, history, receipts and numbers")

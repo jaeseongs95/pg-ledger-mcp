@@ -8,16 +8,13 @@ import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.application.history.Change;
 import org.pgledger.application.json.LedgerJson;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.MergeFixture;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.RecordFixCommand;
@@ -42,16 +39,8 @@ import org.pgledger.domain.value.DefectId;
 import tools.jackson.databind.json.JsonMapper;
 
 /** SVC-FIX-01 .. SVC-FIX-16 (SVC-FIX-11 and -12 read the defect, they are in the read test). */
-@H2ServiceTest
-class FixTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class FixTest {
 
     private static RecordFixCommand fix(String defect, String commit, String ciRef, String conclusion,
             String completedAt, Boolean mark) {

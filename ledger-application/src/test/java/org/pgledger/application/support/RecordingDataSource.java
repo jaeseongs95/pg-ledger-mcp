@@ -9,10 +9,21 @@ import java.sql.Statement;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.sql.DataSource;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.jdbc.datasource.DelegatingDataSource;
 
 /** A DataSource that records every SQL text that passes through it (test spy; the proxies are test-only). */
 public final class RecordingDataSource extends DelegatingDataSource {
+
+    /** Puts the recording data source in place of the one Spring Boot configures. */
+    public static final class Installer implements BeanPostProcessor {
+
+        @Override
+        public Object postProcessAfterInitialization(Object bean, String beanName) {
+            return bean instanceof DataSource dataSource && !(bean instanceof RecordingDataSource)
+                    ? new RecordingDataSource(dataSource) : bean;
+        }
+    }
 
     private final List<String> statements = new CopyOnWriteArrayList<>();
 

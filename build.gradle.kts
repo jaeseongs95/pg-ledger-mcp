@@ -33,8 +33,8 @@ subprojects {
         useJUnitPlatform()
         // All time is UTC: the JVM default zone is pinned for the tests as well.
         jvmArgs("-Duser.timezone=UTC", "-Dfile.encoding=UTF-8", "-XX:ActiveProcessorCount=1")
-        // one test JVM at a time on this machine: run Gradle with -Pags.test.forks=1 (the default)
-        maxParallelForks = providers.gradleProperty("ags.test.forks").map(String::toInt).getOrElse(1)
+        // one test JVM at a time on this machine (the user runs one build at a time on this PC)
+        maxParallelForks = 1
         testLogging {
             events("passed", "failed", "skipped")
             showStandardStreams = false
@@ -44,9 +44,10 @@ subprojects {
 }
 
 // ARC-005 / DRV-014: no JDBC driver, JPA, migration tool, Lombok or CLI framework on any runtime classpath.
+// "org.hibernate.orm" (not "org.hibernate"): the Jakarta Validation implementation is org.hibernate.validator, which is allowed; the ORM stays forbidden.
 val forbiddenRuntime = listOf(
     "org.postgresql", "com.h2database", "com.mysql", "org.mariadb.jdbc", "com.oracle.database.jdbc",
-    "com.microsoft.sqlserver", "org.liquibase", "org.flywaydb", "org.hibernate", "jakarta.persistence",
+    "com.microsoft.sqlserver", "org.liquibase", "org.flywaydb", "org.hibernate.orm", "jakarta.persistence",
     "org.projectlombok", "info.picocli", "org.springframework.shell", "org.zeroturnaround",
 )
 val verifyRuntimeClasspath by tasks.registering {

@@ -10,15 +10,12 @@ import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.application.history.Change;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.SaveCommand;
 import org.pgledger.application.write.SaveService;
@@ -39,16 +36,8 @@ import org.pgledger.domain.rule.HistoryOp;
 import org.pgledger.domain.rule.TaskState;
 
 /** SVC-SAV-01 .. SVC-SAV-19: save (create and edit of a defect, task or condition). */
-@H2ServiceTest
-class SaveTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class SaveTest {
 
     private static Map<String, String> with(Map<String, String> fields, String key, String value) {
         Map<String, String> copy = new LinkedHashMap<>(fields);

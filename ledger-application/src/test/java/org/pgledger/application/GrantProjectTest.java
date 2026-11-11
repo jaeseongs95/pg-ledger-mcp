@@ -8,7 +8,6 @@ import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.admin.GrantService;
@@ -16,10 +15,8 @@ import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.GrantService.RevokeCommand;
 import org.pgledger.application.admin.ProjectService;
 import org.pgledger.application.admin.ProjectService.ProjectCommand;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.WhoamiService;
 import org.pgledger.application.write.WhoamiService.GrantView;
@@ -31,16 +28,8 @@ import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.rule.Channel;
 
 /** SVC-GRT-01 .. SVC-GRT-05 (SVC-GRT-06 needs both databases and is in the race test). */
-@H2ServiceTest
-class GrantProjectTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class GrantProjectTest {
 
     @Test
     @DisplayName("SVC-GRT-01: one row per scope, an earlier live grant of the same key is closed, nothing is deleted")
@@ -174,6 +163,13 @@ class GrantProjectTest implements DbmsAware {
     void grt05_validation(NewProject project, Scenario s) {
         assertThat(Expect.outcome(() -> s.bean(ProjectService.class).add(project.command())))
                 .isEqualTo(Optional.ofNullable(project.expected()));
+        if (project.expected() == null) {
+            // the id and the code are required; the violation names the property as the callers know it
+            assertThat(Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand(null, "PRJN", "t")),
+                    ValidationCode.VALIDATION_FAILED).args()).containsExactly("id", "is required");
+            assertThat(Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand("prj-n", null, "t")),
+                    ValidationCode.VALIDATION_FAILED).args()).containsExactly("code", "is required");
+        }
     }
 
     @Test

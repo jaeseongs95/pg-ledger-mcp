@@ -3,7 +3,7 @@ package org.pgledger.application.write;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import org.pgledger.application.gate.Resolution;
+import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Target;
 import org.pgledger.application.gate.WriteGate;
 import org.pgledger.application.history.ChangeSet;
@@ -63,8 +63,12 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
         this.history = history;
     }
 
-    /** The kind of a request: structural, or the code of an existing relation kind; anything else is refused. */
-    private LinkKind kind(String token) {
+    /**
+     * The kind of a request: structural, or the code of an existing relation kind; anything else is refused. This
+     * reads the relation kind codes, so it is called once per request, by {@link #resolve}; {@link #prepare} runs
+     * only after that succeeded and takes the kind from the token alone.
+     */
+    private LinkKind knownKind(String token) {
         LinkKind kind = LinkKind.ofToken(token);
         if (kind != LinkKind.RELATION) {
             return kind;
@@ -80,8 +84,8 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
     }
 
     @Override
-    protected Resolution resolve(LinkCommand c) {
-        return Resolution.of(() -> switch (kind(c.kind())) {
+    protected Lookup resolve(LinkCommand c) {
+        return Lookup.afterActor(() -> switch (knownKind(c.kind())) {
             case CONDITION_TASK, CONDITION_DEFECT -> List.of(new Target(
                     rows.condition(ConditionId.of(c.a())).projectId(), Scope.TASK));
             case DEFECT_TASK -> List.of(new Target(rows.defect(DefectId.of(c.a())).projectId(), Scope.DEFECT));
@@ -92,7 +96,7 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
 
     @Override
     protected Prepared<LinkResult> prepare(LinkCommand c) {
-        LinkKind kind = kind(c.kind());
+        LinkKind kind = LinkKind.ofToken(c.kind());
         boolean remove = c.remove() != null && c.remove();
         switch (kind) {
             case CONDITION_TASK -> {

@@ -1,12 +1,14 @@
 package org.pgledger.application.read;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
 import org.pgledger.database.repository.ConditionQueryRepository;
 import org.pgledger.database.repository.DefectQueryRepository;
 import org.pgledger.database.repository.DefectSummary;
 import org.pgledger.database.repository.TaskQueryRepository;
-import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.rule.AttentionKind;
 import org.pgledger.domain.rule.ConditionState;
 import org.pgledger.domain.rule.DefectStatus;
@@ -22,24 +24,33 @@ import org.pgledger.domain.value.Tokens;
 import org.pgledger.domain.value.UtcInstant;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
 
 /** The project lists of defects, tasks and conditions, newest first, in pages. */
 @Service
 @Transactional(readOnly = true)
+@Validated
 public class ListService {
 
+    private static final String REQUIRED = "is required";
+    private static final int MAX_OWNER = 200;
+    private static final String OWNER_LENGTH = "must be at most 200 characters";
+
     /** Filters of the defect list; the project is required, everything else narrows (AND). */
-    public record DefectsQuery(String project, String status, String severity, String category, String attention,
-            String owner, Number maxRows, String cursor) {
+    public record DefectsQuery(@NotBlank(message = REQUIRED) String project, String status, String severity,
+            String category, String attention, @Size(max = MAX_OWNER, message = OWNER_LENGTH) String owner,
+            Number maxRows, String cursor) {
     }
 
     /** Filters of the task list. */
-    public record TasksQuery(String project, String state, String owner, String attention, Number maxRows,
+    public record TasksQuery(@NotBlank(message = REQUIRED) String project, String state,
+            @Size(max = MAX_OWNER, message = OWNER_LENGTH) String owner, String attention, Number maxRows,
             String cursor) {
     }
 
     /** Filters of the condition list. */
-    public record ConditionsQuery(String project, String state, String release, Number maxRows, String cursor) {
+    public record ConditionsQuery(@NotBlank(message = REQUIRED) String project, String state, String release,
+            Number maxRows, String cursor) {
     }
 
     public record DefectItem(String id, String title, String category, String severity, String status,
@@ -71,25 +82,13 @@ public class ListService {
         this.cursors = cursors;
     }
 
-    private static ProjectId project(String raw) {
-        if (raw == null || raw.isBlank()) {
-            throw ValidationException.invalid("project", "is required");
-        }
-        return ProjectId.of(raw);
-    }
-
+    /** The owner filter; a blank one filters nothing. Its length is a constraint of the query record. */
     private static String owner(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        if (raw.length() > 200) {
-            throw ValidationException.invalid("owner", "must be at most 200 characters");
-        }
-        return raw;
+        return raw == null || raw.isBlank() ? null : raw;
     }
 
-    public Page<DefectItem> defects(DefectsQuery q) {
-        ProjectId project = project(q.project());
+    public Page<DefectItem> defects(@Valid DefectsQuery q) {
+        ProjectId project = ProjectId.of(q.project());
         DefectQueryRepository.Filter filter = new DefectQueryRepository.Filter(
                 blank(q.status()) ? null : Tokens.parse("status", q.status(), DefectStatus.values()),
                 blank(q.severity()) ? null : CodeValue.of(q.severity()),
@@ -111,8 +110,8 @@ public class ListService {
                 s.createdAt(), s.updatedAt());
     }
 
-    public Page<TaskItem> tasks(TasksQuery q) {
-        ProjectId project = project(q.project());
+    public Page<TaskItem> tasks(@Valid TasksQuery q) {
+        ProjectId project = ProjectId.of(q.project());
         TaskQueryRepository.Filter filter = new TaskQueryRepository.Filter(
                 blank(q.state()) ? null : Tokens.parse("state", q.state(), TaskState.values()), owner(q.owner()),
                 blank(q.attention()) ? null : EnumParser.parse("attention", q.attention(), TASK_KINDS));
@@ -128,8 +127,8 @@ public class ListService {
                 t -> new UtcInstant(t.createdAt()).toString(), t -> t.id().value());
     }
 
-    public Page<ConditionItem> conditions(ConditionsQuery q) {
-        ProjectId project = project(q.project());
+    public Page<ConditionItem> conditions(@Valid ConditionsQuery q) {
+        ProjectId project = ProjectId.of(q.project());
         ConditionQueryRepository.Filter filter = new ConditionQueryRepository.Filter(
                 blank(q.state()) ? null : Tokens.parse("state", q.state(), ConditionState.values()),
                 blank(q.release()) ? null : q.release());

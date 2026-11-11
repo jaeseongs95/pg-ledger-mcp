@@ -12,7 +12,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -40,10 +39,8 @@ import org.pgledger.application.read.SearchService;
 import org.pgledger.application.read.SearchService.SearchQuery;
 import org.pgledger.application.read.StatsService;
 import org.pgledger.application.read.StatsService.StatsQuery;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.MergeFixture;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.CorrectCommand;
@@ -57,20 +54,13 @@ import org.pgledger.application.write.SaveService;
 import org.pgledger.application.write.TransitionService;
 import org.pgledger.application.write.WriteResult.SaveResult;
 import org.pgledger.domain.error.ErrorCode;
+import org.pgledger.domain.error.LedgerException;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 
 /** MCR-H01 .. H12, MCR-S01 .. S07, MCR-L01 .. L05, MCR-ST01, ST02, MCR-P01, MCR-K01, MCR-010, MCR-012 and SVC-BEF-12. */
-@H2ServiceTest
-class ReadQueryTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class ReadQueryTest {
 
     private HistoryService history(Scenario s) {
         return s.bean(HistoryService.class);
@@ -380,13 +370,16 @@ class ReadQueryTest implements DbmsAware {
     @ValueSource(strings = {"", "   "})
     @DisplayName("MCR-S06: a blank keyword is refused")
     void s06_blank(String keyword, Scenario s) {
-        Expect.failure(() -> search(s, List.of(keyword), null), ValidationCode.VALIDATION_FAILED);
+        LedgerException e = Expect.failure(() -> search(s, List.of(keyword), null), ValidationCode.VALIDATION_FAILED);
+        assertThat(e.args()).containsExactly("keywords", "each keyword must be 1..200 characters");
     }
 
     @Test
     @DisplayName("MCR-S06: a keyword of 1000 characters is refused")
     void s06_tooLong(Scenario s) {
-        Expect.failure(() -> search(s, List.of("k".repeat(1000)), null), ValidationCode.VALIDATION_FAILED);
+        LedgerException e = Expect.failure(() -> search(s, List.of("k".repeat(1000)), null),
+                ValidationCode.VALIDATION_FAILED);
+        assertThat(e.args()).containsExactly("keywords", "each keyword must be 1..200 characters");
     }
 
     @Test
@@ -413,8 +406,13 @@ class ReadQueryTest implements DbmsAware {
         var mine = s.bean(ListService.class).defects(new DefectsQuery(s.projectId(), null, null, null, null, null,
                 null, null));
         assertThat(mine.items()).extracting(ListService.DefectItem::title).containsExactly("mine");
-        Expect.failure(() -> s.bean(ListService.class).defects(new DefectsQuery(null, null, null, null, null, null,
-                null, null)), ValidationCode.VALIDATION_FAILED);
+        LedgerException missing = Expect.failure(() -> s.bean(ListService.class).defects(new DefectsQuery(null, null, null,
+                null, null, null, null, null)), ValidationCode.VALIDATION_FAILED);
+        assertThat(missing.args()).containsExactly("project", "is required");
+        LedgerException longOwner = Expect.failure(() -> s.bean(ListService.class).defects(new DefectsQuery(
+                s.projectId(), null, null, null, null, "o".repeat(201), null, null)),
+                ValidationCode.VALIDATION_FAILED);
+        assertThat(longOwner.args()).containsExactly("owner", "must be at most 200 characters");
     }
 
     @Test

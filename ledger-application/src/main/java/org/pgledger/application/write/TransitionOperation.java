@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Resolution;
 import org.pgledger.application.gate.Target;
 import org.pgledger.application.gate.WriteGate;
@@ -32,6 +33,7 @@ import org.pgledger.domain.rule.DefectStatus;
 import org.pgledger.domain.rule.FixHistory;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
+import org.pgledger.domain.rule.LifecycleState;
 import org.pgledger.domain.rule.MergeTarget;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.rule.TaskReports;
@@ -42,6 +44,7 @@ import org.pgledger.domain.value.ConditionId;
 import org.pgledger.domain.value.DefectId;
 import org.pgledger.domain.value.EntityId;
 import org.pgledger.domain.value.Evidence;
+import org.pgledger.domain.value.ProjectId;
 import org.pgledger.domain.value.SessionKey;
 import org.pgledger.domain.value.TaskId;
 import org.pgledger.domain.value.Tokens;
@@ -86,29 +89,31 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
     }
 
     @Override
-    protected Resolution resolve(TransitionCommand c) {
-        return Resolution.of(() -> {
-            HistoryEntity entity = Tokens.parse("entity", c.entity(), STATEFUL);
-            return switch (entity) {
-                case DEFECT -> {
-                    Defect row = rows.defect(DefectId.of(c.id()));
-                    DefectStatus to = Tokens.parse("to", c.to(), DefectStatus.values());
-                    yield List.of(new Target(row.projectId(), Scope.forTransition(entity, row.status(), to)));
-                }
-                case TASK -> {
-                    Task row = rows.task(TaskId.of(c.id()));
-                    TaskState to = Tokens.parse("to", c.to(), TaskState.values());
-                    yield List.of(new Target(row.projectId(), Scope.forTransition(entity, row.state(), to)));
-                }
-                case CONDITION -> {
-                    Condition row = rows.condition(ConditionId.of(c.id()));
-                    ConditionState to = Tokens.parse("to", c.to(), ConditionState.values());
-                    yield List.of(new Target(row.projectId(), Scope.forTransition(entity, row.state(), to)));
-                }
-                case DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE ->
-                    throw new IllegalStateException("Tokens.parse refused it");
-            };
-        });
+    protected Lookup resolve(TransitionCommand c) {
+        return Lookup.verifiable(() -> Tokens.find(c.entity(), STATEFUL).map(entity -> switch (entity) {
+            case DEFECT -> DefectId.parse(c.id()).map(id -> rows.findDefect(id)
+                    .map(row -> target(entity, row.projectId(), row.status(), c, DefectStatus.values()))
+                    .orElseGet(() -> Resolution.unresolved(Rows.notFound("defect", id.value()))))
+                    .orElseGet(() -> Resolution.unresolved(DefectId.malformed()));
+            case TASK -> TaskId.parse(c.id()).map(id -> rows.findTask(id)
+                    .map(row -> target(entity, row.projectId(), row.state(), c, TaskState.values()))
+                    .orElseGet(() -> Resolution.unresolved(Rows.notFound("task", id.value()))))
+                    .orElseGet(() -> Resolution.unresolved(TaskId.malformed()));
+            case CONDITION -> ConditionId.parse(c.id()).map(id -> rows.findCondition(id)
+                    .map(row -> target(entity, row.projectId(), row.state(), c, ConditionState.values()))
+                    .orElseGet(() -> Resolution.unresolved(Rows.notFound("condition", id.value()))))
+                    .orElseGet(() -> Resolution.unresolved(ConditionId.malformed()));
+            case DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE ->
+                throw new IllegalStateException("STATEFUL has no such entity");
+        }).orElseGet(() -> Resolution.unresolved(Tokens.unknown("entity", c.entity(), STATEFUL))));
+    }
+
+    /** The target of a move of a row that exists: its project and the scope of the move, or the unknown state. */
+    private static <S extends Enum<S> & LifecycleState> Resolution target(HistoryEntity entity, ProjectId project,
+            S from, TransitionCommand c, S[] states) {
+        return Tokens.find(c.to(), states)
+                .map(to -> Resolution.of(new Target(project, Scope.forTransition(entity, from, to))))
+                .orElseGet(() -> Resolution.unresolved(Tokens.unknown("to", c.to(), states)));
     }
 
     @Override

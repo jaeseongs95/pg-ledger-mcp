@@ -4,7 +4,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import org.pgledger.application.gate.GateSession;
-import org.pgledger.application.gate.Resolution;
+import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.WriteGate;
 import org.pgledger.application.receipt.ReceiptService;
 import org.pgledger.domain.model.ReceiptOperation;
@@ -40,8 +40,8 @@ public abstract class WriteOperation<C extends WriteCommand, R extends WriteResu
         this.resultType = resultType;
     }
 
-    /** The projects and scopes the request needs, looked up without raising a business failure. */
-    protected abstract Resolution resolve(C command);
+    /** The projects and scopes the request needs, and when the gate looks them up (see {@link Lookup}). */
+    protected abstract Lookup resolve(C command);
 
     /** Validates and normalises the input; the work is run only when the receipt is new. */
     protected abstract Prepared<R> prepare(C command);

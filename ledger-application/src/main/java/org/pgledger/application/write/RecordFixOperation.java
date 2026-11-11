@@ -5,7 +5,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
-import org.pgledger.application.gate.Resolution;
+import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Target;
 import org.pgledger.application.gate.WriteGate;
 import org.pgledger.application.history.ChangeSet;
@@ -73,8 +73,8 @@ public class RecordFixOperation extends WriteOperation<RecordFixCommand, RecordF
     }
 
     @Override
-    protected Resolution resolve(RecordFixCommand c) {
-        return Resolution.of(() -> List.of(new Target(rows.defect(DefectId.of(c.defectId())).projectId(),
+    protected Lookup resolve(RecordFixCommand c) {
+        return Lookup.afterActor(() -> List.of(new Target(rows.defect(DefectId.of(c.defectId())).projectId(),
                 Scope.FIX)));
     }
 

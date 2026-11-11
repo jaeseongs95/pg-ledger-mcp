@@ -12,6 +12,7 @@ import org.pgledger.domain.rule.ActorAssurance;
 import org.pgledger.domain.rule.Channel;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
+import org.pgledger.domain.rule.LifecycleState;
 import org.pgledger.domain.value.ActorId;
 import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.JsonDocument;
@@ -30,7 +31,6 @@ public record HistoryEntry(@Id Long id, Instant at, ActorId authorId, String log
         JsonDocument beforeData, String reason, String evidenceUri, Sha256 evidenceSha256, Long correctsId,
         RequestId requestId, String legacyRef) {
 
-    private static final Set<String> VERIFICATION_STATES = Set.of("VERIFIED", "MET", "NOT_MET");
     private static final Set<HistoryOp> OPS_WITH_BEFORE_DATA = Set.of(HistoryOp.EDIT, HistoryOp.TRANSITION,
             HistoryOp.UNLINK);
 
@@ -54,8 +54,9 @@ public record HistoryEntry(@Id Long id, Instant at, ActorId authorId, String log
             }
             require(actorAssurance == ActorAssurance.DECLARED && authorId instanceof AuthorId, "actor_assurance",
                     "a native entry carries a declared author");
-            require(op != HistoryOp.TRANSITION || !VERIFICATION_STATES.contains(toState)
-                    || Channel.REVIEWER.login().equals(login), "login", "a verification needs the reviewer channel");
+            require(op != HistoryOp.TRANSITION || !LifecycleState.of(entity, toState).filter(LifecycleState::verification)
+                    .isPresent() || Channel.REVIEWER.login().equals(login), "login",
+                    "a verification needs the reviewer channel");
         }
     }
 

@@ -8,14 +8,11 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.json.LedgerJson;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.CorrectCommand;
 import org.pgledger.application.write.CorrectService;
@@ -35,16 +32,8 @@ import org.pgledger.domain.rule.HistoryOp;
 import tools.jackson.databind.json.JsonMapper;
 
 /** SVC-COR-01 .. SVC-COR-05: corrections. */
-@H2ServiceTest
-class CorrectTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class CorrectTest {
 
     private CorrectResult correct(Scenario s, long historyId) {
         return s.bean(CorrectService.class).correct(Scenario.AUTHOR, new CorrectCommand(null, historyId,

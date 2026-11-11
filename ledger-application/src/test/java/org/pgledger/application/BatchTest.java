@@ -10,14 +10,11 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.history.Snapshot;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
 import org.pgledger.application.write.BatchResult;
@@ -36,18 +33,10 @@ import org.pgledger.domain.error.ValidationException;
 import tools.jackson.databind.json.JsonMapper;
 
 /** SVC-BAT-01, -02, -04 .. -12 (SVC-BAT-03 needs both databases and is in the rollback test). */
-@H2ServiceTest
-class BatchTest implements DbmsAware {
+@LedgerServiceTest
+class BatchTest {
 
     private static final JsonMapper JSON = new JsonMapper();
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
 
     private BatchOpInput.Save saveDefect(Scenario s, String title) {
         return new BatchOpInput.Save("defect", s.defectFields(title), Scenario.REASON, null, null, null);

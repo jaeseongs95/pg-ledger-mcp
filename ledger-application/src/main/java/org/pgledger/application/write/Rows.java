@@ -1,6 +1,9 @@
 package org.pgledger.application.write;
 
 import java.util.List;
+import java.util.Optional;
+import org.pgledger.application.gate.Resolution;
+import org.pgledger.application.gate.Target;
 import org.pgledger.database.repository.ConditionRepository;
 import org.pgledger.database.repository.DefectRepository;
 import org.pgledger.database.repository.ProjectRepository;
@@ -14,6 +17,7 @@ import org.pgledger.domain.model.Condition;
 import org.pgledger.domain.model.Defect;
 import org.pgledger.domain.model.Project;
 import org.pgledger.domain.model.Task;
+import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.value.ConditionId;
 import org.pgledger.domain.value.DefectId;
 import org.pgledger.domain.value.ProjectId;
@@ -41,6 +45,34 @@ public class Rows {
         this.tasks = tasks;
         this.conditions = conditions;
         this.locks = locks;
+    }
+
+    public Optional<Defect> findDefect(DefectId id) {
+        return defects.findById(id);
+    }
+
+    public Optional<Task> findTask(TaskId id) {
+        return tasks.findById(id);
+    }
+
+    public Optional<Condition> findCondition(ConditionId id) {
+        return conditions.findById(id);
+    }
+
+    /** The project of a defect as the one target of a write; a defect that is not there is the failure, as a value. */
+    public Resolution defectTarget(DefectId id, Scope scope) {
+        return defects.findById(id).map(row -> Resolution.of(new Target(row.projectId(), scope)))
+                .orElseGet(() -> Resolution.unresolved(notFound("defect", id.value())));
+    }
+
+    public Resolution taskTarget(TaskId id, Scope scope) {
+        return tasks.findById(id).map(row -> Resolution.of(new Target(row.projectId(), scope)))
+                .orElseGet(() -> Resolution.unresolved(notFound("task", id.value())));
+    }
+
+    public Resolution conditionTarget(ConditionId id, Scope scope) {
+        return conditions.findById(id).map(row -> Resolution.of(new Target(row.projectId(), scope)))
+                .orElseGet(() -> Resolution.unresolved(notFound("condition", id.value())));
     }
 
     public Project project(ProjectId id) {

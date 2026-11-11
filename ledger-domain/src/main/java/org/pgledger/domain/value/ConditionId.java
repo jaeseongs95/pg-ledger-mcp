@@ -1,10 +1,23 @@
 package org.pgledger.domain.value;
 
+import java.util.Optional;
+import org.pgledger.domain.error.ValidationException;
+
 /** Id of a release condition: free upper-case text ({@link EntityId#PATTERN}), always given by the caller. */
 public record ConditionId(String value) {
 
     public ConditionId {
         EntityId.requireValid("condition_id", value);
+    }
+
+    /** The id of a text, or none when the text is not an id; nothing is thrown. */
+    public static Optional<ConditionId> parse(String value) {
+        return EntityId.isValid(value) ? Optional.of(new ConditionId(value)) : Optional.empty();
+    }
+
+    /** The failure of a text that is not a condition id. */
+    public static ValidationException malformed() {
+        return EntityId.malformed("condition_id");
     }
 
     public static ConditionId of(String value) {

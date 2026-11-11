@@ -10,18 +10,15 @@ import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.history.Snapshot;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
 import org.pgledger.application.support.MergeFixture;
 import org.pgledger.application.support.Parallel;
 import org.pgledger.application.support.Parallel.Outcome;
 import org.pgledger.application.support.Scenario;
-import org.pgledger.application.support.ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.write.CorrectCommand;
 import org.pgledger.application.write.CorrectService;
 import org.pgledger.application.write.LinkCommand;
@@ -49,16 +46,8 @@ import org.pgledger.domain.value.ConditionId;
 import org.pgledger.domain.value.DefectId;
 
 /** SVC-BEF-01 .. SVC-BEF-11: {@code before_data}, the full row as it was replaced (SVC-BEF-12 is in the read test). */
-@ServiceTest
-class BeforeDataTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class BeforeDataTest {
 
     private HistoryEntry row(Scenario s, long historyId) {
         return s.historyRow(historyId);

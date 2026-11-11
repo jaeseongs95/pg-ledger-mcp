@@ -13,17 +13,14 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.GrantService.RevokeCommand;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Parallel;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.support.WriteCall;
@@ -57,16 +54,8 @@ import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.ProjectId;
 
 /** SVC-GATE-01 .. SVC-GATE-19: the write gate, in the order the catalogue fixes. */
-@H2ServiceTest
-class GateTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class GateTest {
 
     // ------------------------------------------------------------------- 01 .. 03
 
@@ -473,6 +462,29 @@ class GateTest implements DbmsAware {
         fields.put("project_id", "no-such-project");
         Expect.failure(() -> s.bean(SaveService.class).save(null, s.create("defect", null, fields)),
                 TrustCode.HOST_ATTESTATION_REQUIRED);
+        // a malformed id, entity or state of a transition or a correction is raised after the attestation, on both channels
+        for (String malformed : List.of("no-such-id", "x", "")) {
+            Expect.failure(() -> s.bean(TransitionService.class).transition(null, s.move("defect", malformed, 1, "DISPUTED",
+                    Scenario.EVIDENCE)), TrustCode.HOST_ATTESTATION_REQUIRED);
+            Expect.failure(() -> s.bean(ReviewService.class).review(null, s.move("task", malformed, 1, "ACTIVE", null)),
+                    TrustCode.HOST_ATTESTATION_REQUIRED);
+            Expect.failure(() -> s.bean(TransitionService.class).transition(null, s.move("condition", malformed, 1,
+                    "MET", Scenario.EVIDENCE)), TrustCode.HOST_ATTESTATION_REQUIRED);
+        }
+        Expect.failure(() -> s.bean(TransitionService.class).transition(null, s.move("nothing", s.defectId(1), 1,
+                "DISPUTED", Scenario.EVIDENCE)), TrustCode.HOST_ATTESTATION_REQUIRED);
+        SaveResult d = s.newDefect("d");
+        Expect.failure(() -> s.bean(TransitionService.class).transition(null, s.move("defect", d.id(), 1, "NOWHERE",
+                Scenario.EVIDENCE)), TrustCode.HOST_ATTESTATION_REQUIRED);
+        Expect.failure(() -> s.bean(TransitionService.class).transition("claude", s.move("defect", "no-such-id", 1,
+                "DISPUTED", Scenario.EVIDENCE)), TrustCode.AUTHOR_ID_FORMAT);
+        Expect.failure(() -> s.bean(CorrectService.class).correct(null, new CorrectCommand(null, null,
+                Scenario.REASON)), TrustCode.HOST_ATTESTATION_REQUIRED);
+        Expect.failure(() -> s.bean(ReviewService.class).reviewCorrect(null, new CorrectCommand(null, null,
+                Scenario.REASON)), TrustCode.HOST_ATTESTATION_REQUIRED);
+        // with an attested actor the same inputs are refused for their format
+        Expect.failure(() -> s.bean(TransitionService.class).transition(Scenario.AUTHOR, s.move("defect",
+                "no-such-id", 1, "DISPUTED", Scenario.EVIDENCE)), ValidationCode.VALIDATION_FAILED);
     }
 
     @Test

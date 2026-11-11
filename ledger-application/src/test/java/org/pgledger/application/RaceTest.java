@@ -16,20 +16,17 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.GrantService.RevokeCommand;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
 import org.pgledger.application.support.MergeFixture;
 import org.pgledger.application.support.Parallel;
 import org.pgledger.application.support.Parallel.Outcome;
 import org.pgledger.application.support.Scenario;
-import org.pgledger.application.support.ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.write.LinkCommand;
 import org.pgledger.application.write.LinkService;
 import org.pgledger.application.write.RecordCaseCommand;
@@ -51,17 +48,9 @@ import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
 import org.pgledger.domain.value.DefectId;
 
-/** SVC-RACE-01 .. SVC-RACE-09, SVC-GRT-06: real threads and latches, on H2 and on PostgreSQL. */
-@ServiceTest
-class RaceTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+/** SVC-RACE-01 .. SVC-RACE-09, SVC-GRT-06: real threads and latches, committed on the embedded H2 (no transaction wraps a test). */
+@LedgerServiceTest
+class RaceTest {
 
     private static Optional<ErrorCode> code(Outcome<?> outcome) {
         return Optional.ofNullable(outcome.failure()).map(e -> ((LedgerException) e).code());

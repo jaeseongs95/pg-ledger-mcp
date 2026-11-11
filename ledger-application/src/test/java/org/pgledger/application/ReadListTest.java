@@ -10,7 +10,6 @@ import java.util.Set;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -33,10 +32,8 @@ import org.pgledger.application.read.ListService.TasksQuery;
 import org.pgledger.application.read.Page;
 import org.pgledger.application.read.SearchService;
 import org.pgledger.application.read.SearchService.SearchQuery;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.LedgerAppContext;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
@@ -50,8 +47,8 @@ import org.pgledger.domain.error.ValidationException;
  * cursor, stability, damaged cursors). One fixture of 137 rows per kind is built once for the whole class (the
  * database context keeps it).
  */
-@H2ServiceTest
-class ReadListTest implements DbmsAware {
+@LedgerServiceTest
+class ReadListTest {
 
     private static final int ROWS = 137;
 
@@ -63,14 +60,6 @@ class ReadListTest implements DbmsAware {
     /** How a cursor is damaged. */
     enum Damage {
         GARBAGE, CUT, FOREIGN
-    }
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
     }
 
     private static Scenario fixture(LedgerAppContext ctx) {

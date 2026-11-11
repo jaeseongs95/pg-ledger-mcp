@@ -10,19 +10,15 @@ import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
-import org.pgledger.application.support.Databases;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
-import org.pgledger.application.support.LedgerAppContext;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
+import org.pgledger.apptest.LedgerTestRunners;
 import org.pgledger.application.write.SaveService;
 import org.pgledger.database.repository.CodeRevisionRepository;
 import org.pgledger.database.repository.CommonCodeRepository;
@@ -35,16 +31,8 @@ import org.pgledger.domain.rule.CodeState;
 import org.pgledger.domain.value.CodeValue;
 
 /** SVC-CC-01 .. SVC-CC-10: the common codes. */
-@H2ServiceTest
-class CommonCodeTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class CommonCodeTest {
 
     private static CodeCommand code(String group, String code) {
         return new CodeCommand(group, code, "이름", "Name", null, null, 25, null);
@@ -202,8 +190,8 @@ class CommonCodeTest implements DbmsAware {
 
     @Test
     @DisplayName("SVC-CC-10: with no category a defect cannot be created and the message points at the codes")
-    void cc10_noCategories(Databases databases) {
-        try (LedgerAppContext fresh = LedgerAppContext.createWithoutCategories(databases, Dbms.H2)) {
+    void cc10_noCategories() {
+        LedgerTestRunners.withoutCategories(fresh -> {
             Scenario s = new Scenario(fresh);
             var fields = s.defectFields("d");
             fields.remove("category");
@@ -211,7 +199,7 @@ class CommonCodeTest implements DbmsAware {
                     s.create("defect", null, fields)), ValidationCode.CODE_REQUIRED);
             assertThat(e.details()).containsEntry("valid", List.of());
             assertThat(e.args()).containsExactly("defect.category", "", "DEFECT_CATEGORY");
-        }
+        });
     }
 
     @ParameterizedTest

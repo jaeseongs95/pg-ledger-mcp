@@ -10,17 +10,14 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.history.Change;
 import org.pgledger.application.history.ChangeSet;
 import org.pgledger.application.json.LedgerJson;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.RecordCaseCommand;
 import org.pgledger.application.write.RecordCaseService;
@@ -41,16 +38,8 @@ import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
 
 /** SVC-NORM-01 .. SVC-NORM-05: an empty string is NULL or refused, never stored (SVC-NORM-04 is in the receipt test). */
-@H2ServiceTest
-class NormTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class NormTest {
 
     /** A write that gives optional fields as blank; the SQL counts the rows that hold NULL in all of them. */
     record Blank(String name, Function<Scenario, String> write, String sql) {

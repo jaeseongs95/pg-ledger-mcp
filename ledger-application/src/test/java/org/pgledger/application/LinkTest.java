@@ -8,17 +8,14 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
 import org.pgledger.application.history.Change;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.LinkCommand;
 import org.pgledger.application.write.LinkService;
@@ -34,16 +31,8 @@ import org.pgledger.domain.model.HistoryEntry;
 import org.pgledger.domain.rule.HistoryOp;
 
 /** SVC-LNK-01 .. SVC-LNK-11: links and unlinks. */
-@H2ServiceTest
-class LinkTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class LinkTest {
 
     private LinkResult link(Scenario s, String kind, String a, String b, Boolean remove) {
         return s.bean(LinkService.class).link(Scenario.AUTHOR, new LinkCommand(null, kind, a, b, Scenario.REASON,

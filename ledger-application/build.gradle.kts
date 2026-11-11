@@ -1,5 +1,8 @@
 dependencies {
     api(project(":ledger-database"))
+    // Jakarta Validation (Hibernate Validator, Boot BOM): the service input records carry the constraints; the
+    // records are public API of this module, so the consumers need the annotations on their compile classpath.
+    api("org.springframework.boot:spring-boot-starter-validation")
     // Jackson 3 (Boot BOM): history changes, before_data and receipt responses are records written as JSON text.
     // Spring Boot's starter makes the JsonMapper bean that LedgerJson derives its mappers from.
     implementation("org.springframework.boot:spring-boot-starter-jackson")

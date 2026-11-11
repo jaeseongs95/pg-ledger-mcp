@@ -10,14 +10,11 @@ import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.json.LedgerJson;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.MergeFixture;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
@@ -44,16 +41,8 @@ import org.pgledger.domain.value.DefectId;
 import tools.jackson.databind.json.JsonMapper;
 
 /** SVC-CAS-01 .. SVC-CAS-11, -15, -16 (the read side, -12 .. -14, is in the read test). */
-@H2ServiceTest
-class CaseTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class CaseTest {
 
     private static RecordCaseCommand observe(String defect, String observation) {
         return new RecordCaseCommand(null, defect, observation, Scenario.REASON, null, null, null);

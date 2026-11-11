@@ -13,14 +13,11 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.admin.GrantService;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
 import org.pgledger.application.write.BatchResult;
@@ -28,6 +25,7 @@ import org.pgledger.application.write.BatchService;
 import org.pgledger.application.write.LinkCommand;
 import org.pgledger.application.write.LinkService;
 import org.pgledger.application.support.MergeFixture;
+import org.pgledger.apptest.LedgerTestRunners;
 import org.pgledger.application.write.RecordCaseCommand;
 import org.pgledger.application.write.RecordCaseService;
 import org.pgledger.application.write.RecordFixCommand;
@@ -54,16 +52,8 @@ import org.pgledger.domain.value.RequestId;
 import org.pgledger.domain.value.Sha256;
 
 /** SVC-RCP-01 .. SVC-RCP-08, -12 .. -15: idempotency of the write services. */
-@H2ServiceTest
-class ReceiptTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class ReceiptTest {
 
     private static SaveCommand create(Scenario s, String requestId, String title) {
         return new SaveCommand(requestId, "defect", null, 0L, s.defectFields(title), Scenario.REASON);
@@ -319,10 +309,8 @@ class ReceiptTest implements DbmsAware {
     void rcp13_restart(Scenario s) {
         String id = Scenario.uuid();
         SaveResult first = s.bean(SaveService.class).save(Scenario.AUTHOR, create(s, id, "d"));
-        try (var restarted = s.ctx().startApplication()) {
-            assertThat(restarted.getBean(SaveService.class).save(Scenario.AUTHOR, create(s, id, "d")))
-                    .isEqualTo(first);
-        }
+        LedgerTestRunners.restartOf(s.ctx(), restarted -> assertThat(restarted.getBean(SaveService.class).save(
+                Scenario.AUTHOR, create(s, id, "d"))).isEqualTo(first));
         assertThat(defects(s)).isEqualTo(1);
     }
 
