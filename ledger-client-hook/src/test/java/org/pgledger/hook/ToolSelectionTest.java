@@ -1,167 +1,228 @@
 package org.pgledger.hook;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.pgledger.hook.HookHarness.ATTESTATION;
-import static org.pgledger.hook.HookHarness.HOST_ID;
-import static org.pgledger.hook.HookHarness.MAPPER;
-import static org.pgledger.hook.HookHarness.WRITE_TOOLS;
-import static org.pgledger.hook.HookHarness.event;
-import static org.pgledger.hook.HookHarness.forwardedArguments;
-import static org.pgledger.hook.HookHarness.outcome;
-import static org.pgledger.hook.HookHarness.quote;
-import static org.pgledger.hook.HookHarness.run;
-import static org.pgledger.hook.HookHarness.toolName;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
-import org.pgledger.hook.HookHarness.Outcome;
-import org.pgledger.hook.HookHarness.Run;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.pgledger.hook.AntigravityHost.Envelope;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.node.ObjectNode;
 
 /** HK-007, HK-011, HK-012, HK-013: which calls are stamped and which pass untouched. */
+@ExtendWith(HookExtension.class)
 class ToolSelectionTest {
+
+    private static final AntigravityHost AGY = AntigravityHost.INSTANCE;
+    private static final CodexHost CODEX = new CodexHost();
+    private static final String ID = HookFixture.HOST_ID;
+    private static final JsonNode EMPTY = Json.of("{}");
 
     private static final List<String> READ_OPS = List.of(
             "get", "history", "list", "search", "defects", "save_extra", "whoami_x", "Save", "SAVE", "xsave");
+    private static final List<String> OTHER_NAMES = List.of(
+            "run_command", "ledger_save", "ledger_get", "mcp__other__read", "mcp__other__save", "mcp__test__other_save", "Bash");
+
+    /** Names the hook must not touch: read tools in the naming of each host, and names of other tools. */
+    static Stream<Arguments> untouchedNames() {
+        return Hosts.ALL.stream().flatMap(host -> Stream.concat(
+                        READ_OPS.stream().map(host::toolName), OTHER_NAMES.stream())
+                .map(name -> Arguments.argumentSet(host + " " + name, host, name)));
+    }
 
     @ParameterizedTest
-    @EnumSource(Client.class)
-    @DisplayName("HK-007 read tools, near misses, other tools and unprefixed names are not touched; the new read tools are never stamped")
-    void leavesOtherToolsAlone(Client client) {
-        String input = "{\"" + ATTESTATION + "\":\"model:value\"}";
-        for (String op : READ_OPS) {
-            Run run = run(client, event(client, toolName(client, op), input, "null")).ok();
-            assertUntouched(client, run, op);
-        }
-        for (String name : List.of("run_command", "ledger_save", "ledger_get", "mcp__other__read", "mcp__other__save", "mcp__test__other_save", "Bash")) {
-            Run run = run(client, event(client, name, input, "null")).ok();
-            assertUntouched(client, run, name);
-        }
+    @MethodSource("untouchedNames")
+    @DisplayName("HK-007 read tools, near misses, other tools and unprefixed names are not touched (Claude answers {}, the others stay silent)")
+    void leavesOtherToolsAlone(HostScenario host, String name, HookFixture fixture) {
+        JsonNode input = Json.tree(Map.of(Json.RESERVED_KEY, "model:value"));
+        Run run = fixture.runClean(host, host.event(name, input, Json.of("null")));
+        assertThat(run.document()).isEqualTo(host.untouched());
     }
 
-    private static void assertUntouched(Client client, Run run, String what) {
-        assertThat(outcome(client, run)).as(what).isEqualTo(Outcome.UNTOUCHED);
-        if (client == Client.CLAUDE) {
-            assertThat(run.out().trim()).as(what).isEqualTo("{}");
-        } else {
-            assertThat(run.stdout()).as(what).isEmpty();
-        }
-    }
-
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"mcp:ledger_save", "mcp:test:ledger_save", "mcp:test/ledger_save", "mcp:test_ledger_save"})
     @DisplayName("HK-011 Antigravity MCP name candidates mcp:ledger_save, mcp:test:ledger_save, mcp:test/ledger_save, mcp:test_ledger_save are all stamped")
-    void antigravityNameCandidates() {
-        for (String name : List.of("mcp:ledger_save", "mcp:test:ledger_save", "mcp:test/ledger_save", "mcp:test_ledger_save")) {
-            Run run = run(Client.ANTIGRAVITY, event(Client.ANTIGRAVITY, name, "{}")).ok();
-            assertThat(forwardedArguments(Client.ANTIGRAVITY, "{}", run).path(ATTESTATION).asString()).as(name).isEqualTo("gemini:" + HOST_ID);
-        }
-        for (String name : List.of("mcp:xledger_save", "mcp:test:ledger_get", "ledger_save")) {
-            assertThat(outcome(Client.ANTIGRAVITY, run(Client.ANTIGRAVITY, event(Client.ANTIGRAVITY, name, "{}")).ok())).as(name).isEqualTo(Outcome.UNTOUCHED);
-        }
+    void antigravityNameCandidatesAreStamped(String name, HookFixture fixture) {
+        Run run = fixture.runClean(AGY, AGY.event(name, EMPTY));
+        assertThat(run.document()).isEqualTo(AGY.allowed(EMPTY, "gemini:" + ID));
     }
 
-    @Test
-    @DisplayName("HK-013 Codex namespace mcp__codex_apps__app_ledger_ledger_<op>: all ten handled, read tool names are not")
-    void codexAppNamespace() {
-        for (String op : WRITE_TOOLS) {
-            String name = "mcp__codex_apps__app_ledger_ledger_" + op;
-            Run run = run(Client.CODEX, event(Client.CODEX, name, "{\"marker\":\"namespace\"}")).ok();
-            assertThat(forwardedArguments(Client.CODEX, "{}", run).path(ATTESTATION).asString()).as(name).isEqualTo("codex:" + HOST_ID);
-            Run reserved = run(Client.CODEX, event(Client.CODEX, name, "{\"" + ATTESTATION + "\":null}")).ok();
-            assertThat(outcome(Client.CODEX, reserved)).as(name).isEqualTo(Outcome.DENIED);
-        }
-        for (String op : List.of("get", "history", "search", "defects")) {
-            Run run = run(Client.CODEX, event(Client.CODEX, "mcp__codex_apps__app_ledger_ledger_" + op, "{}")).ok();
-            assertThat(outcome(Client.CODEX, run)).as(op).isEqualTo(Outcome.UNTOUCHED);
-        }
+    @ParameterizedTest
+    @ValueSource(strings = {"mcp:xledger_save", "mcp:test:ledger_get", "ledger_save"})
+    @DisplayName("HK-011 Antigravity names that are no ledger write tool are not touched")
+    void antigravityOtherNamesAreNotTouched(String name, HookFixture fixture) {
+        Run run = fixture.runClean(AGY, AGY.event(name, EMPTY));
+        assertThat(run.document()).isEqualTo(AGY.untouched());
+    }
+
+    private static Stream<String> writeOps() {
+        return Hosts.WRITE_OPS.stream();
+    }
+
+    private static String codexNamespace(String op) {
+        return "mcp__codex_apps__app_ledger_ledger_" + op;
+    }
+
+    @ParameterizedTest
+    @MethodSource("writeOps")
+    @DisplayName("HK-013 Codex namespace mcp__codex_apps__app_ledger_ledger_<op>: all ten are stamped")
+    void codexNamespaceIsStamped(String op, HookFixture fixture) {
+        JsonNode input = Json.tree(Map.of("marker", "namespace"));
+        Run run = fixture.runClean(CODEX, CODEX.event(codexNamespace(op), input));
+        assertThat(run.document()).isEqualTo(CODEX.allowed(input, "codex:" + ID));
+    }
+
+    @ParameterizedTest
+    @MethodSource("writeOps")
+    @DisplayName("HK-013 Codex namespace: a reserved key is denied for all ten")
+    void codexNamespaceDeniesReservedKey(String op, HookFixture fixture) {
+        JsonNode input = Json.tree(Map.of(Json.RESERVED_KEY, Json.of("null")));
+        Run run = fixture.runClean(CODEX, CODEX.event(codexNamespace(op), input));
+        assertThat(run.document()).isEqualTo(CODEX.denied(Refusal.RESERVED_FIELD));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"get", "history", "search", "defects"})
+    @DisplayName("HK-013 Codex namespace: read tool names are not handled")
+    void codexNamespaceLeavesReadToolsAlone(String op, HookFixture fixture) {
+        Run run = fixture.runClean(CODEX, CODEX.event(codexNamespace(op), EMPTY));
+        assertThat(run.document()).isEqualTo(CODEX.untouched());
     }
 
     // ---- HK-012: call_mcp_tool envelope ----
 
-    private static final String INPUT = "{\"marker\":\"wrapper\",\"author_id\":\"model:declared\",\"nested\":{\"keep\":[1,null,false]}}";
+    record Keep(boolean keep) {}
 
-    private static String envelope(String toolName, String argumentsJson) {
-        return "{\"ServerName\":\"t0001sink\",\"ToolName\":" + quote(toolName) + ",\"Arguments\":" + argumentsJson
-                + ",\"extra\":{\"keep\":true}}";
+    record Deep(List<Object> keep) {}
+
+    record WrapperInput(String marker, String author_id, Deep nested) {}
+
+    private static final JsonNode INPUT = Json.tree(new WrapperInput(
+            "wrapper", "model:declared", new Deep(java.util.Arrays.asList(1, null, false))));
+
+    private static Envelope envelope(String toolName, Object arguments) {
+        return new Envelope("t0001sink", toolName, arguments, new Keep(true));
     }
 
-    private static Run wrapped(String envelopeJson) {
-        return run(Client.ANTIGRAVITY, event(Client.ANTIGRAVITY, "call_mcp_tool", envelopeJson)).ok();
+    private static JsonNode stampedInput() {
+        return Json.stamped(INPUT, "gemini:" + ID);
     }
 
-    @Test
-    @DisplayName("HK-012 call_mcp_tool: only Arguments is overwritten (object stays object, JSON string stays JSON string), envelope untouched")
-    void wrapperArguments() {
-        for (boolean asText : new boolean[] {false, true}) {
-            String arguments = asText ? quote(INPUT) : INPUT;
-            for (String op : WRITE_TOOLS) {
-                String envelope = envelope("app_ledger_ledger_" + op, arguments);
-                Run run = wrapped(envelope);
-                assertThat(outcome(Client.ANTIGRAVITY, run)).isEqualTo(Outcome.STAMPED);
-                JsonNode out = run.json();
-                assertThat(out.path("overwrite").propertyNames()).containsExactly("Arguments");
-                JsonNode sent = out.path("overwrite").path("Arguments");
-                assertThat(sent.isString()).as("Arguments type kept (text=" + asText + ")").isEqualTo(asText);
-                JsonNode inner = asText ? MAPPER.readTree(sent.stringValue()) : sent;
-                assertThat(inner).isEqualTo(HookHarness.withAttestation(INPUT, "gemini:" + HOST_ID));
-                // the envelope itself is not part of the overwrite: ServerName, ToolName and extra keys stay as the host has them
-                assertThat(out.path("overwrite").has("ServerName")).isFalse();
-                assertThat(out.path("overwrite").has("extra")).isFalse();
-            }
-        }
+    @ParameterizedTest
+    @MethodSource("writeOps")
+    @DisplayName("HK-012 call_mcp_tool with Arguments as an object: only Arguments is overwritten, still an object, envelope untouched")
+    void wrapperObjectArguments(String op, HookFixture fixture) {
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("app_ledger_ledger_" + op, INPUT)));
+        assertThat(run.document()).isEqualTo(AGY.allowedWrapped(stampedInput()));
     }
 
-    @Test
-    @DisplayName("HK-012 call_mcp_tool: a reserved key in Arguments (either form) or on the envelope is denied")
-    void wrapperReservedKey() {
-        for (String value : List.of("null", "\"\"", "false", "{}", "[]", "\"gemini:" + HOST_ID + "\"")) {
-            String inner = "{\"" + ATTESTATION + "\":" + value + "}";
-            assertThat(outcome(Client.ANTIGRAVITY, wrapped(envelope("ledger_save", inner)))).as(value).isEqualTo(Outcome.DENIED);
-            assertThat(outcome(Client.ANTIGRAVITY, wrapped(envelope("ledger_save", quote(inner))))).as(value).isEqualTo(Outcome.DENIED);
-        }
-        String onEnvelope = "{\"ServerName\":\"s\",\"ToolName\":\"ledger_save\",\"Arguments\":{},\"" + ATTESTATION + "\":1}";
-        assertThat(outcome(Client.ANTIGRAVITY, wrapped(onEnvelope))).isEqualTo(Outcome.DENIED);
+    @ParameterizedTest
+    @MethodSource("writeOps")
+    @DisplayName("HK-012 call_mcp_tool with Arguments as JSON text: only Arguments is overwritten, still JSON text, envelope untouched")
+    void wrapperTextArguments(String op, HookFixture fixture) {
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("app_ledger_ledger_" + op, Json.MAPPER.writeValueAsString(INPUT))));
+        assertThat(run.document()).isEqualTo(AGY.allowedWrapped(Json.MAPPER.writeValueAsString(stampedInput())));
     }
 
-    @Test
-    @DisplayName("HK-012 call_mcp_tool: invalid Arguments (null, [], 7, {, \"text\", missing) are denied")
-    void wrapperInvalidArguments() {
-        for (String arguments : List.of("null", "[]", "7", quote("{"), quote("\"text\""), quote("[]"), quote("null"), quote(""), quote("{} {}"))) {
-            Run run = wrapped(envelope("ledger_save", arguments));
-            assertThat(outcome(Client.ANTIGRAVITY, run)).as(arguments).isEqualTo(Outcome.DENIED);
-        }
-        String missing = "{\"ServerName\":\"s\",\"ToolName\":\"ledger_save\"}";
-        assertThat(outcome(Client.ANTIGRAVITY, wrapped(missing))).isEqualTo(Outcome.DENIED);
+    private static final List<JsonNode> RESERVED_VALUES = List.of(
+            Json.of("null"), Json.text(""), Json.of("false"), Json.of("{}"), Json.of("[]"), Json.text("gemini:" + ID));
+
+    private static Stream<JsonNode> reservedValues() {
+        return RESERVED_VALUES.stream();
     }
 
-    @Test
-    @DisplayName("HK-012 call_mcp_tool: a non-ledger ToolName, a missing/empty ServerName or a non-object envelope passes")
-    void wrapperPassThrough() {
-        String reserved = "{\"" + ATTESTATION + "\":null}";
-        for (String toolName : List.of("ledger_get", "unrelated_save", "ledger_save_extra", "ledger_history")) {
-            assertThat(outcome(Client.ANTIGRAVITY, wrapped(envelope(toolName, reserved)))).as(toolName).isEqualTo(Outcome.UNTOUCHED);
-        }
-        for (String broken : List.of(
-                "{\"ToolName\":\"ledger_save\",\"Arguments\":{}}",
-                "{\"ServerName\":\"\",\"ToolName\":\"ledger_save\",\"Arguments\":{}}",
-                "{\"ServerName\":3,\"ToolName\":\"ledger_save\",\"Arguments\":{}}",
-                "{\"ServerName\":\"s\",\"ToolName\":7,\"Arguments\":{}}",
-                "[]", "null", "\"text\"")) {
-            assertThat(outcome(Client.ANTIGRAVITY, wrapped(broken))).as(broken).isEqualTo(Outcome.UNTOUCHED);
-        }
+    @ParameterizedTest
+    @MethodSource("reservedValues")
+    @DisplayName("HK-012 call_mcp_tool: a reserved key in Arguments given as an object is denied")
+    void wrapperReservedKeyInObject(JsonNode value, HookFixture fixture) {
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("ledger_save", Map.of(Json.RESERVED_KEY, value))));
+        assertThat(run.document()).isEqualTo(AGY.denied(Refusal.RESERVED_FIELD));
+    }
+
+    @ParameterizedTest
+    @MethodSource("reservedValues")
+    @DisplayName("HK-012 call_mcp_tool: a reserved key in Arguments given as JSON text is denied")
+    void wrapperReservedKeyInText(JsonNode value, HookFixture fixture) {
+        String text = Json.MAPPER.writeValueAsString(Map.of(Json.RESERVED_KEY, value));
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("ledger_save", text)));
+        assertThat(run.document()).isEqualTo(AGY.denied(Refusal.RESERVED_FIELD));
     }
 
     @Test
-    @DisplayName("HK-012 call_mcp_tool keeps unknown extra keys of Arguments and does not touch a stamped copy of the input")
-    void wrapperUnknownFieldsSurvive() {
-        String input = "{\"unknown\":{\"a\":[1,2,{\"b\":null}]},\"note\":\"한글\"}";
-        Run run = wrapped(envelope("ledger_batch", input));
-        JsonNode sent = run.json().path("overwrite").path("Arguments");
-        ObjectNode expected = HookHarness.withAttestation(input, "gemini:" + HOST_ID);
-        assertThat(sent).isEqualTo(expected);
+    @DisplayName("HK-012 call_mcp_tool: a reserved key on the envelope itself is denied")
+    void wrapperReservedKeyOnEnvelope(HookFixture fixture) {
+        Map<String, Object> envelope = Map.of(
+                "ServerName", "s", "ToolName", "ledger_save", "Arguments", EMPTY, Json.RESERVED_KEY, 1);
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope));
+        assertThat(run.document()).isEqualTo(AGY.denied(Refusal.RESERVED_FIELD));
+    }
+
+    /** Invalid Arguments with the reason the hook must give: not an object, or not JSON text of an object. */
+    static Stream<Arguments> invalidArguments() {
+        return Stream.of(
+                Arguments.argumentSet("null", Json.of("null"), Refusal.ARGUMENTS_NOT_OBJECT),
+                Arguments.argumentSet("[]", Json.of("[]"), Refusal.ARGUMENTS_NOT_OBJECT),
+                Arguments.argumentSet("7", Json.of("7"), Refusal.ARGUMENTS_NOT_OBJECT),
+                Arguments.argumentSet("missing", null, Refusal.ARGUMENTS_NOT_OBJECT),
+                Arguments.argumentSet("text {", "{", Refusal.ARGUMENTS_NOT_JSON_OBJECT),
+                Arguments.argumentSet("text {} {}", "{} {}", Refusal.ARGUMENTS_NOT_JSON_OBJECT),
+                Arguments.argumentSet("text \"text\"", "\"text\"", Refusal.ARGUMENTS_NOT_OBJECT),
+                Arguments.argumentSet("text []", "[]", Refusal.ARGUMENTS_NOT_OBJECT),
+                Arguments.argumentSet("text null", "null", Refusal.ARGUMENTS_NOT_OBJECT),
+                Arguments.argumentSet("text empty", "", Refusal.ARGUMENTS_NOT_OBJECT));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidArguments")
+    @DisplayName("HK-012 call_mcp_tool: invalid Arguments (null, [], 7, missing, unparsable or non-object text) are denied")
+    void wrapperInvalidArguments(Object arguments, Refusal reason, HookFixture fixture) {
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("ledger_save", arguments)));
+        assertThat(run.document()).isEqualTo(AGY.denied(reason));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ledger_get", "unrelated_save", "ledger_save_extra", "ledger_history"})
+    @DisplayName("HK-012 call_mcp_tool: a ToolName that is no ledger write tool passes, even with a reserved key")
+    void wrapperOtherToolPasses(String toolName, HookFixture fixture) {
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope(toolName, Map.of(Json.RESERVED_KEY, Json.of("null")))));
+        assertThat(run.document()).isEqualTo(AGY.untouched());
+    }
+
+    /** Envelopes that are not a ledger call: ServerName missing, empty or not text, ToolName not text, not an object. */
+    static Stream<Arguments> brokenEnvelopes() {
+        return Stream.of(
+                Arguments.argumentSet("no ServerName", new Envelope(null, "ledger_save", EMPTY, null)),
+                Arguments.argumentSet("empty ServerName", new Envelope("", "ledger_save", EMPTY, null)),
+                Arguments.argumentSet("numeric ServerName", new Envelope(3, "ledger_save", EMPTY, null)),
+                Arguments.argumentSet("numeric ToolName", new Envelope("s", 7, EMPTY, null)),
+                Arguments.argumentSet("array envelope", Json.of("[]")),
+                Arguments.argumentSet("null envelope", Json.of("null")),
+                Arguments.argumentSet("text envelope", Json.text("text")));
+    }
+
+    @ParameterizedTest
+    @MethodSource("brokenEnvelopes")
+    @DisplayName("HK-012 call_mcp_tool: a missing or empty ServerName, a non-text name or a non-object envelope passes")
+    void wrapperBrokenEnvelopePasses(Object envelope, HookFixture fixture) {
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope));
+        assertThat(run.document()).isEqualTo(AGY.untouched());
+    }
+
+    record Unknown(List<Object> a) {}
+
+    record UnknownFields(Unknown unknown, String note) {}
+
+    @Test
+    @DisplayName("HK-012 call_mcp_tool keeps unknown fields and Korean text of Arguments")
+    void wrapperUnknownFieldsSurvive(HookFixture fixture) {
+        JsonNode input = Json.tree(new UnknownFields(new Unknown(List.of(1, 2, Map.of("b", Json.of("null")))), "한글"));
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("ledger_batch", input)));
+        assertThat(run.document()).isEqualTo(AGY.allowedWrapped(Json.stamped(input, "gemini:" + ID)));
     }
 }
