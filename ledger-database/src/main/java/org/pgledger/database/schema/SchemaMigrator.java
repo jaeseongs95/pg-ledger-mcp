@@ -38,6 +38,7 @@ public class SchemaMigrator {
 
     private static final Logger LOG = LoggerFactory.getLogger(SchemaMigrator.class);
     private static final String PLACEHOLDER = "${longtext}";
+    private static final long PEER_POLL_MILLIS = 50;
 
     private final DataSource dataSource;
     private final ResourcePatternResolver resolver;
@@ -168,16 +169,39 @@ public class SchemaMigrator {
         } catch (SQLException e) {
             cause.addSuppressed(e);
         }
-        List<Row> now = history.rows().stream().filter(r -> r.version() == file.version()).toList();
-        boolean appliedMeanwhile = now.size() > before.size() && now.stream()
-                .anyMatch(r -> r.outcome() == Outcome.SUCCESS && r.sha256().equals(file.digest()));
-        if (appliedMeanwhile) {
+        if (appliedByAnotherProcess(history, file, before)) {
             LOG.info("V{} was applied by another migration process", file.version());
             return false;
         }
+        List<Row> now = history.rows().stream().filter(r -> r.version() == file.version()).toList();
         history.append(new Row(file.version(), file.fileName(), file.digest(), nextTime(now), Outcome.FAILED));
         throw new SchemaMigrationException("migration V" + file.version() + " (" + file.fileName() + ") failed",
                 cause);
+    }
+
+    /**
+     * A file that fails may only have met another migration process that is applying the same version (a DBMS
+     * that commits every DDL statement at once shows its half-done file as an error). The history decides: this
+     * waits up to {@code peerWait} for a SUCCESS row of the same digest that was not there before.
+     */
+    private boolean appliedByAnotherProcess(SchemaHistoryRepository history, MigrationFile file, List<Row> before) {
+        long deadline = System.nanoTime() + properties.peerWait().toNanos();
+        while (true) {
+            List<Row> now = history.rows().stream().filter(r -> r.version() == file.version()).toList();
+            if (now.size() > before.size() && now.stream()
+                    .anyMatch(r -> r.outcome() == Outcome.SUCCESS && r.sha256().equals(file.digest()))) {
+                return true;
+            }
+            if (System.nanoTime() - deadline >= 0) {
+                return false;
+            }
+            try {
+                Thread.sleep(PEER_POLL_MILLIS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new SchemaMigrationException("interrupted while waiting for another migration process", e);
+            }
+        }
     }
 
     /** Now (microseconds), but strictly after the previous attempt of the same version, which the key needs. */

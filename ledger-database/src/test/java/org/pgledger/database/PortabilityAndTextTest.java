@@ -9,6 +9,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +32,7 @@ import org.pgledger.database.repository.LinkRepository;
 import org.pgledger.database.repository.MergeChainRepository;
 import org.pgledger.database.repository.StatsRepository;
 import org.pgledger.database.support.DatabaseTest;
+import org.pgledger.database.support.Databases;
 import org.pgledger.database.support.Dbms;
 import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.support.LedgerTestContext;
@@ -70,7 +73,7 @@ class PortabilityAndTextTest implements DbmsAware {
 
     @Test
     @DisplayName("REPO-037: every hand-written statement of the repositories is understood by both databases")
-    void everyStatementPreparesOnTheOtherDatabaseToo() throws SQLException {
+    void everyStatementPreparesOnTheOtherDatabaseToo(Databases databases) throws SQLException {
         Seed seed = new Seed(ctx);
         Project project = seed.project();
         Defect defect = seed.defect(project, 1, "portable", LedgerTestContext.START);
@@ -103,7 +106,7 @@ class PortabilityAndTextTest implements DbmsAware {
         assertThat(second).isNotNull();
         List<String> statements = ctx.spy().statements().stream().distinct().toList();
         assertThat(statements).hasSizeGreaterThan(10);
-        try (LedgerTestContext otherDatabase = LedgerTestContext.create(other(dbms));
+        try (LedgerTestContext otherDatabase = LedgerTestContext.create(databases, other(dbms));
                 Connection c = otherDatabase.pool().getConnection()) {
             List<String> refused = statements.stream().map(sql -> syntaxErrorOf(c, sql)).filter(e -> e != null)
                     .toList();
@@ -152,24 +155,23 @@ class PortabilityAndTextTest implements DbmsAware {
         assertThat(ctx.bean(DefectRepository.class).findById(saved.id())).hasValue(saved);
     }
 
-    /** A case text column: its length and how a case with that long text is made. */
-    private record CaseText(String column, int characters, BiFunction<DefectId, String, DefectCase> made) {
+    /** The three text columns of a case. */
+    private record CaseParts(String observation, String evidence, String quote) {
+    }
+
+    /** A case text column: its length and which text column carries the long text. */
+    private record CaseText(String column, int characters, Function<String, CaseParts> parts) {
         @Override
         public String toString() {
             return column;
         }
     }
 
-    private DefectCase observation(DefectId defect, String observation, String evidence, String quote) {
-        return DefectCase.observe(ctx.tx(() -> ctx.bean(IdAllocator.class).next(Counter.DEFECT_CASE)), defect,
-                observation, evidence, quote, null, Seed.ALICE, LedgerTestContext.START);
-    }
-
-    Stream<CaseText> longCaseTexts() {
+    static Stream<CaseText> longCaseTexts() {
         return Stream.of(
-                new CaseText("observation", 4000, (d, t) -> observation(d, t, null, null)),
-                new CaseText("evidence", 2000, (d, t) -> observation(d, "o", t, null)),
-                new CaseText("user_quote", 2000, (d, t) -> observation(d, "o", null, t)));
+                new CaseText("observation", 4000, t -> new CaseParts(t, null, null)),
+                new CaseText("evidence", 2000, t -> new CaseParts("o", t, null)),
+                new CaseText("user_quote", 2000, t -> new CaseParts("o", null, t)));
     }
 
     @ParameterizedTest
@@ -178,8 +180,10 @@ class PortabilityAndTextTest implements DbmsAware {
     void longCaseTextsAreExact(CaseText text) {
         Seed seed = new Seed(ctx);
         Defect defect = seed.defect(seed.project(), 1, "case host", LedgerTestContext.START);
-        DefectCase observed = ctx.tx(() -> ctx.bean(DefectCaseRepository.class).insert(text.made().apply(defect.id(),
-                "한".repeat(text.characters()))));
+        CaseParts parts = text.parts().apply("한".repeat(text.characters()));
+        DefectCase observed = ctx.tx(() -> ctx.bean(DefectCaseRepository.class).insert(DefectCase.observe(
+                ctx.bean(IdAllocator.class).next(Counter.DEFECT_CASE), defect.id(), parts.observation(),
+                parts.evidence(), parts.quote(), null, Seed.ALICE, LedgerTestContext.START)));
         assertThat(ctx.bean(DefectCaseRepository.class).findById(observed.id())).hasValue(observed);
     }
 

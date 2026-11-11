@@ -165,10 +165,27 @@ class CounterTest implements DbmsAware {
         assertThat(inOrder).isSorted();
     }
 
+    /** 64 writers take a number of the counter at the same time; every eighth rolls back and gives its number back. */
     @ParameterizedTest
     @EnumSource(Counter.class)
-    void repo013_everyCounterRowIssuesNumbers(Counter counter) {
-        assertThat(ctx.tx(() -> ids.next(counter))).isPositive();
+    void repo013_everyCounterIssuesDistinctNumbersWithoutGapsAfterRollbacks(Counter counter) {
+        long before = ctx.tx(() -> ids.next(counter));
+        List<Callable<Long>> writers = IntStream.rangeClosed(1, 64).<Callable<Long>>mapToObj(n -> () -> {
+            try {
+                return ctx.tx(() -> {
+                    long id = ids.next(counter);
+                    if (n % 8 == 0) {
+                        throw new IllegalStateException("roll back writer " + n);
+                    }
+                    return id;
+                });
+            } catch (IllegalStateException rolledBack) {
+                return -1L;
+            }
+        }).toList();
+        List<Long> committed = Parallel.all(writers).stream().filter(id -> id > 0).sorted().toList();
+        assertThat(committed).isEqualTo(LongStream.rangeClosed(before + 1, before + 56).boxed().toList());
+        assertThat(ctx.tx(() -> ids.next(counter))).isEqualTo(before + 57);
     }
 
     @Test

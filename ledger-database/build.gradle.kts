@@ -18,7 +18,7 @@ dependencies {
     testImplementation(libs.embedded.postgres)
     testImplementation(libs.archunit)
     // Drivers are test-only: H2 in default mode and PostgreSQL.
-    testRuntimeOnly("com.h2database:h2")
+    testImplementation("com.h2database:h2")
     testRuntimeOnly("org.postgresql:postgresql")
     testRuntimeOnly(pgBinaries)
 }

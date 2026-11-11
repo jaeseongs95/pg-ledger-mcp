@@ -28,6 +28,8 @@ import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -45,7 +47,9 @@ import org.pgledger.database.fake.NoDefaultConstructorDriver;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.schema.SchemaVerifier;
+import org.pgledger.database.support.Databases;
 import org.pgledger.database.support.Dbms;
+import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.domain.error.ErrorCode;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
@@ -58,20 +62,19 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 
 /** DRV-002 .. DRV-009, DRV-011, DRV-012, DRV-017 .. DRV-019, DRV-021: the driver boundary and its registration. */
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@ExtendWith(LedgerDatabaseExtension.class)
 class DriverBoundaryTest {
 
     private static final Instant NOW = Instant.parse("2026-11-05T10:00:00Z");
 
-    @TempDir
-    static Path shared;
-
-    private static Path fakeJar;
+    private Path fakeJar;
 
     @TempDir
     Path temp;
 
     @BeforeAll
-    static void buildTheFakeJar() throws IOException {
+    void buildTheFakeJar(@TempDir Path shared) throws IOException {
         fakeJar = shared.resolve("fake-drivers.jar");
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(fakeJar))) {
             for (Class<?> type : List.of(BaseFakeDriver.class, FakeDriverA.class, FakeDriverB.class,
@@ -200,16 +203,19 @@ class DriverBoundaryTest {
 
     @ParameterizedTest
     @MethodSource("targets")
-    void drv006_007_011_theChainIsClassLoaderDriverSimpleDataSourceHikariAndTheDriverManagerIsNotUsed(Target target)
+    void drv006_007_011_theChainIsClassLoaderDriverSimpleDataSourceHikariAndTheDriverManagerIsNotUsed(Target target,
+            Databases databases)
             throws SQLException {
-        String url = target.dbms().newUrl();
+        String url = databases.newUrl(target.dbms());
         Set<String> before = registeredDrivers();
         DriverRegistration registration = DriverLoader.describe(target.jar().toString(), target.className(), url, NOW);
-        assertThat(registration.sha256()).isEqualTo(sha(target.jar()));
+        assertThat(registration).isEqualTo(new DriverRegistration(target.jar().toString(), target.className(),
+                sha(target.jar()), NOW));
         LedgerJdbcProperties properties = new LedgerJdbcProperties(url, null, null, 2, registration);
         try (RegisteredDriver registered = DriverLoader.load(registration);
                 HikariDataSource pool = DriverDataSources.create(registered, properties, null)) {
             Driver driver = registered.driver();
+            assertThat(registeredDrivers()).as("the DriverManager is not involved while the pool runs").isEqualTo(before);
             assertThat(driver.getClass().getClassLoader()).isInstanceOf(URLClassLoader.class);
             assertThat(pool.getDataSource()).isInstanceOf(SimpleDriverDataSource.class);
             try (Connection c = pool.getConnection(); var s = c.createStatement(); var rs = s.executeQuery("SELECT 1")) {
@@ -228,8 +234,10 @@ class DriverBoundaryTest {
     void drv008_aJarThatChangedSinceRegistrationIsRefusedBeforeAnyConnection() {
         DriverRegistration registration = new DriverRegistration(h2Jar().toString(), "org.h2.Driver",
                 "0".repeat(64), NOW);
-        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> DriverLoader.load(registration))))
-                .isEqualTo(InfrastructureCode.DRIVER_INVALID);
+        InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
+                () -> DriverLoader.load(registration));
+        assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
+        assertThat(thrown.args().getFirst()).contains("digest mismatch").contains(h2Jar().toString());
     }
 
     @Test
@@ -284,9 +292,9 @@ class DriverBoundaryTest {
     }
 
     @Test
-    void drv019_closingReleasesTheJarSoItCanBeDeleted() throws IOException {
+    void drv019_closingReleasesTheJarSoItCanBeDeleted(Databases databases) throws IOException {
         Path copy = Files.copy(h2Jar(), temp.resolve("release.jar"));
-        String url = Dbms.H2.newUrl();
+        String url = databases.newUrl(Dbms.H2);
         DriverRegistration registration = DriverLoader.describe(copy.toString(), "org.h2.Driver", url, NOW);
         try (RegisteredDriver registered = DriverLoader.load(registration);
                 HikariDataSource pool = DriverDataSources.create(registered,

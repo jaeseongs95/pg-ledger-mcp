@@ -2,7 +2,7 @@ package org.pgledger.database;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
@@ -13,36 +13,48 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.database.repository.SchemaHistoryRepository;
 import org.pgledger.database.repository.SchemaHistoryRepository.Outcome;
 import org.pgledger.database.repository.SchemaHistoryRepository.Row;
+import org.pgledger.database.schema.LedgerSchemaGuardConfiguration;
 import org.pgledger.database.schema.SchemaMigrationException;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.schema.SchemaVerifier;
+import org.pgledger.database.support.Databases;
 import org.pgledger.database.support.Dbms;
+import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.database.support.Parallel;
 import org.pgledger.database.support.TestClock;
 import org.pgledger.domain.value.Sha256;
+import org.springframework.beans.factory.BeanCreationException;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /** SCH-001 .. SCH-011, SCH-015, SCH-020, SCH-021: the schema runner on H2 and PostgreSQL. */
 @ParameterizedClass
 @EnumSource(Dbms.class)
+@ExtendWith(LedgerDatabaseExtension.class)
 class SchemaMigratorTest {
 
     private static final Instant T0 = Instant.parse("2026-11-05T10:00:00Z");
@@ -63,12 +75,14 @@ class SchemaMigratorTest {
     Path temp;
 
     private HikariDataSource pool;
+    private Databases databases;
     private final TestClock clock = new TestClock(T0);
     private int directories;
 
     @BeforeEach
-    void setUp() {
-        pool = dbms.newDataSource();
+    void setUp(Databases fresh) {
+        databases = fresh;
+        pool = databases.newDataSource(dbms);
     }
 
     @AfterEach
@@ -90,7 +104,7 @@ class SchemaMigratorTest {
     }
 
     private SchemaProperties props(Path dir, String schema) {
-        return new SchemaProperties(dir.toUri().toString(), dbms.longText(), true, schema);
+        return new SchemaProperties(dir.toUri().toString(), dbms.longText(), true, schema, Duration.ofMillis(200));
     }
 
     private SchemaMigrator migrator(Path dir) {
@@ -255,17 +269,15 @@ class SchemaMigratorTest {
     }
 
     @Test
-    void sch009_aMigrationThatMeetsAnotherOneEitherFinishesOrIsRefusedCleanly() {
-        assertThat(twoMigrationsAtOnce()).allMatch(outcome -> outcome.equals("done") || outcome.equals("refused"));
-    }
-
-    @Test
-    void sch009_withTransactionalDdlTheSchemaIsWholeAndHasOneSuccessPerVersion() {
-        assumeTrue(dbms.transactionalDdl(), "a DBMS that commits every DDL statement at once cannot promise this");
-        assertThat(twoMigrationsAtOnce()).contains("done");
+    void sch009_twoMigrationsAtOnceLeaveTheSchemaWholeWithOneSuccessPerVersion() {
+        assertThat(twoMigrationsAtOnce()).as("the loser waits or is refused cleanly").contains("done")
+                .allMatch(outcome -> outcome.equals("done") || outcome.equals("refused"));
         assertThat(history().stream().filter(r -> r.outcome() == Outcome.SUCCESS).map(Row::version))
                 .containsExactly(1, 2, 3);
         assertThat(tableExists("request_receipt")).isTrue();
+        assertThat(tableExists("defect")).isTrue();
+        assertThat(JdbcClient.create(pool).sql("SELECT COUNT(*) FROM common_code").query(Integer.class).single())
+                .isEqualTo(10);
     }
 
     @Test
@@ -279,10 +291,59 @@ class SchemaMigratorTest {
         assertThatThrownBy(() -> verifier(one).verify()).hasMessageContaining("has no schema file");
     }
 
+    /** A database in some state, the files the starting application carries, and what the refusal must name. */
+    private record Refusal(String name, Map<String, String> applied, Map<String, String> running, String message) {
+        @Override
+        public String toString() {
+            return name;
+        }
+    }
+
+    static Stream<Refusal> refusals() {
+        Map<String, String> two = Map.of("V1__one.sql", ONE, "V2__two.sql", TWO);
+        return Stream.of(
+                new Refusal("a version is pending", two, Map.of("V1__one.sql", ONE, "V2__two.sql", TWO,
+                        "V3__three.sql", THREE), "V3__three.sql) is pending"),
+                new Refusal("a version failed", Map.of("V1__one.sql", ONE, "V2__two.sql", TWO, "V3__three.sql",
+                        BROKEN_THREE), Map.of("V1__one.sql", ONE, "V2__two.sql", TWO, "V3__three.sql", BROKEN_THREE),
+                        "V3 (V3__three.sql) is recorded as FAILED"),
+                new Refusal("an applied file was edited", two, Map.of("V1__one.sql", ONE, "V2__two.sql",
+                        TWO + "-- edited\n"), "digest mismatch for V2"),
+                new Refusal("an applied version has no file", two, Map.of("V1__one.sql", ONE),
+                        "V2 (V2__two.sql) was applied but has no schema file"));
+    }
+
+    private ConfigurableApplicationContext startApplication(Path dir) {
+        return new SpringApplicationBuilder(LedgerSchemaGuardConfiguration.class).web(WebApplicationType.NONE)
+                .properties("spring.main.banner-mode=off", "logging.level.root=WARN",
+                        "ledger.schema.location=" + dir.toUri(), "ledger.schema.long-text-type=" + dbms.longText(),
+                        "ledger.schema.require-utc=false")
+                .initializers(context -> {
+                    context.getBeanFactory().registerSingleton("dataSource", pool);
+                    context.getBeanFactory().registerSingleton("clock", clock);
+                }).run();
+    }
+
+    @ParameterizedTest
+    @MethodSource("refusals")
+    void sch003_010_theApplicationRefusesToStartOnASchemaThatIsNotUpToDate(Refusal refusal) {
+        catchThrowable(() -> migrator(files(refusal.applied())).migrate());
+        Path running = files(refusal.running());
+        assertThatThrownBy(() -> startApplication(running)).isInstanceOf(BeanCreationException.class)
+                .hasStackTraceContaining(refusal.message());
+    }
+
+    @Test
+    void sch010_theApplicationStartsOnAnUpToDateSchema() {
+        Path two = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO));
+        migrator(two).migrate();
+        startApplication(two).close();
+    }
+
     @Test
     void sch010_aDatabaseThatWasNeverMigratedIsRefused() {
         Path two = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO));
-        try (HikariDataSource empty = dbms.newDataSource()) {
+        try (HikariDataSource empty = databases.newDataSource(dbms)) {
             assertThatThrownBy(() -> new SchemaVerifier(empty, new PathMatchingResourcePatternResolver(),
                     props(two, null)).verify()).hasMessageContaining("no schema history");
         }

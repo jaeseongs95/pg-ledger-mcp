@@ -127,8 +127,18 @@ class SchemaCatalogTest implements DbmsAware {
     }
 
     @Test
-    void repo002_noBooleanColumnsAndEnumsAreCheckedText() {
+    void repo002_noBooleanColumns() {
         assertThat(columns()).noneMatch(c -> c.type() == Types.BOOLEAN || c.type() == Types.BIT);
+    }
+
+    /** The enum-valued columns of REPO-002 are text; the CHECK that closes their value set is proved by REPO-003. */
+    @ParameterizedTest
+    @CsvSource({"common_code.state", "defect_fix.origin", "request_receipt.origin"})
+    void repo002_anEnumColumnIsText(String column) {
+        String table = column.substring(0, column.indexOf('.'));
+        String name = column.substring(column.indexOf('.') + 1);
+        assertThat(columns()).filteredOn(c -> c.table().equals(table) && c.name().equals(name)).singleElement()
+                .satisfies(c -> assertThat(c.type()).isEqualTo(Types.VARCHAR));
     }
 
     /** SQL that must be refused with SQLState class 23; {@code :x} names the rows seeded for the test. */
@@ -145,6 +155,11 @@ class SchemaCatalogTest implements DbmsAware {
                 "INSERT INTO defect_fix (id, defect_id, repo, commit_sha, ci_ref, ci_conclusion, recorded_by, "
                         + "recorded_at, origin) VALUES (900001, :defect, 'r', 'a', 'ref', 'PASSED', 'claude:a', "
                         + "TIMESTAMP '2026-11-05 10:00:00', 'NATIVE')",
+                "INSERT INTO defect_fix (id, defect_id, repo, commit_sha, recorded_by, recorded_at, origin) VALUES "
+                        + "(900003, :defect, 'r', 'b', 'claude:a', TIMESTAMP '2026-11-05 10:00:00', 'OTHER')",
+                "INSERT INTO request_receipt (request_id, operation, payload_sha256, author_id, login, origin, "
+                        + "created_at) VALUES ('22222222-2222-2222-2222-222222222222', 'SAVE', 'aa', 'claude:a', "
+                        + "'ledger_author', 'OTHER', TIMESTAMP '2026-11-05 10:00:00')",
                 "INSERT INTO session_grant (id, author_id, project_id, scope, granted_by, granted_at, active_key) "
                         + "VALUES (900002, 'claude:a', :project, 'ADMIN', 'user:owner', "
                         + "TIMESTAMP '2026-11-05 10:00:00', 'k900002')",

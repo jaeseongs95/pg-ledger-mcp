@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
@@ -20,9 +21,13 @@ import org.pgledger.database.support.DdlModel;
 import org.pgledger.database.support.SqlText;
 import org.pgledger.database.support.SqlText.Banned;
 import org.pgledger.database.support.SqlText.Group;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** ANSI-001 .. ANSI-014, REPO-004 and ARC-012 (text part): static checks of every SQL file and SQL string. */
 class AnsiRulesTest {
+
+    private static final Logger LOG = LoggerFactory.getLogger(AnsiRulesTest.class);
 
     private static final Path MAIN_JAVA = Path.of("src", "main", "java");
     private static final Path REPOSITORY = MAIN_JAVA.resolve("org/pgledger/database/repository");
@@ -50,7 +55,8 @@ class AnsiRulesTest {
 
     private static List<Path> files(Path directory, String glob) {
         try (Stream<Path> walk = Files.walk(directory)) {
-            return walk.filter(p -> p.getFileName().toString().matches(glob)).sorted().toList();
+            return walk.filter(Files::isRegularFile).filter(p -> p.getFileName().toString().matches(glob)).sorted()
+                    .toList();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -70,6 +76,11 @@ class AnsiRulesTest {
 
     static Stream<SqlText> schemaFiles() {
         return files(SCHEMA, "V\\d+__.*\\.sql").stream().map(AnsiRulesTest::schemaFile);
+    }
+
+    /** The schema files that create tables (the seed file holds rows only, so it has no identifiers to check). */
+    static Stream<SqlText> tableDefiningFiles() {
+        return schemaFiles().filter(s -> !DdlModel.parse(s.stripped()).tables().isEmpty());
     }
 
     static Stream<SqlText> schemaAndTemplateFiles() {
@@ -126,7 +137,7 @@ class AnsiRulesTest {
     }
 
     @ParameterizedTest
-    @MethodSource("schemaFiles")
+    @MethodSource("tableDefiningFiles")
     @DisplayName("ANSI-005: identifiers are lower case, at most 30 characters, unquoted and not reserved")
     void identifiers(SqlText sql) {
         List<String> names = DdlModel.parse(sql.stripped()).identifiers();
@@ -289,6 +300,46 @@ class AnsiRulesTest {
                 "SELECT id FROM defect WHERE created_at < :c ORDER BY id",
                 "UPDATE project SET next_defect_no = next_defect_no + 1 WHERE code = :c",
                 "SELECT note FROM merge_log WHERE returning_flag = 'RETURNING'");
+    }
+
+
+    /** A construct that is proposed as a ban but not ratified yet (ANSI-011), how it is found, and a sample. */
+    private record Candidate(String name, Predicate<String> foundIn, String sample) {
+        @Override
+        public String toString() {
+            return name;
+        }
+
+        static Candidate pattern(String name, String regex, String sample) {
+            Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
+            return new Candidate(name, text -> pattern.matcher(text).find(), sample);
+        }
+    }
+
+    private static long count(String regex, String text) {
+        return Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(text).results().count();
+    }
+
+    static Stream<Candidate> candidates() {
+        return Stream.of(
+                Candidate.pattern("FETCH FIRST", "\\bFETCH\\s+(FIRST|NEXT)\\b", "SELECT a FROM t FETCH FIRST 3 ROWS ONLY"),
+                Candidate.pattern("OFFSET", "\\bOFFSET\\b", "SELECT a FROM t OFFSET 3"),
+                Candidate.pattern("|| concatenation", "\\|\\|", "SELECT a || b FROM t"),
+                Candidate.pattern("database-side time", "\\b(CURRENT_TIMESTAMP|SYSDATE|GETDATE)\\b",
+                        "SELECT CURRENT_TIMESTAMP FROM t"),
+                Candidate.pattern("LENGTH()", "\\bLENGTH\\s*\\(", "SELECT LENGTH(a) FROM t"),
+                new Candidate("LIKE without ESCAPE", text -> count("\\bLIKE\\b", text) > count("\\bESCAPE\\b", text),
+                        "SELECT a FROM t WHERE a LIKE 'x%'"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("candidates")
+    @DisplayName("ANSI-011: candidate additional bans are reported as warnings and do not fail the build")
+    void candidateBansAreWarningsNotFailures(Candidate candidate) {
+        assertThat(candidate.foundIn().test(new SqlText("sample", candidate.sample()).stripped()))
+                .as("the check finds its own sample").isTrue();
+        sqlOfTheApplication().filter(sql -> candidate.foundIn().test(sql.stripped()))
+                .forEach(sql -> LOG.warn("ANSI-011 candidate ban '{}' is used in {}", candidate.name(), sql.name()));
     }
 
     @ParameterizedTest
