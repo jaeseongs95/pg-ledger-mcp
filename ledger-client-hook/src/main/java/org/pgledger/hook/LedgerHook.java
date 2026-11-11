@@ -1,7 +1,6 @@
 package org.pgledger.hook;
 
 import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
@@ -18,13 +17,13 @@ record LedgerHook(HostDialect dialect, JsonCodec codec) {
         if (isBlank(stdin)) {
             return new Response.Silent();
         }
-        JsonNode event;
+        Intake intake;
         try {
-            event = codec.read(stdin);
+            intake = dialect.read(stdin);
         } catch (JacksonException malformed) {
             return dialect.malformedInput();
         }
-        return switch (dialect.read(event)) {
+        return switch (intake) {
             case Intake.Skip skip -> dialect.notLedgerCall();
             case Intake.Refuse refuse -> dialect.deny(refuse.reason());
             case Intake.Attest call -> switch (stamp(call)) {
@@ -35,6 +34,7 @@ record LedgerHook(HostDialect dialect, JsonCodec codec) {
     }
 
     private Verdict stamp(Intake.Attest call) {
+        // The arguments are arbitrary JSON of the model: the copy of the tree keeps every value as the host sent it.
         if (!(call.arguments() instanceof ObjectNode arguments)) {
             return new Verdict.Denied(Refusal.ARGUMENTS_NOT_OBJECT);
         }

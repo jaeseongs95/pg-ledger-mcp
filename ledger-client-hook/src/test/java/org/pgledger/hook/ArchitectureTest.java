@@ -11,19 +11,14 @@ import org.pgledger.testing.ArchitectureRules;
 import org.pgledger.testing.SourceRules;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /** HK-018 (code side): no network, file, environment, process, reflection or framework access in the hook classes. */
 class ArchitectureTest {
 
-    private static JavaClasses hook;
-
-    @BeforeAll
-    static void importClasses() {
-        hook = new ClassFileImporter().withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS).importPackages("org.pgledger.hook");
-    }
+    private static final JavaClasses hook = new ClassFileImporter()
+            .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS).importPackages("org.pgledger.hook");
 
     @Test
     @DisplayName("HK-018 the hook classes use no network, file system, process, reflection, JDBC, Spring or Lombok API")

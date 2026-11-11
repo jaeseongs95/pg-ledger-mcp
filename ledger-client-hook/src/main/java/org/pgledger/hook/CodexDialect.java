@@ -1,11 +1,10 @@
 package org.pgledger.hook;
 
 import java.util.regex.Pattern;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
 
 /**
- * Codex PreToolUse. The host conversation id is {@code session_id} (Codex also gives sub-agents the parent's id).
+ * Codex PreToolUse. The host conversation id is {@code session_id} (Codex also gives sub-agents the parent id).
  * A stamped call answers {@code allow} with {@code updatedInput}; a refusal answers {@code deny}. Malformed
  * input is denied explicitly with exit 0 (a failing hook process would not be a reliable block).
  */
@@ -20,8 +19,8 @@ record CodexDialect(JsonCodec codec) implements HostDialect {
     }
 
     @Override
-    public Intake read(JsonNode event) {
-        return Intake.ofFlatEvent(event, LEDGER_WRITE_TOOL);
+    public Intake read(byte[] stdin) throws JacksonException {
+        return Intake.ofFlatEvent(codec.readEvent(stdin, FlatEvent.class), LEDGER_WRITE_TOOL);
     }
 
     @Override
@@ -36,28 +35,15 @@ record CodexDialect(JsonCodec codec) implements HostDialect {
 
     @Override
     public Response deny(Refusal reason) {
-        ObjectNode specific = specific("deny");
-        specific.put("permissionDecisionReason", reason.message());
-        return new Response.Document(wrap(specific));
+        return document(new HostDocument.PreToolUse.Specific(EVENT_NAME, "deny", reason.message(), null));
     }
 
     @Override
     public Response allow(Intake.Attest call, Verdict.Stamped stamped) {
-        ObjectNode specific = specific("allow");
-        specific.set("updatedInput", stamped.arguments());
-        return new Response.Document(wrap(specific));
+        return document(new HostDocument.PreToolUse.Specific(EVENT_NAME, "allow", null, stamped.arguments()));
     }
 
-    private ObjectNode specific(String decision) {
-        ObjectNode specific = codec.newObject();
-        specific.put("hookEventName", EVENT_NAME);
-        specific.put("permissionDecision", decision);
-        return specific;
-    }
-
-    private ObjectNode wrap(ObjectNode specific) {
-        ObjectNode root = codec.newObject();
-        root.set("hookSpecificOutput", specific);
-        return root;
+    private static Response document(HostDocument.PreToolUse.Specific specific) {
+        return new Response.Document(new HostDocument.PreToolUse(specific));
     }
 }

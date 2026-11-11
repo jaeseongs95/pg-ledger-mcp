@@ -1,22 +1,29 @@
 package org.pgledger.hook;
 
+import java.util.Optional;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonParser;
 import tools.jackson.core.StreamReadConstraints;
 import tools.jackson.core.StreamWriteConstraints;
 import tools.jackson.core.json.JsonFactory;
+import tools.jackson.databind.DatabindException;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.cfg.JsonNodeFeature;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.node.ObjectNode;
 
 /**
- * Reads and writes the host JSON with Jackson, set up so that the round trip keeps what the host sent.
+ * Reads and writes the host JSON with Jackson data binding: the host events and the answers are records.
  *
- * <p>The tool arguments are arbitrary JSON chosen by the model, so they are handled as a Jackson tree; no
- * decision logic is written against untyped maps. Integers beyond long range stay big integers, decimals are
+ * <p>Only the tool arguments are arbitrary JSON chosen by the model. They are the one part that stays a Jackson
+ * tree, so the round trip keeps what the host sent: integers beyond long range stay big integers, decimals are
  * kept as {@code BigDecimal} with their trailing zeros (never a double), strings and unknown fields are untouched.
  * A number is written back by value: {@code 1e999} becomes {@code 1E+999} and {@code -0} becomes {@code 0}.
+ *
+ * <p>The one place that builds a {@code JsonMapper}: the hook jar runs as a plain {@code java -jar} process without a
+ * Spring context (HK-018), so there is no Boot {@code JsonMapper} bean to inject, and the settings above differ from
+ * the Boot defaults.
  */
 public final class JsonCodec {
 
@@ -41,22 +48,47 @@ public final class JsonCodec {
                 .disable(JsonNodeFeature.STRIP_TRAILING_BIGDECIMAL_ZEROES)
                 // text after the first JSON value is an error, as with JSON.parse
                 .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                // the host events carry far more than the hook reads
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                // the answer {} is a record without components
+                .disable(SerializationFeature.FAIL_ON_EMPTY_BEANS)
                 .build();
         return new JsonCodec(mapper);
     }
 
     /**
-     * Parses UTF-8 (or UTF-16/32 with a byte order mark) JSON bytes into a tree.
+     * Binds one host event. A JSON document that is valid but not an object of the host (null, an array, a number,
+     * a string) is not an event: the result is {@code null}.
      *
      * @throws JacksonException if the bytes are not exactly one valid JSON document
      */
+    <T> T readEvent(byte[] json, Class<T> type) throws JacksonException {
+        try {
+            return mapper.readValue(json, type);
+        } catch (DatabindException notThisShape) {
+            if (isOneJsonDocument(json)) {
+                return null;
+            }
+            throw notThisShape;
+        }
+    }
+
+    /** Binds a JSON object that is already a tree (the arguments of a wrapped call); empty if it is not an object. */
+    <T> Optional<T> bindObject(JsonNode node, Class<T> type) {
+        if (node == null || !node.isObject()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(mapper.treeToValue(node, type));
+    }
+
+    /** Parses UTF-8 (or UTF-16/32 with a byte order mark) JSON text of the tool arguments into a tree. */
     JsonNode read(byte[] json) throws JacksonException {
         return mapper.readTree(json);
     }
 
     /** UTF-8 bytes of the compact JSON text, independent of the JVM default charset. */
-    byte[] write(JsonNode node) throws JacksonException {
-        return mapper.writeValueAsBytes(node);
+    byte[] write(Object value) throws JacksonException {
+        return mapper.writeValueAsBytes(value);
     }
 
     /** The compact JSON text, for a host that carries JSON inside a JSON string. */
@@ -64,7 +96,14 @@ public final class JsonCodec {
         return mapper.writeValueAsString(node);
     }
 
-    ObjectNode newObject() {
-        return mapper.createObjectNode();
+    /** Whether the bytes are exactly one valid JSON value or nothing, checked token by token without a tree. */
+    private boolean isOneJsonDocument(byte[] json) {
+        try (JsonParser parser = mapper.createParser(json)) {
+            if (parser.nextToken() == null) {
+                return true;
+            }
+            parser.skipChildren();
+            return parser.nextToken() == null;
+        }
     }
 }

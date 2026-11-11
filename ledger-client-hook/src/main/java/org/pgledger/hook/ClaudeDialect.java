@@ -1,8 +1,7 @@
 package org.pgledger.hook;
 
 import java.util.regex.Pattern;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
 
 /**
  * Claude Code PreToolUse (https://code.claude.com/docs/en/hooks#pretooluse). The host conversation id is
@@ -20,8 +19,8 @@ record ClaudeDialect(JsonCodec codec) implements HostDialect {
     }
 
     @Override
-    public Intake read(JsonNode event) {
-        return Intake.ofFlatEvent(event, LEDGER_WRITE_TOOL);
+    public Intake read(byte[] stdin) throws JacksonException {
+        return Intake.ofFlatEvent(codec.readEvent(stdin, FlatEvent.class), LEDGER_WRITE_TOOL);
     }
 
     @Override
@@ -31,33 +30,20 @@ record ClaudeDialect(JsonCodec codec) implements HostDialect {
 
     @Override
     public Response notLedgerCall() {
-        return new Response.Document(codec.newObject());
+        return new Response.Document(new HostDocument.Empty());
     }
 
     @Override
     public Response deny(Refusal reason) {
-        ObjectNode specific = specific();
-        specific.put("permissionDecision", "deny");
-        specific.put("permissionDecisionReason", reason.message());
-        return new Response.Document(wrap(specific));
+        return document(new HostDocument.PreToolUse.Specific(EVENT_NAME, "deny", reason.message(), null));
     }
 
     @Override
     public Response allow(Intake.Attest call, Verdict.Stamped stamped) {
-        ObjectNode specific = specific();
-        specific.set("updatedInput", stamped.arguments());
-        return new Response.Document(wrap(specific));
+        return document(new HostDocument.PreToolUse.Specific(EVENT_NAME, null, null, stamped.arguments()));
     }
 
-    private ObjectNode specific() {
-        ObjectNode specific = codec.newObject();
-        specific.put("hookEventName", EVENT_NAME);
-        return specific;
-    }
-
-    private ObjectNode wrap(ObjectNode specific) {
-        ObjectNode root = codec.newObject();
-        root.set("hookSpecificOutput", specific);
-        return root;
+    private static Response document(HostDocument.PreToolUse.Specific specific) {
+        return new Response.Document(new HostDocument.PreToolUse(specific));
     }
 }

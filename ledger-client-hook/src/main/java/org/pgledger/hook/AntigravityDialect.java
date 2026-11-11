@@ -1,10 +1,10 @@
 package org.pgledger.hook;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Antigravity PreToolUse. The host conversation id is {@code conversationId}. MCP calls arrive either directly
@@ -28,36 +28,37 @@ record AntigravityDialect(JsonCodec codec) implements HostDialect {
     }
 
     @Override
-    public Intake read(JsonNode event) {
-        JsonNode call = event.path("toolCall");
-        JsonNode name = call.path("name");
-        JsonNode args = call.path("args");
-        JsonNode hostId = event.path("conversationId");
-        if (!name.isString()) {
+    public Intake read(byte[] stdin) throws JacksonException {
+        AntigravityEvent event = codec.readEvent(stdin, AntigravityEvent.class);
+        if (event == null || event.toolCall() == null || event.toolCall().name() == null) {
             return new Intake.Skip();
         }
-        String toolName = name.stringValue();
+        String toolName = event.toolCall().name();
+        JsonNode args = event.toolCall().args();
         if (WRAPPER_TOOL.equals(toolName)) {
-            return readWrapped(args, hostId);
+            return readWrapped(args, event.conversationId());
         }
         if (toolName.startsWith(DIRECT_PREFIX) && LEDGER_WRITE_TOOL.matcher(toolName).find()) {
-            return new Intake.Attest(args, hostId, Intake.ArgumentForm.DIRECT);
+            return new Intake.Attest(args, event.conversationId(), Intake.ArgumentForm.DIRECT);
         }
         return new Intake.Skip();
     }
 
-    private Intake readWrapped(JsonNode envelope, JsonNode hostId) {
-        JsonNode server = envelope.path("ServerName");
-        JsonNode tool = envelope.path("ToolName");
-        if (!server.isString() || server.stringValue().isEmpty() || !tool.isString()
-                || !LEDGER_WRITE_TOOL.matcher(tool.stringValue()).find()) {
+    private Intake readWrapped(JsonNode args, String hostId) {
+        Optional<WrapperCall> bound = codec.bindObject(args, WrapperCall.class);
+        if (bound.isEmpty()) {
             return new Intake.Skip();
         }
-        if (Intake.carriesReservedKey(envelope)) {
+        WrapperCall wrapper = bound.get();
+        if (wrapper.serverName() == null || wrapper.serverName().isEmpty() || wrapper.toolName() == null
+                || !LEDGER_WRITE_TOOL.matcher(wrapper.toolName()).find()) {
+            return new Intake.Skip();
+        }
+        if (wrapper.hostAttestation() != null) {
             return new Intake.Refuse(Refusal.RESERVED_FIELD);
         }
-        JsonNode arguments = envelope.path("Arguments");
-        if (!arguments.isString()) {
+        JsonNode arguments = wrapper.arguments();
+        if (arguments == null || !arguments.isString()) {
             return new Intake.Attest(arguments, hostId, Intake.ArgumentForm.EMBEDDED_OBJECT);
         }
         try {
@@ -80,23 +81,16 @@ record AntigravityDialect(JsonCodec codec) implements HostDialect {
 
     @Override
     public Response deny(Refusal reason) {
-        ObjectNode root = codec.newObject();
-        root.put("decision", "deny");
-        root.put("reason", reason.message());
-        return new Response.Document(root);
+        return new Response.Document(new HostDocument.Decision("deny", reason.message(), null));
     }
 
     @Override
     public Response allow(Intake.Attest call, Verdict.Stamped stamped) {
-        ObjectNode overwrite = codec.newObject();
-        switch (call.form()) {
-            case DIRECT -> overwrite.put(Intake.RESERVED_KEY, stamped.attestation());
-            case EMBEDDED_OBJECT -> overwrite.set("Arguments", stamped.arguments());
-            case EMBEDDED_TEXT -> overwrite.put("Arguments", codec.writeText(stamped.arguments()));
-        }
-        ObjectNode root = codec.newObject();
-        root.put("decision", "allow");
-        root.set("overwrite", overwrite);
-        return new Response.Document(root);
+        HostDocument.Overwrite overwrite = switch (call.form()) {
+            case DIRECT -> new HostDocument.Overwrite.Attestation(stamped.attestation());
+            case EMBEDDED_OBJECT -> new HostDocument.Overwrite.ObjectArguments(stamped.arguments());
+            case EMBEDDED_TEXT -> new HostDocument.Overwrite.TextArguments(codec.writeText(stamped.arguments()));
+        };
+        return new Response.Document(new HostDocument.Decision("allow", null, overwrite));
     }
 }
