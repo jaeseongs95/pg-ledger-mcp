@@ -32,6 +32,7 @@ import org.pgledger.database.repository.LinkRepository;
 import org.pgledger.database.repository.MergeChainRepository;
 import org.pgledger.database.repository.StatsRepository;
 import org.pgledger.database.support.DatabaseTest;
+import org.pgledger.database.support.Databases;
 import org.pgledger.database.support.Dbms;
 import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.support.LedgerTestContext;
@@ -72,7 +73,7 @@ class PortabilityAndTextTest implements DbmsAware {
 
     @Test
     @DisplayName("REPO-037: every hand-written statement of the repositories is understood by both databases")
-    void everyStatementPreparesOnTheOtherDatabaseToo() throws SQLException {
+    void everyStatementPreparesOnTheOtherDatabaseToo(Databases databases) throws SQLException {
         Seed seed = new Seed(ctx);
         Project project = seed.project();
         Defect defect = seed.defect(project, 1, "portable", LedgerTestContext.START);
@@ -105,7 +106,7 @@ class PortabilityAndTextTest implements DbmsAware {
         assertThat(second).isNotNull();
         List<String> statements = ctx.spy().statements().stream().distinct().toList();
         assertThat(statements).hasSizeGreaterThan(10);
-        try (LedgerTestContext otherDatabase = LedgerTestContext.create(other(dbms));
+        try (LedgerTestContext otherDatabase = LedgerTestContext.create(databases, other(dbms));
                 Connection c = otherDatabase.pool().getConnection()) {
             List<String> refused = statements.stream().map(sql -> syntaxErrorOf(c, sql)).filter(e -> e != null)
                     .toList();

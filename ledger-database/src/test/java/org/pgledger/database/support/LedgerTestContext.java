@@ -51,13 +51,13 @@ public final class LedgerTestContext implements AutoCloseable {
     }
 
     /** A context on a new database whose sessions run in UTC. */
-    public static LedgerTestContext create(Dbms dbms) {
-        return create(dbms, "UTC");
+    public static LedgerTestContext create(Databases databases, Dbms dbms) {
+        return create(databases, dbms, "UTC");
     }
 
     /** A context on a new database whose sessions run in {@code zone}. */
-    public static LedgerTestContext create(Dbms dbms, String zone) {
-        return new LedgerTestContext(dbms, dbms.newDataSource(zone, null), true);
+    public static LedgerTestContext create(Databases databases, Dbms dbms, String zone) {
+        return new LedgerTestContext(dbms, databases.newDataSource(dbms, zone, null), true);
     }
 
     /** A context on an already migrated database, reached through {@code pool} (for example a restricted account). */

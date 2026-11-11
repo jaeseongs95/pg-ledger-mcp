@@ -19,7 +19,9 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedClass;
@@ -41,7 +43,9 @@ import org.pgledger.database.repository.SessionGrantRepository;
 import org.pgledger.database.schema.SchemaMigrationException;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
+import org.pgledger.database.support.Databases;
 import org.pgledger.database.support.Dbms;
+import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Seed;
 import org.pgledger.domain.model.CommonCode;
@@ -77,6 +81,7 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 @ParameterizedClass
 @EnumSource(Dbms.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@ExtendWith(LedgerDatabaseExtension.class)
 class DmlAccountTest {
 
     private static final String PASSWORD = "pw-for-the-test";
@@ -90,6 +95,12 @@ class DmlAccountTest {
 
     private String account;
     private final Map<Dbms, Env> shared = new EnumMap<>(Dbms.class);
+    private Databases databases;
+
+    @BeforeEach
+    void setUp(Databases fresh) {
+        databases = fresh;
+    }
 
     private record Env(String url, HikariDataSource owner, HikariDataSource app) implements AutoCloseable {
         @Override
@@ -113,7 +124,7 @@ class DmlAccountTest {
 
     /** A new database, owned by the owner account, with a restricted account; the schema is applied when asked. */
     private Env environment(boolean migrate, boolean grant) throws SQLException, IOException {
-        String ownerUrl = dbms.newUrl();
+        String ownerUrl = databases.newUrl(dbms);
         // the connection settings of the URL (PostgreSQL user and password, H2 database options) are the owner's
         String appUrl = ownerUrl.substring(0, ownerUrl.indexOf(dbms == Dbms.POSTGRESQL ? '?' : ';'));
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);

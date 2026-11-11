@@ -17,6 +17,7 @@ import java.util.TimeZone;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -35,7 +36,9 @@ import org.pgledger.database.repository.TaskRepository;
 import org.pgledger.database.schema.LedgerSchemaGuardConfiguration;
 import org.pgledger.database.schema.SchemaMigrationException;
 import org.pgledger.database.schema.UtcSessionCheck;
+import org.pgledger.database.support.Databases;
 import org.pgledger.database.support.Dbms;
+import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.RecordingDataSource.Binding;
 import org.pgledger.database.support.Seed;
@@ -65,6 +68,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 /** REPO-029, REPO-030, SVC-TZ-01, SVC-TZ-02, SCH-019: every time value is UTC whatever the zones around it say. */
 @ParameterizedClass
 @EnumSource(Dbms.class)
+@ExtendWith(LedgerDatabaseExtension.class)
 class TimeZoneTest {
 
     private static final Instant I = Instant.parse("2026-11-05T10:00:00.123456Z");
@@ -86,13 +90,10 @@ class TimeZoneTest {
         return LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
     }
 
-    private LocalDateTime rawWall(LedgerTestContext ctx, String sql) {
-        try (Connection c = ctx.pool().getConnection(); var s = c.createStatement(); ResultSet rs = s.executeQuery(sql)) {
-            assertThat(rs.next()).isTrue();
-            return rs.getObject(1, LocalDateTime.class);
-        } catch (SQLException e) {
-            throw new IllegalStateException(e);
-        }
+    /** The stored wall clock of a single value, read raw (no zone conversion); the values are bind parameters. */
+    private LocalDateTime rawWall(LedgerTestContext ctx, String sql, Object... values) {
+        return JdbcClient.create(ctx.pool()).sql(sql).params(values)
+                .query((rs, row) -> rs.getObject(1, LocalDateTime.class)).single();
     }
 
     /** What was read back for one stored instant: the instant the repository gives and the raw stored wall clock. */
@@ -101,18 +102,18 @@ class TimeZoneTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"Asia/Seoul", "America/New_York"})
-    void repo029_svcTz02_theStoredValueIsUtcAndReadsBackEqualInOtherJvmAndSessionZones(String zone) {
+    void repo029_svcTz02_theStoredValueIsUtcAndReadsBackEqualInOtherJvmAndSessionZones(String zone, Databases databases) {
         List<Instant> instants = List.of(I, Instant.parse("2026-03-08T07:30:00Z"),
                 Instant.parse("2026-11-01T06:30:00Z"));
-        try (LedgerTestContext ctx = LedgerTestContext.create(dbms, zone)) {
+        try (LedgerTestContext ctx = LedgerTestContext.create(databases, dbms, zone)) {
             List<Stored> stored = inJvmZone(zone, () -> {
                 Seed seed = new Seed(ctx);
                 Project project = seed.project();
                 return IntStream.range(0, instants.size()).mapToObj(i -> {
                     Defect defect = seed.defect(project, i + 1, "zone " + i, instants.get(i));
                     Defect read = ctx.bean(DefectRepository.class).findById(defect.id()).orElseThrow();
-                    return new Stored(read.createdAt(), rawWall(ctx, "SELECT created_at FROM defect WHERE id = '"
-                            + defect.id().value() + "'"));
+                    return new Stored(read.createdAt(), rawWall(ctx, "SELECT created_at FROM defect WHERE id = ?",
+                            defect.id().value()));
                 }).toList();
             });
             assertThat(stored).isEqualTo(instants.stream().map(i -> new Stored(i, wall(i))).toList());
@@ -121,15 +122,15 @@ class TimeZoneTest {
     }
 
     @Test
-    void svcTz01_aSessionThatIsNotUtcStopsTheApplicationAndUtcStartsIt() {
-        try (LedgerTestContext seoul = LedgerTestContext.create(dbms, "Asia/Seoul")) {
+    void svcTz01_aSessionThatIsNotUtcStopsTheApplicationAndUtcStartsIt(Databases databases) {
+        try (LedgerTestContext seoul = LedgerTestContext.create(databases, dbms, "Asia/Seoul")) {
             UtcSessionCheck check = new UtcSessionCheck(seoul.pool(), Clock.systemUTC(), null);
             assertThatThrownBy(check::verify).isInstanceOf(SchemaMigrationException.class)
                     .hasMessageContaining("database session time zone is not UTC").hasMessageNotContaining("jdbc:");
             assertThatThrownBy(() -> startWithGuard(seoul)).isInstanceOf(BeanCreationException.class)
                     .hasStackTraceContaining("database session time zone is not UTC");
         }
-        try (LedgerTestContext utc = LedgerTestContext.create(dbms, "UTC")) {
+        try (LedgerTestContext utc = LedgerTestContext.create(databases, dbms, "UTC")) {
             new UtcSessionCheck(utc.pool(), Clock.systemUTC(), null).verify();
             startWithGuard(utc).close();
         }
@@ -149,9 +150,9 @@ class TimeZoneTest {
     }
 
     @Test
-    void sch019_everyTimestampColumnIsWrittenThroughTheSingleUtcConversion() {
+    void sch019_everyTimestampColumnIsWrittenThroughTheSingleUtcConversion(Databases databases) {
         String zone = "Asia/Seoul";
-        try (LedgerTestContext ctx = LedgerTestContext.create(dbms, zone)) {
+        try (LedgerTestContext ctx = LedgerTestContext.create(databases, dbms, zone)) {
             inJvmZone(zone, () -> {
                 writeAllTimestampColumns(ctx);
                 return null;

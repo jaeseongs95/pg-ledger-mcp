@@ -22,6 +22,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedClass;
@@ -37,7 +38,9 @@ import org.pgledger.database.schema.SchemaMigrationException;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.schema.SchemaVerifier;
+import org.pgledger.database.support.Databases;
 import org.pgledger.database.support.Dbms;
+import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.database.support.Parallel;
 import org.pgledger.database.support.TestClock;
 import org.pgledger.domain.value.Sha256;
@@ -51,6 +54,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 /** SCH-001 .. SCH-011, SCH-015, SCH-020, SCH-021: the schema runner on H2 and PostgreSQL. */
 @ParameterizedClass
 @EnumSource(Dbms.class)
+@ExtendWith(LedgerDatabaseExtension.class)
 class SchemaMigratorTest {
 
     private static final Instant T0 = Instant.parse("2026-11-05T10:00:00Z");
@@ -71,12 +75,14 @@ class SchemaMigratorTest {
     Path temp;
 
     private HikariDataSource pool;
+    private Databases databases;
     private final TestClock clock = new TestClock(T0);
     private int directories;
 
     @BeforeEach
-    void setUp() {
-        pool = dbms.newDataSource();
+    void setUp(Databases fresh) {
+        databases = fresh;
+        pool = databases.newDataSource(dbms);
     }
 
     @AfterEach
@@ -337,7 +343,7 @@ class SchemaMigratorTest {
     @Test
     void sch010_aDatabaseThatWasNeverMigratedIsRefused() {
         Path two = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO));
-        try (HikariDataSource empty = dbms.newDataSource()) {
+        try (HikariDataSource empty = databases.newDataSource(dbms)) {
             assertThatThrownBy(() -> new SchemaVerifier(empty, new PathMatchingResourcePatternResolver(),
                     props(two, null)).verify()).hasMessageContaining("no schema history");
         }

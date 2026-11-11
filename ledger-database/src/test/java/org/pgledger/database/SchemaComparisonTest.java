@@ -11,13 +11,17 @@ import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
+import org.pgledger.database.support.Databases;
 import org.pgledger.database.support.Dbms;
+import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /** SCH-013: the same schema files give the same logical schema on every database that is tested. */
+@ExtendWith(LedgerDatabaseExtension.class)
 class SchemaComparisonTest {
 
     /** A key constraint with its columns in key order: {@code table.name(a, b) PRIMARY KEY}. */
@@ -34,8 +38,8 @@ class SchemaComparisonTest {
     private record KeyRow(String table, String name, String type, String column, int position) {
     }
 
-    private static LogicalSchema migratedSchema(Dbms dbms) {
-        try (HikariDataSource pool = dbms.newDataSource()) {
+    private static LogicalSchema migratedSchema(Databases databases, Dbms dbms) {
+        try (HikariDataSource pool = databases.newDataSource(dbms)) {
             new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(),
                     new SchemaProperties(null, dbms.longText(), true, null), Clock.systemUTC()).migrate();
             return read(pool);
@@ -73,9 +77,9 @@ class SchemaComparisonTest {
 
     @Test
     @DisplayName("SCH-013: PostgreSQL and H2 built from the same files have the same tables, columns, keys and nullability")
-    void bothDatabasesHaveTheSameLogicalSchema() {
-        LogicalSchema h2 = migratedSchema(Dbms.H2);
-        LogicalSchema postgres = migratedSchema(Dbms.POSTGRESQL);
+    void bothDatabasesHaveTheSameLogicalSchema(Databases databases) {
+        LogicalSchema h2 = migratedSchema(databases, Dbms.H2);
+        LogicalSchema postgres = migratedSchema(databases, Dbms.POSTGRESQL);
         assertThat(h2.tables()).hasSize(16).isEqualTo(postgres.tables());
         assertThat(h2.columns()).hasSizeGreaterThan(100).isEqualTo(postgres.columns());
         assertThat(h2.keys().stream().map(KeyConstraint::type).collect(Collectors.toSet()))
