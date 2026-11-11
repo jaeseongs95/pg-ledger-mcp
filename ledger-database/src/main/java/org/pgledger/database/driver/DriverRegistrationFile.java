@@ -1,4 +1,4 @@
-package org.pgledger.admin.setup;
+package org.pgledger.database.driver;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -8,7 +8,6 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
 import tools.jackson.dataformat.yaml.YAMLMapper;
@@ -36,6 +35,15 @@ public final class DriverRegistrationFile {
 
     /** What the file holds. */
     public record Entry(String jar, String className, String sha256, Instant registeredAt) {
+    }
+
+    /**
+     * The YAML mapper of the registration file (kebab-case keys, no line splitting). Spring Boot has no YAML mapper bean
+     * (its Jackson auto-configuration makes the JSON one), so every process that reads or writes the file makes this one.
+     */
+    public static YAMLMapper newMapper() {
+        return YAMLMapper.builder().propertyNamingStrategy(tools.jackson.databind.PropertyNamingStrategies.KEBAB_CASE)
+                .disable(tools.jackson.dataformat.yaml.YAMLWriteFeature.SPLIT_LINES).build();
     }
 
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DriverRegistrationFile.class);

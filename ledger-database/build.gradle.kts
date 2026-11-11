@@ -4,6 +4,8 @@ dependencies {
     api("org.springframework.boot:spring-boot-starter-data-jdbc")
     // Bean Validation for the @Validated settings records: a bad value stops the startup (version from the Boot BOM)
     api("org.springframework.boot:spring-boot-starter-validation")
+    // YAML reader and writer (Jackson 3, Boot BOM) of the driver registration file that the admin web and the CLI write.
+    api("tools.jackson.dataformat:jackson-dataformat-yaml")
 
     testImplementation(testFixtures(project(":ledger-domain")))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
