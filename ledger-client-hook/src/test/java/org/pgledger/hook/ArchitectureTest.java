@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import java.nio.file.Path;
+import java.util.Set;
 import org.pgledger.testing.ArchitectureRules;
 import org.pgledger.testing.SourceRules;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -58,6 +59,26 @@ class ArchitectureTest {
         ArchitectureRules.noOperatingSystemDetection().check(hook);
         assertThat(SourceRules.operatingSystemDetection(Path.of("src", "main", "java"), Path.of("src", "test", "java")))
                 .isEmpty();
+    }
+
+    @Test
+    @DisplayName("ARC-036 catch rules: no empty catch, no broad catch")
+    void arc036_catchRules() {
+        assertThat(CodingScan.catchProblems(Set.of(), null, Path.of("src", "main", "java"),
+                Path.of("src", "test", "java"))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ARC-037 string rules: literal first in equals, no == on strings, no string switch, no intern(), no new String( in main")
+    void arc037_stringRules() {
+        noClasses().should().callMethod(String.class, "intern")
+                .orShould().callConstructor(String.class, String.class)
+                .orShould().callConstructor(String.class, byte[].class)
+                .orShould().callConstructor(String.class, byte[].class, java.nio.charset.Charset.class)
+                .check(hook);
+        // Run.java turns captured process bytes into text for an assertion: no file or stream API applies to a byte[]
+        assertThat(CodingScan.stringProblems(Set.of("Run.java"), Path.of("src", "main", "java"),
+                Path.of("src", "test", "java"))).isEmpty();
     }
 
     @Test

@@ -2,6 +2,8 @@ package org.pgledger.hook;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -17,6 +19,7 @@ import tools.jackson.databind.JsonNode;
  */
 record AntigravityDialect(JsonCodec codec) implements HostDialect {
 
+    private static final Logger LOG = Logger.getLogger(AntigravityDialect.class.getName());
     private static final String WRAPPER_TOOL = "call_mcp_tool";
     private static final String DIRECT_PREFIX = "mcp:";
     /** The ledger tool name ends the host tool name after a start, ':', '/' or '_'. */
@@ -65,6 +68,7 @@ record AntigravityDialect(JsonCodec codec) implements HostDialect {
             return new Intake.Attest(codec.read(arguments.stringValue().getBytes(StandardCharsets.UTF_8)), hostId,
                     Intake.ArgumentForm.EMBEDDED_TEXT);
         } catch (JacksonException notJson) {
+            LOG.log(Level.FINE, "the Arguments text is not JSON", notJson);
             return new Intake.Refuse(Refusal.ARGUMENTS_NOT_JSON_OBJECT);
         }
     }
