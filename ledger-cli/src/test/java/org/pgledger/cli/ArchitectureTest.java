@@ -83,9 +83,11 @@ class ArchitectureTest {
     }
 
     @Test
-    @DisplayName("ARC-036 catch rules: no empty catch, no broad catch outside the test entry that plays the CLI boundary")
+    @DisplayName("ARC-036 catch rules: no empty catch, no broad catch outside the test entry that plays the CLI boundary and the MCP client command")
     void arc036_catchRules() {
-        assertThat(CodingScan.catchProblems(Set.of("CliExtension.java"), null, Path.of("src", "main", "java"),
+        // McpCheckCommand: the MCP client reports every transport failure as an unchecked exception of a type that depends on the layer
+        // (SDK, Reactor, JDK); it sorts the cause chain and rethrows each case as a FailureException (see its Javadoc).
+        assertThat(CodingScan.catchProblems(Set.of("CliExtension.java", "McpCheckCommand.java"), null, Path.of("src", "main", "java"),
                 Path.of("src", "test", "java"))).isEmpty();
     }
 

@@ -24,13 +24,14 @@ import org.pgledger.cli.Command;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
+import org.pgledger.domain.rule.ToolContract;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * {@code mcp-check [--url=<url>]}: connects to a running ledger MCP server with the MCP Java SDK client (the SDK the server
- * runs on) over Streamable HTTP, lists its tools and checks that every tool of {@link ExpectedTools} is there; it prints
+ * runs on) over Streamable HTTP, lists its tools and checks that every tool of {@link ToolContract} is there; it prints
  * how many tools the server lists. The URL defaults to the local server ({@value #DEFAULT_URL}); it is
  * {@code scheme://host[:port][/path]} without user information, query or fragment, so that nothing secret can be part of
  * it. The bearer token is the setting {@code ledger.mcp.token} ({@link McpCheckProperties}: the secret store, or
@@ -90,12 +91,12 @@ public class McpCheckCommand implements Command {
         }
         String shown = uri.getScheme() + "://" + uri.getRawAuthority() + path(uri);
         List<String> listed = listTools(uri, token, shown);
-        List<String> missing = ExpectedTools.all().stream().filter(name -> !listed.contains(name)).toList();
+        List<String> missing = ToolContract.all().stream().filter(name -> !listed.contains(name)).toList();
         if (!missing.isEmpty()) {
             throw new FailureException(ErrorCode.MCP_TOOL_MISSING, shown, String.join(", ", missing));
         }
         output.info(messages.get("mcp-check.ok", shown, String.valueOf(listed.size()),
-                String.valueOf(ExpectedTools.all().size())));
+                String.valueOf(ToolContract.all().size())));
     }
 
     /** The URL as given: http or https, a host, and nothing that could carry a secret. */

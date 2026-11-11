@@ -26,7 +26,9 @@ class MessagesTest {
     @DisplayName("CLI-001 every error code, command and fixed text has a message in the default and the Korean bundle")
     void everyKeyIsDefinedInBothBundles() throws IOException {
         List<String> required = new ArrayList<>(List.of("usage.header", "secret-set.prompt", "secret-set.stored",
-                "key-register.registered", "key-register.replaced", "key-register.server", "key-revoke.revoked"));
+                "key-register.registered", "key-register.replaced", "key-register.server", "key-revoke.revoked",
+                "migrate.applied", "migrate.current", "driver-register.registered", "project-add.added", "code-set.set",
+                "codes.line", "grant.issued", "grant.never", "revoke.revoked", "grants.none", "grants.line", "mcp-check.ok"));
         for (ErrorCode code : ErrorCode.values()) {
             required.add(code.messageKey());
         }

@@ -23,7 +23,7 @@ Agents read and write through MCP tools. They never get a database login of thei
   the request id, the arguments and the time (default window 5 minutes) before it looks at any grant. A bare `<vendor>:<session-id>` is refused.
   Existing project/scope grants still apply. The ledger owner is `user:owner`. Legacy model `author_id` is ignored by the server.
   Limit: another process of the same OS user can read the key file; separate OS accounts are needed for isolation inside one user.
-- **Writes need a live grant.** The owner grants an author a scope on a project with `bin/ledger-admin grant`.
+- **Writes need a live grant.** The owner grants an author a scope on a project with `ledger-cli grant <author> <project> <scope>... [--note=<text>] [--expires=<ISO-8601 with Z or an offset>]` (or on the grants page of the admin web); the author needs a registered session key first (`ledger-cli key-register`).
   The scopes are `defect`, `task`, `fix` and `verify`. Writes without a matching grant are refused.
 - **Verification is separate.** `VERIFIED`, `MET` and `NOT_MET` can only be set through the reviewer login.
   A fix must be verified by a session other than the one that recorded it.
@@ -151,11 +151,17 @@ By default, `--domain jaeseong.dev` maps `ledger-mcp.jaeseong.dev` and `ledger-a
 ```sh
 sudo -u postgres createdb ledger
 sudo deploy/install.sh --db ledger --mcp-port 8765 --admin-port 8865 --allowed-hosts ledger-mcp.example.com --admin-allowed-hosts ledger-admin.example.com
-sudo bin/ledger-admin project-add web WEB "Web shop"
-sudo bin/ledger-admin category-add BUG "결함" "명세와 다른 동작" --name-en Bug --description-en "Behaviour differs from the specification"
-sudo bin/ledger-admin code-set RELATION_KIND duplicates "중복" "a가 b를 반복" --name-en Duplicates --description-en "a repeats b"
-sudo bin/ledger-admin grant claude:1f2e3d4c web defect fix --note "fix sprint"
-sudo bin/ledger-admin grant codex:9a8b7c6d web verify
+sudo -u ledger ledger-cli driver-register --jar=/etc/pg-ledger-mcp/drivers/<jdbc-driver>.jar --class=<driver-class>
+sudo -u ledger ledger-cli migrate
+sudo -u ledger ledger-cli project-add web WEB "Web shop"
+sudo -u ledger ledger-cli code-set DEFECT_CATEGORY BUG "결함" "명세와 다른 동작" --name-en=Bug --description-en="Behaviour differs from the specification"
+sudo -u ledger ledger-cli code-set RELATION_KIND duplicates "중복" "a가 b를 반복" --name-en=Duplicates --description-en="a repeats b" --sort=10
+sudo -u ledger ledger-cli key-register claude:1f2e3d4c <public-key-or-block> <fingerprint>
+sudo -u ledger ledger-cli grant claude:1f2e3d4c web defect fix --note="fix sprint" --expires=2026-12-31T00:00:00Z
+sudo -u ledger ledger-cli revoke claude:1f2e3d4c web fix
+sudo -u ledger ledger-cli codes DEFECT_CATEGORY
+sudo -u ledger ledger-cli grants
+sudo -u ledger ledger-cli mcp-check --url=http://127.0.0.1:8765/mcp
 ```
 
 `install.sh` does the following:

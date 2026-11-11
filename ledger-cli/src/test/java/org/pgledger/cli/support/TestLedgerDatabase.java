@@ -33,15 +33,25 @@ public final class TestLedgerDatabase implements AutoCloseable {
 
     /** A new in-memory database with the whole schema migrated. */
     public static TestLedgerDatabase migrated() {
+        TestLedgerDatabase database = empty();
+        new SchemaMigrator(database.dataSource, new PathMatchingResourcePatternResolver(),
+                new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, LONG_TEXT, true, null,
+                        Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)), Clock.systemUTC()).migrate();
+        return database;
+    }
+
+    /** The long text type of the schema files on H2: the setting {@code ledger.schema.long-text-type} of a CLI run that migrates. */
+    public static String longTextType() {
+        return LONG_TEXT;
+    }
+
+    /** A new in-memory database without any table (the schema is not migrated). */
+    public static TestLedgerDatabase empty() {
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=60000");
         config.setMaximumPoolSize(4);
         config.setConnectionInitSql("SET TIME ZONE 'UTC'");
-        HikariDataSource pool = new HikariDataSource(config);
-        new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(),
-                new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, LONG_TEXT, true, null,
-                        Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)), Clock.systemUTC()).migrate();
-        return new TestLedgerDatabase(pool);
+        return new TestLedgerDatabase(new HikariDataSource(config));
     }
 
     public DataSource dataSource() {
@@ -51,6 +61,11 @@ public final class TestLedgerDatabase implements AutoCloseable {
     /** The rows of an ANSI query (column names are case-insensitive keys). */
     public List<Map<String, Object>> rows(String sql, Object... arguments) {
         return jdbc.queryForList(sql, arguments);
+    }
+
+    /** Runs an ANSI DML statement (the test changes a row the product would never change) and returns the row count. */
+    public int update(String sql, Object... arguments) {
+        return jdbc.update(sql, arguments);
     }
 
     @Override

@@ -26,8 +26,13 @@ dependencies {
     testImplementation(testFixtures(project(":ledger-domain")))
     // The test database is the embedded H2 in its default mode (a driver on the test classpath only; the product ships none).
     testImplementation("com.h2database:h2")
-    // mcp-check is tested against the real MCP server started in the test (its classes and its runtime classpath; not a mock).
-    testImplementation(project(":ledger-mcp-server"))
+    // mcp-check is tested against an MCP server started in the test: the MCP Java SDK server over Streamable HTTP in an embedded Tomcat
+    // (a library only: no Spring web auto-configuration reaches the CLI context). Boot excludes tomcat-annotations-api and uses the
+    // Jakarta annotations API instead; so does this.
+    testImplementation("org.apache.tomcat.embed:tomcat-embed-core") {
+        exclude(group = "org.apache.tomcat", module = "tomcat-annotations-api")
+    }
+    testImplementation("jakarta.annotation:jakarta.annotation-api")
 }
 
 tasks.bootJar {

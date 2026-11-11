@@ -2,23 +2,24 @@ package org.pgledger.mcp.support;
 
 import java.util.List;
 import java.util.stream.Stream;
+import org.pgledger.domain.rule.ToolContract;
 
-/** The tools of the contract (catalogue sections 7 and 8): the names are part of the external interface. */
+/**
+ * The tools of the contract (catalogue sections 7 and 8): the names are part of the external interface. They are the list
+ * of {@link ToolContract}, which the CLI command {@code mcp-check} also requires; the catalogue tests compare this list with
+ * the tools of the real server, so the two cannot drift apart unnoticed.
+ */
 public final class ToolNames {
 
-    public static final List<String> WRITE = List.of("ledger_save", "ledger_transition", "ledger_record_fix",
-            "ledger_record_case", "ledger_link", "ledger_correct", "ledger_batch", "ledger_review",
-            "ledger_review_correct", "ledger_whoami");
+    public static final List<String> WRITE = ToolContract.WRITE;
 
-    public static final List<String> READ = List.of("ledger_get", "ledger_defect", "ledger_task", "ledger_history",
-            "ledger_search", "ledger_defects", "ledger_tasks", "ledger_conditions", "ledger_attention",
-            "ledger_stats", "ledger_projects", "ledger_codes");
+    public static final List<String> READ = ToolContract.READ;
 
     private ToolNames() {
     }
 
     public static List<String> all() {
-        return Stream.concat(WRITE.stream(), READ.stream()).toList();
+        return ToolContract.all();
     }
 
     public static Stream<String> write() {
