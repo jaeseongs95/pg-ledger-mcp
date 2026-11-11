@@ -16,7 +16,6 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.database.repository.Counter;
@@ -32,9 +31,6 @@ import org.pgledger.database.repository.LinkRepository;
 import org.pgledger.database.repository.MergeChainRepository;
 import org.pgledger.database.repository.StatsRepository;
 import org.pgledger.database.support.DatabaseTest;
-import org.pgledger.database.support.Databases;
-import org.pgledger.database.support.Dbms;
-import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Seed;
 import org.pgledger.domain.model.Defect;
@@ -48,80 +44,18 @@ import org.pgledger.domain.value.MaxRows;
 import org.pgledger.domain.value.Patch;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/** REPO-031, REPO-032, REPO-033 and REPO-037. */
+/**
+ * REPO-031, REPO-032 and REPO-033. REPO-037 (the statements are understood by a second DBMS) needs a second
+ * database and moved to the test server stage with the decision of 2026-11-11 (H2 only), see TEST_CASES.md.
+ */
 @DatabaseTest
-class PortabilityAndTextTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
+class PortabilityAndTextTest {
 
     private LedgerTestContext ctx;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
 
     @BeforeEach
     void setUp(LedgerTestContext context) {
         ctx = context;
-    }
-
-    private static Dbms other(Dbms dbms) {
-        return dbms == Dbms.H2 ? Dbms.POSTGRESQL : Dbms.H2;
-    }
-
-    @Test
-    @DisplayName("REPO-037: every hand-written statement of the repositories is understood by both databases")
-    void everyStatementPreparesOnTheOtherDatabaseToo(Databases databases) throws SQLException {
-        Seed seed = new Seed(ctx);
-        Project project = seed.project();
-        Defect defect = seed.defect(project, 1, "portable", LedgerTestContext.START);
-        Defect second = seed.defect(project, 2, "portable two", LedgerTestContext.START);
-        var task = seed.task(project, 1, "portable task");
-        IdAllocator ids = ctx.bean(IdAllocator.class);
-        ctx.spy().clear();
-        ctx.tx(() -> {
-            ids.nextDefectNo(project.code());
-            ids.nextTaskNo(project.code());
-            ids.raiseDefectNo(project.code(), 5);
-            ids.next(Counter.HISTORY);
-            return null;
-        });
-        ctx.tx(() -> ctx.bean(LinkRepository.class).add(new DefectTaskLink(defect.id(), task.id(), Seed.ALICE)));
-        ctx.tx(() -> ctx.bean(LinkRepository.class).remove(defect.id(), task.id()));
-        ctx.tx(() -> ctx.bean(GrantStateRepository.class).markUsed(Seed.ALICE, project.id(), Scope.DEFECT,
-                LedgerTestContext.START));
-        ctx.tx(() -> ctx.bean(GrantStateRepository.class).revokeLive(Seed.ALICE, project.id(), Scope.DEFECT,
-                LedgerTestContext.START));
-        DefectQueryRepository queries = ctx.bean(DefectQueryRepository.class);
-        queries.page(project.id(), new Filter(null, null, null, LedgerTestContext.START, LedgerTestContext.START),
-                MaxRows.DEFAULT, Order.OLDEST_FIRST, new DefectQueryRepository.Position(LedgerTestContext.START,
-                        defect.id()));
-        queries.search(project.id(), List.of("a", "b"), KeywordMatch.ALL, MaxRows.DEFAULT);
-        ctx.bean(StatsRepository.class).defectsByStatus(project.id());
-        ctx.bean(StatsRepository.class).defectsBySeverity(project.id());
-        ctx.bean(StatsRepository.class).attention(project.id());
-        ctx.bean(MergeChainRepository.class).mergedInto(defect.id());
-        assertThat(second).isNotNull();
-        List<String> statements = ctx.spy().statements().stream().distinct().toList();
-        assertThat(statements).hasSizeGreaterThan(10);
-        try (LedgerTestContext otherDatabase = LedgerTestContext.create(databases, other(dbms));
-                Connection c = otherDatabase.pool().getConnection()) {
-            List<String> refused = statements.stream().map(sql -> syntaxErrorOf(c, sql)).filter(e -> e != null)
-                    .toList();
-            assertThat(refused).as("statements the other database does not understand").isEmpty();
-        }
-    }
-
-    /** The SQLState of a syntax or feature error (class 42) for a statement, or {@code null} when it is understood. */
-    private static String syntaxErrorOf(Connection connection, String sql) {
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.getParameterMetaData();
-            return null;
-        } catch (SQLException e) {
-            return e.getSQLState() != null && e.getSQLState().startsWith("42") ? sql + " -> " + e.getSQLState() : null;
-        }
     }
 
     /** A defect text column: its length and how a defect with that long text is made from a project id. */

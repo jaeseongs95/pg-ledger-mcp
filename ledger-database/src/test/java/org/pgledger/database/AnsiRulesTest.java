@@ -43,6 +43,13 @@ class AnsiRulesTest {
     /** SQL-standard words that PostgreSQL and H2 accept as column names and that the catalogue fixes (SCH-018). */
     private static final Set<String> ACCEPTED = Set.of("at", "scope");
     private static final Pattern IDENTIFIER = Pattern.compile("[a-z][a-z0-9_]*");
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+    private static final Pattern ADJOINING_LITERALS = Pattern.compile("\"\\s*\\+\\s*\"");
+    private static final Pattern PLAIN_COLUMN_TYPE = Pattern.compile(
+            "VARCHAR\\(\\d+\\)|CLOB|INTEGER|BIGINT|TIMESTAMP|DECIMAL(\\(\\d+,\\d+\\))?");
+    private static final Pattern MIGRATION_FILE_NAME = Pattern.compile("V[1-9][0-9]*__[a-z0-9_]+\\.sql");
+    private static final Pattern FUNCTION_CALL = Pattern.compile(
+            "(?i)\\b(?!AND\\b|OR\\b|NOT\\b|IN\\b|CHECK\\b)\\w+\\s*\\(");
     private static final Pattern SQL_LITERAL = Pattern.compile("\"((?:[^\"\\\\\\n]|\\\\.)*)\"");
 
     private static String read(Path file) {
@@ -68,7 +75,7 @@ class AnsiRulesTest {
 
     /** All string literals of a Java source file, adjacent literals joined (the way the SQL text is built). */
     private static SqlText javaLiterals(Path file) {
-        String merged = Pattern.compile("\"\\s*\\+\\s*\"").matcher(read(file)).replaceAll("");
+        String merged = ADJOINING_LITERALS.matcher(read(file)).replaceAll("");
         String all = SQL_LITERAL.matcher(merged).results().map(m -> m.group(1).replace("\\\\", "\\")
                 .replace("\\\"", "\"")).collect(java.util.stream.Collectors.joining("\n"));
         return new SqlText(file.getFileName().toString(), all);
@@ -113,10 +120,10 @@ class AnsiRulesTest {
     void onlyWhitelistedStatements(SqlText sql) {
         assertThat(sql.findings(Group.DDL_OBJECT, Group.SESSION_STATEMENT)).as(sql.name()).isEmpty();
         assertThat(Stream.of(sql.stripped().split(";")).map(String::strip).filter(s -> !s.isEmpty())
-                .map(s -> s.split("\\s+")[0].toUpperCase(Locale.ROOT)).collect(java.util.stream.Collectors.toSet()))
+                .map(s -> WHITESPACE.split(s)[0].toUpperCase(Locale.ROOT)).collect(java.util.stream.Collectors.toSet()))
                 .isSubsetOf("CREATE", "INSERT", "GRANT");
         assertThat(Stream.of(sql.stripped().split(";")).map(String::strip).filter(s -> s.toUpperCase(Locale.ROOT)
-                .startsWith("CREATE")).map(s -> s.split("\\s+")[1].toUpperCase(Locale.ROOT)).toList())
+                .startsWith("CREATE")).map(s -> WHITESPACE.split(s)[1].toUpperCase(Locale.ROOT)).toList())
                 .allMatch(kind -> kind.equals("TABLE") || kind.equals("INDEX") || kind.equals("UNIQUE"));
     }
 
@@ -151,8 +158,7 @@ class AnsiRulesTest {
     @DisplayName("ANSI-006: only VARCHAR, CLOB, INTEGER, BIGINT, TIMESTAMP and DECIMAL columns")
     void columnTypes(SqlText sql) {
         assertThat(DdlModel.parse(sql.stripped()).tables().stream().flatMap(t -> t.columns().stream())
-                .map(DdlModel.Column::type)).allMatch(type -> type.matches("VARCHAR\\(\\d+\\)|CLOB|INTEGER|BIGINT|"
-                        + "TIMESTAMP|DECIMAL(\\(\\d+,\\d+\\))?"));
+                .map(DdlModel.Column::type)).allMatch(type -> PLAIN_COLUMN_TYPE.matcher(type).matches());
     }
 
     @ParameterizedTest
@@ -173,17 +179,16 @@ class AnsiRulesTest {
     @MethodSource("schemaFiles")
     @DisplayName("ANSI-008 / REPO-004: CHECK clauses use only lists, comparisons and NULL tests")
     void checks(SqlText sql) {
-        Pattern call = Pattern.compile("(?i)\\b(?!AND\\b|OR\\b|NOT\\b|IN\\b|CHECK\\b)\\w+\\s*\\(");
         assertThat(DdlModel.parse(sql.stripped()).tables().stream().flatMap(t -> t.constraints().stream())
                 .filter(c -> c.kind().equals("CHECK")).map(DdlModel.Constraint::body))
-                .noneMatch(body -> call.matcher(body).find() || body.contains("~"));
+                .noneMatch(body -> FUNCTION_CALL.matcher(body).find() || body.contains("~"));
     }
 
     @Test
     @DisplayName("ANSI-013: one set of files, no per-DBMS variant and no placeholder but the long text type")
     void oneTextForEveryDbms() {
         assertThat(files(SCHEMA, ".*").stream().map(p -> p.getFileName().toString()))
-                .allMatch(name -> name.matches("V[1-9][0-9]*__[a-z0-9_]+\\.sql"));
+                .allMatch(name -> MIGRATION_FILE_NAME.matcher(name).matches());
         assertThat(schemaFiles().map(s -> s.raw().replace("${longtext}", "")))
                 .noneMatch(text -> text.contains("${") || text.toLowerCase(Locale.ROOT).contains("dbms:"));
     }
@@ -316,8 +321,11 @@ class AnsiRulesTest {
         }
     }
 
-    private static long count(String regex, String text) {
-        return Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(text).results().count();
+    private static final Pattern LIKE_WORD = Pattern.compile("\\bLIKE\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ESCAPE_WORD = Pattern.compile("\\bESCAPE\\b", Pattern.CASE_INSENSITIVE);
+
+    private static long count(Pattern pattern, String text) {
+        return pattern.matcher(text).results().count();
     }
 
     static Stream<Candidate> candidates() {
@@ -328,7 +336,7 @@ class AnsiRulesTest {
                 Candidate.pattern("database-side time", "\\b(CURRENT_TIMESTAMP|SYSDATE|GETDATE)\\b",
                         "SELECT CURRENT_TIMESTAMP FROM t"),
                 Candidate.pattern("LENGTH()", "\\bLENGTH\\s*\\(", "SELECT LENGTH(a) FROM t"),
-                new Candidate("LIKE without ESCAPE", text -> count("\\bLIKE\\b", text) > count("\\bESCAPE\\b", text),
+                new Candidate("LIKE without ESCAPE", text -> count(LIKE_WORD, text) > count(ESCAPE_WORD, text),
                         "SELECT a FROM t WHERE a LIKE 'x%'"));
     }
 

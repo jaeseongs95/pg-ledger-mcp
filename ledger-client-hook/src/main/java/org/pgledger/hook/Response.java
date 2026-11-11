@@ -1,7 +1,5 @@
 package org.pgledger.hook;
 
-import tools.jackson.databind.JsonNode;
-
 /** What the hook process reports back to the host. */
 sealed interface Response {
 
@@ -9,7 +7,7 @@ sealed interface Response {
     record Silent() implements Response {}
 
     /** One JSON document on stdout, exit 0. */
-    record Document(JsonNode body) implements Response {}
+    record Document(HostDocument body) implements Response {}
 
     /** A message on stderr and exit 2 (for Claude Code: the call is blocked). */
     record Failure(String message) implements Response {}

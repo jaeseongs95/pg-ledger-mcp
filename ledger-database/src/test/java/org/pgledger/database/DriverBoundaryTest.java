@@ -32,7 +32,6 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.database.driver.DriverDataSources;
 import org.pgledger.database.driver.DriverLoader;
@@ -48,7 +47,6 @@ import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.schema.SchemaVerifier;
 import org.pgledger.database.support.Databases;
-import org.pgledger.database.support.Dbms;
 import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.domain.error.ErrorCode;
 import org.pgledger.domain.error.InfrastructureCode;
@@ -99,10 +97,6 @@ class DriverBoundaryTest {
 
     private static Path h2Jar() {
         return locationOf(org.h2.Driver.class);
-    }
-
-    private static Path postgresJar() {
-        return locationOf(org.postgresql.Driver.class);
     }
 
     private static String sha(Path file) {
@@ -184,33 +178,19 @@ class DriverBoundaryTest {
         assertThat(thrown.args().getFirst()).doesNotContain("top-secret").contains("***");
     }
 
-    private record Target(Dbms dbms, Path jar, String className) {
-        @Override
-        public String toString() {
-            return dbms.name();
-        }
-    }
-
-    static Stream<Target> targets() {
-        return Stream.of(new Target(Dbms.H2, h2Jar(), "org.h2.Driver"),
-                new Target(Dbms.POSTGRESQL, postgresJar(), "org.postgresql.Driver"));
-    }
-
     private static Set<String> registeredDrivers() {
         return Collections.list(DriverManager.getDrivers()).stream().map(d -> d.getClass().getName())
                 .collect(Collectors.toSet());
     }
 
-    @ParameterizedTest
-    @MethodSource("targets")
-    void drv006_007_011_theChainIsClassLoaderDriverSimpleDataSourceHikariAndTheDriverManagerIsNotUsed(Target target,
-            Databases databases)
-            throws SQLException {
-        String url = databases.newUrl(target.dbms());
+    @Test
+    void drv006_007_011_theChainIsClassLoaderDriverSimpleDataSourceHikariAndTheDriverManagerIsNotUsed(
+            Databases databases) throws SQLException {
+        String url = databases.newUrl();
+        Path jar = h2Jar();
         Set<String> before = registeredDrivers();
-        DriverRegistration registration = DriverLoader.describe(target.jar().toString(), target.className(), url, NOW);
-        assertThat(registration).isEqualTo(new DriverRegistration(target.jar().toString(), target.className(),
-                sha(target.jar()), NOW));
+        DriverRegistration registration = DriverLoader.describe(jar.toString(), "org.h2.Driver", url, NOW);
+        assertThat(registration).isEqualTo(new DriverRegistration(jar.toString(), "org.h2.Driver", sha(jar), NOW));
         LedgerJdbcProperties properties = new LedgerJdbcProperties(url, null, null, 2, registration);
         try (RegisteredDriver registered = DriverLoader.load(registration);
                 HikariDataSource pool = DriverDataSources.create(registered, properties, null)) {
@@ -222,10 +202,10 @@ class DriverBoundaryTest {
                 assertThat(rs.next()).isTrue();
             }
             new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(null, target.dbms().longText(), true, null), java.time.Clock.systemUTC())
+                    new SchemaProperties(null, Databases.LONG_TEXT, true, null), java.time.Clock.systemUTC())
                     .migrate();
             new SchemaVerifier(pool, new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(null, target.dbms().longText(), true, null)).verify();
+                    new SchemaProperties(null, Databases.LONG_TEXT, true, null)).verify();
         }
         assertThat(registeredDrivers()).isEqualTo(before);
     }
@@ -294,7 +274,7 @@ class DriverBoundaryTest {
     @Test
     void drv019_closingReleasesTheJarSoItCanBeDeleted(Databases databases) throws IOException {
         Path copy = Files.copy(h2Jar(), temp.resolve("release.jar"));
-        String url = databases.newUrl(Dbms.H2);
+        String url = databases.newUrl();
         DriverRegistration registration = DriverLoader.describe(copy.toString(), "org.h2.Driver", url, NOW);
         try (RegisteredDriver registered = DriverLoader.load(registration);
                 HikariDataSource pool = DriverDataSources.create(registered,
@@ -317,9 +297,10 @@ class DriverBoundaryTest {
     }
 
     static Stream<RegistrationFile> registrationFiles() {
-        String jar = h2Jar().toString().replace('\\', '/');
+        String jar = h2Jar().toString();
         String sha = sha(h2Jar());
-        String head = "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n    driver:\n      jar: \"" + jar + "\"\n";
+        // A YAML single-quoted scalar keeps the path exactly as the file system writes it.
+        String head = "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n    driver:\n      jar: '" + jar + "'\n";
         return Stream.of(
                 new RegistrationFile("complete", head + "      class-name: org.h2.Driver\n      sha256: " + sha
                         + "\n      registered-at: 2026-11-05T10:00:00Z\n", null),

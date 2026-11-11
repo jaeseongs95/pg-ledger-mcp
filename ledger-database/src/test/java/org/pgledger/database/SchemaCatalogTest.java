@@ -15,14 +15,11 @@ import java.util.TreeSet;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.database.support.DatabaseTest;
-import org.pgledger.database.support.Dbms;
-import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Seed;
 import org.pgledger.domain.model.Condition;
@@ -35,7 +32,10 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /** REPO-001 .. REPO-003, REPO-005, SCH-012, SCH-016 .. SCH-018 and the catalog half of ANSI-004 / ANSI-014. */
 @DatabaseTest
-class SchemaCatalogTest implements DbmsAware {
+class SchemaCatalogTest {
+
+    private static final java.util.regex.Pattern TIME_DEFAULT =
+            java.util.regex.Pattern.compile("CURRENT_|LOCALTIME|NOW|SYSDATE");
 
     static final Set<String> TABLES = Set.of("project", "task", "defect", "defect_fix", "defect_case", "defect_task",
             "defect_relation", "release_condition", "condition_link", "session_grant", "history", "request_receipt",
@@ -48,16 +48,8 @@ class SchemaCatalogTest implements DbmsAware {
             "session_grant.revoked_at", "session_grant.last_used_at", "history.at", "request_receipt.created_at",
             "schema_history.applied_at");
 
-    @Parameter
-    Dbms dbms;
-
     private LedgerTestContext ctx;
     private JdbcClient jdbc;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
 
     @BeforeEach
     void setUp(LedgerTestContext context) {
@@ -236,6 +228,6 @@ class SchemaCatalogTest implements DbmsAware {
                 || c.type() == Types.TIME_WITH_TIMEZONE);
         // ANSI-014 (catalog): no column of any type has a time default
         assertThat(columns()).noneMatch(c -> c.defaultValue() != null
-                && c.defaultValue().toUpperCase(Locale.ROOT).matches(".*(CURRENT_|LOCALTIME|NOW|SYSDATE).*"));
+                && TIME_DEFAULT.matcher(c.defaultValue().toUpperCase(Locale.ROOT)).find());
     }
 }

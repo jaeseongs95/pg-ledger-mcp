@@ -11,6 +11,8 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: see gradle/libs.versions.toml
     testImplementation(libs.archunit)
+    // The shared architecture and source rules (ARC-033: no operating system detection) live in the domain test fixtures.
+    testImplementation(testFixtures(project(":ledger-domain")))
 }
 
 tasks.bootJar {

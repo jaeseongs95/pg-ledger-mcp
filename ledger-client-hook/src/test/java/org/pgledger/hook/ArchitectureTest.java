@@ -3,22 +3,22 @@ package org.pgledger.hook;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.tngtech.archunit.core.domain.JavaClasses;
+import java.nio.file.Path;
+import org.pgledger.testing.ArchitectureRules;
+import org.pgledger.testing.SourceRules;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /** HK-018 (code side): no network, file, environment, process, reflection or framework access in the hook classes. */
 class ArchitectureTest {
 
-    private static JavaClasses hook;
-
-    @BeforeAll
-    static void importClasses() {
-        hook = new ClassFileImporter().withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS).importPackages("org.pgledger.hook");
-    }
+    private static final JavaClasses hook = new ClassFileImporter()
+            .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS).importPackages("org.pgledger.hook");
 
     @Test
     @DisplayName("HK-018 the hook classes use no network, file system, process, reflection, JDBC, Spring or Lombok API")
@@ -50,6 +50,14 @@ class ArchitectureTest {
                 .orShould().callMethod(System.class, "getProperty", String.class, String.class)
                 .orShould().callMethod(System.class, "getProperties")
                 .check(hook);
+    }
+
+    @Test
+    @DisplayName("ARC-033 no operating system detection in main and test code")
+    void noOperatingSystemDetection() {
+        ArchitectureRules.noOperatingSystemDetection().check(hook);
+        assertThat(SourceRules.operatingSystemDetection(Path.of("src", "main", "java"), Path.of("src", "test", "java")))
+                .isEmpty();
     }
 
     @Test

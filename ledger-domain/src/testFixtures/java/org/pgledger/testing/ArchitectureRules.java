@@ -90,6 +90,17 @@ public final class ArchitectureRules {
                 .orShould().dependOnClassesThat().haveFullyQualifiedName("com.fasterxml.jackson.databind.JsonNode");
     }
 
+    /** ARC-033 (bytecode part): no decision by the path separator and no operating system switch of a test. */
+    public static ArchRule noOperatingSystemDetection() {
+        return noClasses().should().accessField(java.io.File.class, "separator")
+                .orShould().accessField(java.io.File.class, "separatorChar")
+                .orShould().accessField(java.io.File.class, "pathSeparator")
+                .orShould().accessField(java.io.File.class, "pathSeparatorChar")
+                .orShould().dependOnClassesThat().haveFullyQualifiedName("org.junit.jupiter.api.condition.OS")
+                .orShould().dependOnClassesThat().haveFullyQualifiedName("org.junit.jupiter.api.condition.EnabledOnOs")
+                .orShould().dependOnClassesThat().haveFullyQualifiedName("org.junit.jupiter.api.condition.DisabledOnOs");
+    }
+
     /** ARC-018. */
     public static ArchRule noThreadLocalAndNoMutableStatics() {
         return noClasses().should().dependOnClassesThat().haveFullyQualifiedName("java.lang.ThreadLocal");

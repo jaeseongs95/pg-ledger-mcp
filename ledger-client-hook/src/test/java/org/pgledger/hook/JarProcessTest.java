@@ -92,7 +92,7 @@ class JarProcessTest {
         assertThat(timed.run().document()).isEqualTo(codex.allowed(KOREAN_INPUT, "codex:" + HookFixture.HOST_ID));
         String report = "HK-017 start " + start + ": java -jar wall time " + timed.millis()
                 + " ms ; limit " + HOST_LIMIT_MILLIS + " ms ; jar " + HookJar.JAR.toFile().length() + " bytes ; "
-                + System.getProperty("java.vendor.version") + " ; os " + System.getProperty("os.name");
+                + System.getProperty("java.vendor.version");
         Path dir = Path.of(System.getProperty("ledger.hook.metrics"));
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("hk-017-cold-start-" + start + ".txt"), report + "\n", StandardCharsets.UTF_8);
@@ -154,6 +154,8 @@ class JarProcessTest {
     @Test
     @DisplayName("HK-021 on a JDK older than 25 the JVM refuses the jar with UnsupportedClassVersionError (needs LEDGER_HOOK_LEGACY_JAVA)")
     void olderJdkFailsClearly(HookJar jar) throws IOException {
+        // The path of a JDK older than 25 is a property of the build machine, not of the product: the test reads it
+        // from the environment of the machine and is skipped (NOT_RUN) where there is none.
         String legacy = System.getenv("LEDGER_HOOK_LEGACY_JAVA");
         Assumptions.assumeTrue(legacy != null && !legacy.isBlank(),
                 "NOT_RUN: no JDK older than 25 on this host (set LEDGER_HOOK_LEGACY_JAVA to its java executable)");

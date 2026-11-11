@@ -20,6 +20,10 @@ public final class SourceRules {
             .compile("(?i)\\b(google|cloudflare|claude|codex|gemini|antigravity)\\b");
     private static final Pattern UTILITY_NAME = Pattern.compile(".*(Util|Utils|Helper|Manager)\\.java");
 
+    private static final List<String> OS_TOKENS = List.of("os.name", "os.arch", "separatorChar", "File.separator",
+            "pathSeparator", "EnabledOnOs", "DisabledOnOs", "EnabledIf(\"os", "condition.OS", "SystemUtils.IS_OS",
+            "/proc/");
+
     private SourceRules() {
     }
 
@@ -61,6 +65,27 @@ public final class SourceRules {
             var matcher = VENDOR.matcher(read(file));
             if (matcher.find()) {
                 problems.add(file + ": vendor name '" + matcher.group() + "'");
+            }
+        }
+        return problems;
+    }
+
+    /**
+     * ARC-033: Java does not need to know the operating system. No source reads the OS name, decides by the path
+     * separator, switches a test by operating system or reads /proc. Paths, {@code Files.isSameFile},
+     * {@code PathMatcher}, {@code ProcessHandle} and file system capabilities
+     * ({@code supportedFileAttributeViews()}) replace them.
+     */
+    public static List<String> operatingSystemDetection(Path... roots) {
+        List<String> problems = new ArrayList<>();
+        for (Path root : roots) {
+            for (Path file : javaFiles(root)) {
+                String text = read(file);
+                for (String token : OS_TOKENS) {
+                    if (text.contains(token)) {
+                        problems.add(file + ": operating system detection '" + token + "'");
+                    }
+                }
             }
         }
         return problems;

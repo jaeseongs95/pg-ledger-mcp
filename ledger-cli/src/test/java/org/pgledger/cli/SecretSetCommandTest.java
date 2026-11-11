@@ -2,8 +2,6 @@ package org.pgledger.cli;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
-import static org.junit.jupiter.api.condition.OS.LINUX;
-import static org.junit.jupiter.api.condition.OS.WINDOWS;
 
 import java.io.Console;
 import java.io.IOException;
@@ -15,7 +13,6 @@ import java.util.stream.Stream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -25,6 +22,8 @@ import org.pgledger.cli.support.CliExtension;
 import org.pgledger.cli.support.CliExtension.Cli;
 import org.pgledger.cli.support.CliExtension.Outcome;
 import org.pgledger.cli.support.RecordingOutput;
+import org.pgledger.cli.support.RequiresNonPosixFileSystem;
+import org.pgledger.cli.support.RequiresPosixPermissions;
 import org.pgledger.cli.support.ScriptedSecretInput;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
@@ -76,7 +75,7 @@ class SecretSetCommandTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-001 secret-set stores the hidden input, prints only the name and path, and clears the char array")
     void sec001_secretSetStoresAndPrintsNameAndPathOnly(Cli cli) throws IOException {
         char[] typed = VALUE.toCharArray();
@@ -96,7 +95,7 @@ class SecretSetCommandTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-003 the value never reaches the console output or the log, on success")
     void sec003_valueIsNotEchoedOnSuccess(Cli cli, CapturedOutput captured) {
         ScriptedSecretInput input = new ScriptedSecretInput(VALUE.toCharArray());
@@ -108,7 +107,7 @@ class SecretSetCommandTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-003 the value never reaches the console output or the log, on failure")
     void sec003_valueIsNotEchoedOnFailure(Cli cli, CapturedOutput captured) {
         char[] unencodable = (VALUE + '\ud800').toCharArray();
@@ -123,7 +122,7 @@ class SecretSetCommandTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-003 without a terminal the real Console input refuses (exit 1) and creates nothing")
     void sec003_refusesWithoutTerminal(Cli cli) {
         Console console = System.console();
@@ -138,7 +137,7 @@ class SecretSetCommandTest {
 
     @ParameterizedTest(name = "[{index}] empty input")
     @ValueSource(ints = { 0, 1 })
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-003 an empty or missing input is refused (exit 1) and stores nothing")
     void sec003_refusesEmptyInput(int variant, Cli cli) {
         ScriptedSecretInput input = new ScriptedSecretInput(variant == 0 ? new char[0] : null);
@@ -166,7 +165,7 @@ class SecretSetCommandTest {
     }
 
     @Test
-    @EnabledOnOs(WINDOWS)
+    @RequiresNonPosixFileSystem
     @DisplayName("SEC-012 on a file system without POSIX permissions secret-set fails with an explicit message before reading any input")
     void sec012_nonPosixRefusesBeforePrompt(Cli cli, CapturedOutput captured) {
         ScriptedSecretInput input = new ScriptedSecretInput(VALUE.toCharArray());
@@ -181,7 +180,7 @@ class SecretSetCommandTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-006 secret-set refuses a loose existing directory (exit 1) naming path and mode, before any prompt")
     void sec006_looseDirectoryIsRefusedBeforePrompt(Cli cli, CapturedOutput captured) throws IOException {
         Files.createDirectory(directory());

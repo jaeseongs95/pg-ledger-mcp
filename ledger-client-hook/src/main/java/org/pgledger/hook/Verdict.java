@@ -5,7 +5,10 @@ import tools.jackson.databind.node.ObjectNode;
 /** The attestation decision for one ledger call. */
 sealed interface Verdict {
 
-    /** The call may go on with {@code arguments}: the model's arguments plus {@code _hostAttestation}. */
+    /**
+     * The call may go on with {@code arguments}: the model's arguments plus {@code _hostAttestation}. The arguments
+     * are arbitrary JSON of the model and stay a Jackson tree so that they are given back unchanged.
+     */
     record Stamped(ObjectNode arguments, String attestation) implements Verdict {}
 
     record Denied(Refusal reason) implements Verdict {}

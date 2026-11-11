@@ -1,13 +1,12 @@
 package org.pgledger.database.schema;
 
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.util.List;
 import javax.sql.DataSource;
 import org.pgledger.database.repository.SchemaHistoryRepository;
 import org.pgledger.database.repository.SchemaHistoryRepository.Outcome;
 import org.pgledger.database.repository.SchemaHistoryRepository.Row;
 import org.springframework.core.io.support.ResourcePatternResolver;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 
 /**
  * What an application does about the schema at startup: it only looks, it never changes anything. The schema is
@@ -30,9 +29,9 @@ public class SchemaVerifier {
     public void verify() {
         List<MigrationFile> files = MigrationFile.load(resolver, properties.location());
         MigrationFile.requireContiguous(files);
-        try (Connection connection = dataSource.getConnection()) {
-            SchemaHistoryRepository.useSchema(connection, properties.name(), false);
-            SchemaHistoryRepository history = new SchemaHistoryRepository(connection);
+        try {
+            SchemaHistoryRepository history = new SchemaHistoryRepository(
+                    SchemaDataSource.of(dataSource, properties.name()));
             if (!history.tableExists()) {
                 throw new SchemaMigrationException("the database has no schema history; run the migrate command");
             }
@@ -46,7 +45,7 @@ public class SchemaVerifier {
             for (MigrationFile file : files) {
                 verifyVersion(file, rows.stream().filter(r -> r.version() == file.version()).toList());
             }
-        } catch (SQLException e) {
+        } catch (CannotGetJdbcConnectionException e) {
             throw new SchemaMigrationException("cannot reach the database to verify the schema", e);
         }
     }

@@ -13,7 +13,6 @@ import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.pgledger.database.repository.CodeRevisionRepository;
@@ -22,8 +21,6 @@ import org.pgledger.database.repository.DefectCaseLockRepository;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.database.repository.IdAllocator;
 import org.pgledger.database.support.DatabaseTest;
-import org.pgledger.database.support.Dbms;
-import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Parallel;
 import org.pgledger.database.support.Seed;
@@ -43,19 +40,11 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /** REPO-009 .. REPO-014 and REPO-035: counters hand out unique numbers without gaps and without deadlocks. */
 @DatabaseTest
-class CounterTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
+class CounterTest {
 
     private LedgerTestContext ctx;
     private Seed seed;
     private IdAllocator ids;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
 
     @BeforeEach
     void setUp(LedgerTestContext context) {
