@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: ledger-mcp-server
+  messages:
+    # the bundles of the domain (error codes, validation reasons) and of this server (tool and argument texts)
+    basename: messages/ledger-errors,messages/ledger-reasons,messages/mcp
+    fallback-to-system-locale: false
+    encoding: UTF-8
+  ai:
+    mcp:
+      server:
+        name: ledger
+        version: 0.1.0
+        type: SYNC
+        protocol: STREAMABLE
+        streamable-http:
+          mcp-endpoint: /mcp
+server:
+  # the server is reached through the reverse proxy of the host, never directly from another machine
+  address: 127.0.0.1
+  port: 8765
+management:
+  endpoints:
+    web:
+      base-path: /
+      exposure:
+        include: health
+      path-mapping:
+        health: healthz
+  endpoint:
+    health:
+      show-details: never

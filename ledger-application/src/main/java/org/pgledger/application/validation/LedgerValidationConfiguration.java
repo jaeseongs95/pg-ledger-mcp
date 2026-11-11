@@ -5,6 +5,7 @@ import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.ElementKind;
 import jakarta.validation.Path;
 import jakarta.validation.Validator;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -16,7 +17,10 @@ import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationIssue;
 import org.pgledger.domain.error.ValidationReason;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.validation.beanvalidation.MethodValidationExcludeFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.validation.beanvalidation.MethodValidationInterceptor;
@@ -34,8 +38,12 @@ import org.springframework.validation.beanvalidation.MethodValidationPostProcess
 public class LedgerValidationConfiguration {
 
     @Bean
-    static MethodValidationPostProcessor methodValidationPostProcessor(ObjectProvider<Validator> validator) {
-        MethodValidationPostProcessor processor = new TranslatingPostProcessor();
+    static MethodValidationPostProcessor methodValidationPostProcessor(ObjectProvider<Validator> validator,
+            ObjectProvider<MethodValidationExcludeFilter> excludeFilters) {
+        List<MethodValidationExcludeFilter> filters = new ArrayList<>(excludeFilters.orderedStream().toList());
+        // a @Validated settings record is validated when Boot binds it; it must not become a method-validation proxy
+        filters.add(MethodValidationExcludeFilter.byAnnotation(ConfigurationProperties.class));
+        MethodValidationPostProcessor processor = new TranslatingPostProcessor(filters);
         processor.setValidatorProvider(validator);
         processor.setProxyTargetClass(true);
         processor.setBeforeExistingAdvisors(true);
@@ -46,6 +54,19 @@ public class LedgerValidationConfiguration {
     static final class TranslatingPostProcessor extends MethodValidationPostProcessor {
 
         private static final long serialVersionUID = 1L;
+
+        private final transient List<MethodValidationExcludeFilter> excludeFilters;
+
+        TranslatingPostProcessor(List<MethodValidationExcludeFilter> excludeFilters) {
+            this.excludeFilters = List.copyOf(excludeFilters);
+        }
+
+        @Override
+        protected boolean isEligible(Object bean, String beanName) {
+            Class<?> target = AopUtils.getTargetClass(bean);
+            return excludeFilters.stream().noneMatch(filter -> filter.isExcluded(target))
+                    && super.isEligible(bean, beanName);
+        }
 
         @Override
         protected Advice createMethodValidationAdvice(Supplier<Validator> validator) {

@@ -1,0 +1,177 @@
+package org.pgledger.mcp.reflection;
+
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.pgledger.domain.error.ValidationCode;
+import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationIssue;
+import org.pgledger.domain.error.ValidationReason;
+import org.pgledger.mcp.tool.PresenceAware;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JavaType;
+import tools.jackson.databind.exc.MismatchedInputException;
+import tools.jackson.databind.exc.UnrecognizedPropertyException;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * One tool as a method of an adapter bean: it binds the arguments of a call to the parameters of the method and
+ * calls it. This is the one place that reads arguments of a call and the one place that calls the method by
+ * reflection; everything wrong with the arguments (an unknown key, a missing one, a wrong type, a value outside a
+ * closed set) is raised here as one VALIDATION_FAILED with all its issues.
+ *
+ * <p>An argument that is an object or an array and arrives as text is the old form of the tool contract (a JSON
+ * document in a string); it is read as that document here and nowhere else.
+ */
+public final class ToolBinding {
+
+    private final String name;
+    private final Object bean;
+    private final Method method;
+    private final List<ToolParameter> parameters;
+    private final List<CodeSlot> codeSlots;
+    private final List<ChoiceSlot> choiceSlots;
+    private final JsonMapper mapper;
+
+    ToolBinding(String name, Object bean, Method method, List<ToolParameter> parameters, List<CodeSlot> codeSlots,
+            List<ChoiceSlot> choiceSlots, JsonMapper mapper) {
+        this.name = name;
+        this.bean = bean;
+        this.method = method;
+        this.parameters = List.copyOf(parameters);
+        this.codeSlots = List.copyOf(codeSlots);
+        this.choiceSlots = List.copyOf(choiceSlots);
+        this.mapper = mapper;
+    }
+
+    public String name() {
+        return name;
+    }
+
+    /** The places of the input schema that hold a common code. */
+    public List<CodeSlot> codeSlots() {
+        return codeSlots;
+    }
+
+    /** The places of the input schema that hold a value of a closed set. */
+    public List<ChoiceSlot> choiceSlots() {
+        return choiceSlots;
+    }
+
+    /**
+     * Binds the arguments and calls the tool.
+     *
+     * @throws ValidationException when the arguments do not fit the tool
+     */
+    public Object call(Map<String, Object> arguments) {
+        Map<String, Object> given = arguments == null ? Map.of() : arguments;
+        List<ValidationIssue> issues = new ArrayList<>();
+        Set<String> declared = Set.copyOf(parameters.stream().map(ToolParameter::name).toList());
+        given.keySet().stream().filter(key -> !declared.contains(key)).sorted().forEach(key -> issues.add(
+                new ValidationIssue(key, ValidationReason.UNKNOWN_ARGUMENT, List.of(), List.of())));
+        Object[] values = new Object[parameters.size()];
+        for (int i = 0; i < values.length; i++) {
+            ToolParameter parameter = parameters.get(i);
+            Object raw = given.get(parameter.name());
+            if (raw == null) {
+                if (parameter.required()) {
+                    issues.add(new ValidationIssue(parameter.name(), ValidationReason.REQUIRED, List.of(),
+                            List.of()));
+                }
+            } else {
+                values[i] = bind(parameter, raw, issues);
+            }
+        }
+        for (ChoiceSlot slot : choiceSlots) {
+            checkChoice(slot, values, issues);
+        }
+        if (!issues.isEmpty()) {
+            throw new ValidationException(ValidationCode.VALIDATION_FAILED, List.of(issues.getFirst().path()),
+                    issues, Map.of());
+        }
+        return invoke(values);
+    }
+
+    private Object bind(ToolParameter parameter, Object raw, List<ValidationIssue> issues) {
+        Object source = raw;
+        try {
+            if (source instanceof String text && parameter.structured()) {
+                source = mapper.readValue(text, Object.class);
+            }
+            if (source == null) {
+                return null;
+            }
+            JavaType type = mapper.constructType(parameter.type());
+            Object value = mapper.convertValue(source, type);
+            if (value instanceof PresenceAware<?> aware && source instanceof Map<?, ?> written) {
+                return aware.withMentioned(Set.copyOf(written.keySet().stream().map(String::valueOf).toList()));
+            }
+            return value;
+        } catch (JacksonException failure) {
+            issues.add(issue(parameter.name(), failure));
+            return null;
+        }
+    }
+
+    private static ValidationIssue issue(String root, JacksonException failure) {
+        StringBuilder path = new StringBuilder(root);
+        for (JacksonException.Reference step : failure.getPath()) {
+            if (step.getIndex() >= 0) {
+                path.append('[').append(step.getIndex()).append(']');
+            } else if (step.getPropertyName() != null) {
+                path.append('.').append(step.getPropertyName());
+            }
+        }
+        return switch (failure) {
+            case UnrecognizedPropertyException unknown ->
+                new ValidationIssue(path.toString(), ValidationReason.UNKNOWN_ARGUMENT, List.of(), List.of());
+            case MismatchedInputException mismatch when mismatch.getTargetType() != null ->
+                new ValidationIssue(path.toString(), ValidationReason.WRONG_TYPE,
+                        List.of(mismatch.getTargetType().getSimpleName()), List.of());
+            default -> new ValidationIssue(path.toString(), ValidationReason.INVALID_JSON,
+                    List.of(failure.getOriginalMessage()), List.of());
+        };
+    }
+
+    private void checkChoice(ChoiceSlot slot, Object[] values, List<ValidationIssue> issues) {
+        for (int i = 0; i < values.length; i++) {
+            if (parameters.get(i).name().equals(slot.parameter())) {
+                for (String candidate : texts(values[i])) {
+                    if (!slot.values().contains(candidate)) {
+                        issues.add(new ValidationIssue(parameters.get(i).name(), ValidationReason.UNKNOWN_VALUE,
+                                slot.values(), List.of(candidate)));
+                    }
+                }
+            }
+        }
+    }
+
+    private static List<String> texts(Object value) {
+        return switch (value) {
+            case null -> List.of();
+            case String text -> List.of(text);
+            case List<?> list -> list.stream().filter(String.class::isInstance).map(String.class::cast).toList();
+            default -> List.of();
+        };
+    }
+
+    private Object invoke(Object[] values) {
+        try {
+            return method.invoke(bean, values);
+        } catch (InvocationTargetException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("tool " + name + " raised a checked exception", cause);
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("tool " + name + " is not callable", failure);
+        }
+    }
+}
