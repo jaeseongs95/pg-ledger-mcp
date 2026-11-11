@@ -2,6 +2,8 @@
 [versions]
 springBoot = "4.1.2"
 springAi = "2.0.2"
+# MCP Java SDK: the client of the CLI command mcp-check; this is the version that Spring AI 2.0.2 brings to the server (same SDK on both sides)
+mcpSdk = "2.1.0"
 archunit = "1.5.1"
 
 [libraries]
@@ -10,3 +12,5 @@ spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies"
 spring-ai-bom = { module = "org.springframework.ai:spring-ai-bom", version.ref = "springAi" }
 # ArchUnit 1.5.1: not in the Boot BOM; enforces the architecture rules (time API bans, reflection, history insert-only).
 archunit = { module = "com.tngtech.archunit:archunit", version.ref = "archunit" }
+# MCP Java SDK umbrella (mcp-core + the Jackson 3 JSON mapper): the same SDK the server runs on, used by the CLI as a client.
+mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version.ref = "mcpSdk" }

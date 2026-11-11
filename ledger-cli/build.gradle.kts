@@ -15,6 +15,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     // Reads and fingerprints the public key of a session key (JDK only, shared with the hook and the server).
     implementation(project(":ledger-attestation"))
+    // The MCP Java SDK client of mcp-check (the SDK the server runs on) and the Jackson 3 mapper it writes JSON with (Boot BOM).
+    implementation(libs.mcp.sdk)
+    implementation("tools.jackson.core:jackson-databind")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: see gradle/libs.versions.toml
@@ -23,6 +26,8 @@ dependencies {
     testImplementation(testFixtures(project(":ledger-domain")))
     // The test database is the embedded H2 in its default mode (a driver on the test classpath only; the product ships none).
     testImplementation("com.h2database:h2")
+    // mcp-check is tested against the real MCP server started in the test (its classes and its runtime classpath; not a mock).
+    testImplementation(project(":ledger-mcp-server"))
 }
 
 tasks.bootJar {

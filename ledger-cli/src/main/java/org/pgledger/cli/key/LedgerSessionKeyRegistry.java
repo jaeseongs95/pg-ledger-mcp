@@ -1,13 +1,12 @@
 package org.pgledger.cli.key;
 
-import java.io.IOException;
-import java.nio.file.FileSystems;
 import java.util.List;
 import org.pgledger.application.admin.SessionKeyService;
 import org.pgledger.application.admin.SessionKeyService.RegisterCommand;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
-import org.pgledger.cli.secret.ProcessUser;
+import org.pgledger.cli.database.CliActor;
+import org.pgledger.cli.database.SchemaReadiness;
 import org.pgledger.domain.error.ConflictCode;
 import org.pgledger.domain.error.LedgerException;
 import org.pgledger.domain.error.LookupCode;
@@ -21,29 +20,29 @@ import org.springframework.dao.DataAccessException;
 /**
  * The {@link SessionKeyRegistry} of a CLI that has the ledger database: it calls the application service
  * {@link SessionKeyService}, the same one the admin web uses for its console, and records the owner operation in the
- * audit trail as {@code cli:<name of the process user>}; it also closes a key at the owner's command ({@code key-revoke}).
+ * audit trail as {@code cli:<name of the process user>} ({@link CliActor}); it also closes a key at the owner's command ({@code key-revoke}).
  * A refusal of the ledger becomes a {@link FailureException} of the
  * CLI (the ledger code is translated, its arguments are never echoed except the fingerprint and registration time the
  * owner needs to confirm a replacement); no key or secret is ever part of a message.
  */
 public final class LedgerSessionKeyRegistry implements SessionKeyRegistry {
 
-    /** The audit actor of the CLI; the admin web records the identity the owner signed in with instead. */
-    static final String ACTOR_PREFIX = "cli:";
-
     private final SessionKeyService service;
-    private final ProcessUser processUser;
+    private final CliActor actor;
+    private final SchemaReadiness readiness;
 
-    public LedgerSessionKeyRegistry(SessionKeyService service, ProcessUser processUser) {
+    public LedgerSessionKeyRegistry(SessionKeyService service, CliActor actor, SchemaReadiness readiness) {
         this.service = service;
-        this.processUser = processUser;
+        this.actor = actor;
+        this.readiness = readiness;
     }
 
     @Override
     public void register(String author, String publicKey) {
-        OwnerIdentity actor = actor();
+        OwnerIdentity owner = actor.current();
+        readiness.require();
         try {
-            service.register(new RegisterCommand(author, publicKey, null), actor);
+            service.register(new RegisterCommand(author, publicKey, null), owner);
         } catch (LedgerException failure) {
             throw refusal(failure, false);
         } catch (DataAccessException failure) {
@@ -53,9 +52,10 @@ public final class LedgerSessionKeyRegistry implements SessionKeyRegistry {
 
     @Override
     public void registerReplacing(String author, String publicKey, String replacedFingerprint) {
-        OwnerIdentity actor = actor();
+        OwnerIdentity owner = actor.current();
+        readiness.require();
         try {
-            service.registerReplacing(new RegisterCommand(author, publicKey, null), actor, replacedFingerprint);
+            service.registerReplacing(new RegisterCommand(author, publicKey, null), owner, replacedFingerprint);
         } catch (LedgerException failure) {
             throw refusal(failure, true);
         } catch (DataAccessException failure) {
@@ -65,9 +65,10 @@ public final class LedgerSessionKeyRegistry implements SessionKeyRegistry {
 
     @Override
     public void revoke(String author, String fingerprint) {
-        OwnerIdentity actor = actor();
+        OwnerIdentity owner = actor.current();
+        readiness.require();
         try {
-            service.revokeConfirmed(author, fingerprint, actor);
+            service.revokeConfirmed(author, fingerprint, owner);
         } catch (LedgerException failure) {
             throw revokeRefusal(failure);
         } catch (DataAccessException failure) {
@@ -90,14 +91,6 @@ public final class LedgerSessionKeyRegistry implements SessionKeyRegistry {
             return new FailureException(ErrorCode.INVALID_AUTHOR, failure);
         }
         return new FailureException(ErrorCode.LEDGER_REFUSED, failure, failure.code().token());
-    }
-
-    private OwnerIdentity actor() {
-        try {
-            return OwnerIdentity.of(ACTOR_PREFIX + processUser.current(FileSystems.getDefault()).getName());
-        } catch (IOException failure) {
-            throw new FailureException(ErrorCode.UNKNOWN_PROCESS_USER, failure);
-        }
     }
 
     /** The CLI failure for a refusal of the ledger; {@code replacing} tells that the owner already gave {@code --replace}. */
