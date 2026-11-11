@@ -39,7 +39,8 @@ import org.springframework.test.context.ActiveProfiles;
  * end of a session (ADM-012), the Host allow list (ADM-027) and the paths that must never reach a handler (ADM-035).
  */
 @SpringBootTest(classes = LedgerAdminApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
+        properties = {AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.INSECURE_COOKIE,
+            AdminTestSettings.NO_GLOBAL_CAP, AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
             AdminTestSettings.NO_JMX})
 @ActiveProfiles("embedded")
 @Import({AdminTestInfrastructure.class, RealServerTest.Sessions.class})

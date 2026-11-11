@@ -1,6 +1,7 @@
 package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -624,8 +625,8 @@ class ReadQueryTest {
         String added = "UI_" + s.code();
         String retired = "OLD_" + s.code();
         CommonCodeService codes = s.bean(CommonCodeService.class);
-        codes.set(new CodeCommand("DEFECT_CATEGORY", added, "화면", "UI", "설명", "description", 33, null));
-        codes.set(new CodeCommand("DEFECT_CATEGORY", retired, "옛", "Old", null, null, 34, "INACTIVE"));
+        codes.set(new CodeCommand("DEFECT_CATEGORY", added, "화면", "UI", "설명", "description", 33, null), TestOwners.OWNER);
+        codes.set(new CodeCommand("DEFECT_CATEGORY", retired, "옛", "Old", null, null, 34, "INACTIVE"), TestOwners.OWNER);
         CatalogService catalog = s.bean(CatalogService.class);
         var active = catalog.codes(new CodesQuery("DEFECT_CATEGORY", null, 1000, null)).items();
         assertThat(active).extracting(CatalogService.CodeView::code).contains(added).doesNotContain(retired);

@@ -102,7 +102,7 @@ class ArchitectureTest {
     }
 
     @Test
-    @DisplayName("The module does not depend on JDBC or a DataSource")
+    @DisplayName("The code of the module does not touch JDBC or a DataSource: the database is reached only through the application services and the configuration of the database module")
     void noJdbcDependency() {
         noClasses().should().dependOnClassesThat().resideInAnyPackage("java.sql..", "javax.sql..", "org.springframework.jdbc..")
                 .check(MAIN);

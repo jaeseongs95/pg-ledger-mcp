@@ -6,6 +6,7 @@ import org.pgledger.mcp.support.McpTestSchema.SchemaMigrated;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.pgledger.testing.TestOwners;
 
 /**
  * What the MCP tests add to the server under test: the schema ({@link McpTestSchema}) and the defect categories of
@@ -21,8 +22,8 @@ public class McpTestInfrastructure {
 
     @Bean
     CategoriesSeeded categoriesSeeded(CommonCodeService codes, SchemaMigrated schema) {
-        codes.set(new CodeCommand("DEFECT_CATEGORY", "ARC", "구조", "Architecture", null, null, 1, "ACTIVE"));
-        codes.set(new CodeCommand("DEFECT_CATEGORY", "RETIRED", "폐기", "Retired", null, null, 9, "INACTIVE"));
+        codes.set(new CodeCommand("DEFECT_CATEGORY", "ARC", "구조", "Architecture", null, null, 1, "ACTIVE"), TestOwners.OWNER);
+        codes.set(new CodeCommand("DEFECT_CATEGORY", "RETIRED", "폐기", "Retired", null, null, 9, "INACTIVE"), TestOwners.OWNER);
         return new CategoriesSeeded();
     }
 }

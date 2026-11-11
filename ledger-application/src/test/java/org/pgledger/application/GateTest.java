@@ -2,6 +2,7 @@ package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import org.pgledger.testing.TestOwners;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -353,7 +354,7 @@ class GateTest {
     void gate10_expiry(Expiry expiry, Scenario s) {
         String actor = "claude:exp" + Math.abs(expiry.name().hashCode());
         s.bean(GrantService.class).grant(new GrantCommand(actor, s.projectId(), List.of("defect"),
-                expiry.expiresAt(), null));
+                expiry.expiresAt(), null), TestOwners.OWNER);
         s.ctx().clock().set(java.time.Instant.parse(expiry.at()));
         assertThat(Expect.outcome(() -> s.bean(SaveService.class).save(actor,
                 s.create("defect", null, s.defectFields("t"))))).isEqualTo(Optional.ofNullable(expiry.expected()));
@@ -365,7 +366,7 @@ class GateTest {
     @DisplayName("SVC-GATE-11: refused while revoked, accepted after a new grant")
     void gate11_revokeAndRegrant(Scenario s) {
         String actor = s.actorWith("defect");
-        s.bean(GrantService.class).revoke(new RevokeCommand(actor, s.projectId(), "defect"));
+        s.bean(GrantService.class).revoke(new RevokeCommand(actor, s.projectId(), "defect"), TestOwners.OWNER);
         Expect.failure(() -> s.bean(SaveService.class).save(actor, s.create("defect", null, s.defectFields("t"))),
                 TrustCode.SESSION_NOT_GRANTED);
         s.grant(actor, s.projectId(), "defect");
@@ -381,7 +382,7 @@ class GateTest {
                 Scenario.REASON);
         SaveResult first = s.bean(SaveService.class).save(actor, command);
         assertThat(s.bean(SaveService.class).save(actor, command)).isEqualTo(first);
-        s.bean(GrantService.class).revoke(new RevokeCommand(actor, null, null));
+        s.bean(GrantService.class).revoke(new RevokeCommand(actor, null, null), TestOwners.OWNER);
         Expect.failure(() -> s.bean(SaveService.class).save(actor, command), TrustCode.SESSION_NOT_GRANTED);
     }
 

@@ -1,6 +1,7 @@
 package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import java.util.List;
 import java.util.Map;
@@ -67,7 +68,7 @@ class ProvenanceTest {
     @DisplayName("SVC-PRV-02: a project and a code added by the owner operations are stamped user:owner")
     void prv02_ownerOperations(Scenario s) {
         s.bean(CommonCodeService.class).set(new CodeCommand("DEFECT_CATEGORY", "OWNED" + s.code(), "owned", null, null,
-                null, 70, null));
+                null, 70, null), TestOwners.OWNER);
         assertThat(s.count("SELECT COUNT(*) FROM project WHERE id = ? AND created_by = 'user:owner'",
                 s.projectId())).isEqualTo(1);
         assertThat(s.count("SELECT COUNT(*) FROM common_code WHERE code = ? AND created_by = 'user:owner'",

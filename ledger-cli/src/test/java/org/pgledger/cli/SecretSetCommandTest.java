@@ -55,7 +55,9 @@ class SecretSetCommandTest {
                 new Refusal("SECRET-SET", new String[] { "SECRET-SET", NAME }, ExitStatus.USAGE, ErrorCode.UNKNOWN_COMMAND),
                 new Refusal("secret-set without a name", new String[] { "secret-set" }, ExitStatus.USAGE, ErrorCode.MISSING_ARGUMENT),
                 new Refusal("secret-set with a surplus argument", new String[] { "secret-set", NAME, "extra" },
-                        ExitStatus.USAGE, ErrorCode.TOO_MANY_ARGUMENTS));
+                        ExitStatus.USAGE, ErrorCode.TOO_MANY_ARGUMENTS),
+                new Refusal("secret-set with an unknown option (CLI-029)", new String[] { "secret-set", NAME, "--force" },
+                        ExitStatus.USAGE, ErrorCode.UNKNOWN_OPTION));
     }
 
     @TempDir

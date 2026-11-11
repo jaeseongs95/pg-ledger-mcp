@@ -12,14 +12,31 @@ server:
   # the admin is reached through the reverse proxy of the host, never directly from another machine
   address: 127.0.0.1
   port: 8865
-  # the proxy tells the original scheme and client address (X-Forwarded-*); Tomcat trusts them from internal proxies only
+  # The reverse proxy on this host tells the original scheme and client address (X-Forwarded-Proto, X-Forwarded-For).
+  # Tomcat believes these headers only from its internal proxies, and Boot's default list of them trusts every private
+  # network (10/8, 192.168/16, 172.16/12, 100.64/10, 169.254/16, 127/8): a client that reaches the admin from one of them
+  # could choose the address the lock after failed attempts counts. Only the loopback address of the proxy on this host
+  # (127.0.0.1, ::1) is trusted.
   forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: '127\.0\.0\.1|0:0:0:0:0:0:0:1|::1'
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+      # The host and the port a request is for are never taken from a forwarded header: the Host allow list of the
+      # firewall (DNS rebinding guard) must see the Host header the client sent. Tomcat reads the headers named here
+      # instead of X-Forwarded-Host and X-Forwarded-Port; no client or proxy sends these names.
+      host-header: X-Ledger-Ignored-Forwarded-Host
+      port-header: X-Ledger-Ignored-Forwarded-Port
   servlet:
     session:
       timeout: 12h
       cookie:
         name: LEDGER_ADMIN_SESSION
         http-only: true
+        # Secure by default: the owner reaches the admin over HTTPS through the proxy. A local test over plain HTTP sets
+        # server.servlet.session.cookie.secure=false explicitly.
+        secure: true
         same-site: strict
 management:
   endpoints:

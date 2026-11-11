@@ -1,6 +1,7 @@
 package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -91,7 +92,7 @@ class TimeZoneServiceTest {
     void tz03_grantExpiry(String reading, Scenario s) {
         String actor = "claude:tz03";
         s.ctx().clock().set(Instant.parse(reading).minusSeconds(1));
-        s.bean(GrantService.class).grant(new GrantCommand(actor, s.projectId(), List.of("defect"), reading, null));
+        s.bean(GrantService.class).grant(new GrantCommand(actor, s.projectId(), List.of("defect"), reading, null), TestOwners.OWNER);
         assertThat(Expect.outcome(() -> s.bean(SaveService.class).save(actor, s.create("defect", null,
                 s.defectFields("before"))))).isEmpty();
         s.ctx().clock().set(Instant.parse(reading));
@@ -126,7 +127,7 @@ class TimeZoneServiceTest {
                 new TimedField("grant expires_at", (s, text) -> {
                     String actor = s.actorWithoutGrants();
                     s.bean(GrantService.class).grant(new GrantCommand(actor, s.projectId(), List.of("defect"), text,
-                            null));
+                            null), TestOwners.OWNER);
                     return s.bean(GrantStateRepository.class).findLive(AuthorId.of(actor), NOON.minusSeconds(60))
                             .getFirst().expiresAt();
                 }));

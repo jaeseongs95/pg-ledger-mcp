@@ -1,6 +1,7 @@
 package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import java.security.KeyPair;
 import java.time.Duration;
@@ -244,7 +245,7 @@ class AttestationGateTest {
     void gate28_keyNotRegistered(Scenario s) {
         String author = "claude:nokey" + UUID.randomUUID().toString().substring(0, 8);
         s.bean(org.pgledger.application.admin.GrantService.class).grant(new org.pgledger.application.admin.GrantService
-                .GrantCommand(author, s.projectId(), List.of("defect"), null, null));
+                .GrantCommand(author, s.projectId(), List.of("defect"), null, null), TestOwners.OWNER);
         String requestId = newRequestId();
         KeyPair unregistered = TestKeyRing.newPair();
         String token = TestKeyRing.token(unregistered, author, SAVE, requestId, s.ctx().clock().instant());
@@ -262,13 +263,13 @@ class AttestationGateTest {
         String before = newRequestId();
         assertThat(save(s, now(s, author, SAVE, before), create(s, before, "before")).author()).isEqualTo(author);
 
-        assertThat(keys.revoke(author)).isTrue();
+        assertThat(keys.revoke(author, TestOwners.OWNER)).isTrue();
         String revoked = newRequestId();
         refused(s, now(s, author, SAVE, revoked), create(s, revoked, "revoked"), TrustCode.ATTESTATION_SIGNATURE_INVALID);
 
         KeyPair replacement = TestKeyRing.newPair();
         keys.register(new SessionKeyService.RegisterCommand(author,
-                org.pgledger.attestation.PublicKeys.encode(replacement.getPublic()), "replaced"));
+                org.pgledger.attestation.PublicKeys.encode(replacement.getPublic()), "replaced"), TestOwners.OWNER);
         String old = newRequestId();
         refused(s, now(s, author, SAVE, old), create(s, old, "old key"), TrustCode.ATTESTATION_SIGNATURE_INVALID);
         String fresh = newRequestId();

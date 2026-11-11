@@ -33,6 +33,12 @@ public final class Browser {
         this.address = "10." + (number / 65_000) + "." + (number % 65_000 / 250) + "." + (number % 250 + 1);
     }
 
+    /** A browser at a client address that the test chooses (an IPv6 address, an IPv4-mapped one ...). */
+    public Browser(MockMvc mvc, String address) {
+        this.mvc = mvc;
+        this.address = address;
+    }
+
     /** A browser that has signed in with the admin token. */
     public static Browser signedIn(MockMvc mvc) throws Exception {
         Browser browser = new Browser(mvc);

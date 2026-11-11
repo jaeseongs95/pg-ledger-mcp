@@ -12,6 +12,7 @@ import org.pgledger.attestation.ArgumentsDigest;
 import org.pgledger.attestation.AttestationClaims;
 import org.pgledger.attestation.AttestationToken;
 import org.pgledger.attestation.PublicKeys;
+import org.pgledger.testing.TestOwners;
 
 /**
  * The key pairs of the test authors of one server and the signing with them: what the client hook of an author does,
@@ -52,7 +53,7 @@ public final class KeyRing {
     /** Registers the key of the author as the owner does (once per author and server). */
     public void enroll(String author) {
         if (!enrolled.contains(author)) {
-            owner.register(new SessionKeyService.RegisterCommand(author, publicKeyOf(author), null));
+            owner.register(new SessionKeyService.RegisterCommand(author, publicKeyOf(author), null), TestOwners.OWNER);
             enrolled.add(author);
         }
     }

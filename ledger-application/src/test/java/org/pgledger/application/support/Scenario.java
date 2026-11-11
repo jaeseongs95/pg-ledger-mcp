@@ -24,6 +24,7 @@ import org.pgledger.domain.model.Task;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.value.DefectId;
 import org.pgledger.domain.value.TaskId;
+import org.pgledger.testing.TestOwners;
 
 /**
  * A project of its own with the actors of the catalogue (project {@code e2e}-style fixtures): an author with the
@@ -56,9 +57,9 @@ public final class Scenario {
         // without a grant has a key as well: it is refused for the missing grant, not for the missing key
         List.of(AUTHOR, REVIEWER, DEFECT_ONLY, NOGRANT).forEach(ctx::enroll);
         GrantService grants = ctx.bean(GrantService.class);
-        grants.grant(new GrantCommand(AUTHOR, projectId, List.of("defect", "task", "fix", "verify"), null, null));
-        grants.grant(new GrantCommand(REVIEWER, projectId, List.of("fix", "verify"), null, null));
-        grants.grant(new GrantCommand(DEFECT_ONLY, projectId, List.of("defect"), null, null));
+        grants.grant(new GrantCommand(AUTHOR, projectId, List.of("defect", "task", "fix", "verify"), null, null), TestOwners.OWNER);
+        grants.grant(new GrantCommand(REVIEWER, projectId, List.of("fix", "verify"), null, null), TestOwners.OWNER);
+        grants.grant(new GrantCommand(DEFECT_ONLY, projectId, List.of("defect"), null, null), TestOwners.OWNER);
     }
 
     public LedgerAppContext ctx() {
@@ -199,7 +200,7 @@ public final class Scenario {
 
     public void grant(String actor, String project, String... scopes) {
         ctx.enroll(actor);
-        bean(GrantService.class).grant(new GrantCommand(actor, project, List.of(scopes), null, null));
+        bean(GrantService.class).grant(new GrantCommand(actor, project, List.of(scopes), null, null), TestOwners.OWNER);
     }
 
     /** A second project (codes and ids of its own) for cross-project cases. */

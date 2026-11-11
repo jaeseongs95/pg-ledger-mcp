@@ -2,6 +2,7 @@ package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.pgledger.testing.TestOwners;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -257,7 +258,7 @@ class RaceTest {
                 s.create("defect", null, s.defectFields("held"))), written, release);
         assertThat(written.await(60, TimeUnit.SECONDS)).isTrue();
         Future<Integer> revoking = Parallel.start(() -> s.bean(GrantService.class).revoke(new RevokeCommand(actor,
-                null, null)));
+                null, null), TestOwners.OWNER));
         assertThatThrownBy(() -> revoking.get(400, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
         release.countDown();
         assertThat(writing.get(60, TimeUnit.SECONDS).version()).isEqualTo(1);
@@ -272,7 +273,7 @@ class RaceTest {
         String actor = s.actorWith("defect");
         List<Callable<Object>> calls = List.of(
                 () -> s.bean(SaveService.class).save(actor, s.create("defect", null, s.defectFields("round"))),
-                () -> s.bean(GrantService.class).revoke(new RevokeCommand(actor, null, null)));
+                () -> s.bean(GrantService.class).revoke(new RevokeCommand(actor, null, null), TestOwners.OWNER));
         List<Outcome<Object>> outcomes = Parallel.all(calls);
         assertThat(outcomes.get(1).failure()).isNull();
         Optional<ErrorCode> write = code(outcomes.get(0));
@@ -294,7 +295,8 @@ class RaceTest {
         Future<SaveResult> writing = holdingTransaction(s, () -> s.bean(SaveService.class).save(actor,
                 s.create("defect", null, s.defectFields("held"))), written, release);
         assertThat(written.await(60, TimeUnit.SECONDS)).isTrue();
-        Future<Boolean> closing = Parallel.start(() -> s.bean(SessionKeyService.class).revoke(actor));
+        Future<Boolean> closing = Parallel.start(() -> s.bean(SessionKeyService.class).revoke(actor,
+                TestOwners.OWNER));
         assertThatThrownBy(() -> closing.get(400, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
         release.countDown();
         assertThat(writing.get(60, TimeUnit.SECONDS).version()).isEqualTo(1);
@@ -309,7 +311,7 @@ class RaceTest {
         String actor = s.actorWith("defect");
         List<Callable<Object>> calls = List.of(
                 () -> s.bean(SaveService.class).save(actor, s.create("defect", null, s.defectFields("round"))),
-                () -> s.bean(SessionKeyService.class).revoke(actor));
+                () -> s.bean(SessionKeyService.class).revoke(actor, TestOwners.OWNER));
         List<Outcome<Object>> outcomes = Parallel.all(calls);
         assertThat(outcomes.get(1).failure()).isNull();
         Optional<ErrorCode> write = code(outcomes.get(0));
@@ -326,7 +328,7 @@ class RaceTest {
         String category = "RACE_" + s.code();
         List<Callable<Object>> calls = new ArrayList<>();
         calls.add(() -> s.bean(CommonCodeService.class).set(new CodeCommand("DEFECT_CATEGORY", category, "경쟁",
-                "Race", null, null, 80, null)));
+                "Race", null, null, 80, null), TestOwners.OWNER));
         for (int i = 0; i < 20; i++) {
             calls.add(() -> {
                 var fields = s.defectFields("race");
@@ -347,7 +349,7 @@ class RaceTest {
     void grt06_parallelGrants(Scenario s) {
         String author = "claude:grt06";
         List<Callable<Object>> calls = IntStream.range(0, 2).<Callable<Object>>mapToObj(i -> () -> s.bean(
-                GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("defect"), null, "n" + i)))
+                GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("defect"), null, "n" + i), TestOwners.OWNER))
                 .toList();
         assertThat(Parallel.all(calls)).allSatisfy(o -> assertThat(o.failure()).isNull());
         assertThat(s.count("SELECT COUNT(*) FROM session_grant WHERE author_id = ? AND revoked_at IS NULL",

@@ -2,8 +2,6 @@ package org.pgledger.admin.app;
 
 import com.github.benmanes.caffeine.cache.Ticker;
 import java.time.Clock;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
 import javax.sql.DataSource;
@@ -25,10 +23,13 @@ public class AdminBeansConfiguration {
         return Clock.systemUTC();
     }
 
-    /** The clock as the time source of the expiring caches (lock and failure counters). */
+    /**
+     * The time source of the lock after failed attempts: the monotonic clock of the JVM ({@code System.nanoTime}), not
+     * the UTC {@link Clock}, so setting the system time back or forward cannot end or extend a lock.
+     */
     @Bean
-    Ticker clockTicker(Clock clock) {
-        return () -> ChronoUnit.NANOS.between(Instant.EPOCH, clock.instant());
+    Ticker lockoutTicker() {
+        return Ticker.systemTicker();
     }
 
     /**

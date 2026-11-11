@@ -1,6 +1,7 @@
 package org.pgledger.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import java.security.KeyPair;
@@ -235,14 +236,14 @@ class AttestationWireTest {
         String author = scenario.actorWith("rk", "defect");
         keys.enroll(author);
 
-        assertThat(owner.revoke(author)).isTrue();
+        assertThat(owner.revoke(author, TestOwners.OWNER)).isTrue();
         String first = UUID.randomUUID().toString();
         refused(session, save, callOf(session, save, seed, first,
                 keys.token(author, save.tool(), first, digestOf(session, save, seed, first))),
                 "ATTESTATION_SIGNATURE_INVALID");
 
         KeyPair replacement = KeyRing.newPair();
-        owner.register(new SessionKeyService.RegisterCommand(author, PublicKeys.encode(replacement.getPublic()), null));
+        owner.register(new SessionKeyService.RegisterCommand(author, PublicKeys.encode(replacement.getPublic()), null), TestOwners.OWNER);
         String second = UUID.randomUUID().toString();
         refused(session, save, callOf(session, save, seed, second,
                 keys.token(author, save.tool(), second, digestOf(session, save, seed, second))),

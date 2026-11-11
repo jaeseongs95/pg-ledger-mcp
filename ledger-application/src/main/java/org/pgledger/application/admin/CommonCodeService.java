@@ -6,8 +6,10 @@ import org.pgledger.database.repository.CommonCodeRepository;
 import org.pgledger.domain.model.CommonCode;
 import org.pgledger.domain.rule.CodeGroup;
 import org.pgledger.domain.rule.CodeState;
+import org.pgledger.domain.rule.OwnerAction;
 import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.CodeValue;
+import org.pgledger.domain.value.OwnerIdentity;
 import org.pgledger.domain.value.Tokens;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,13 +38,16 @@ public class CommonCodeService {
 
     private final CommonCodeRepository codes;
     private final CodeRevisionRepository revision;
+    private final OwnerAuditWriter audit;
 
-    public CommonCodeService(CommonCodeRepository codes, CodeRevisionRepository revision) {
+    public CommonCodeService(CommonCodeRepository codes, CodeRevisionRepository revision, OwnerAuditWriter audit) {
         this.codes = codes;
         this.revision = revision;
+        this.audit = audit;
     }
 
-    public CodeResult set(CodeCommand command) {
+    /** Sets the code and, when that changes anything, records who did it in the owner's audit trail. */
+    public CodeResult set(CodeCommand command, OwnerIdentity actor) {
         CodeGroup group = Tokens.parse("group", command.group(), CodeGroup.values());
         CodeValue code = CodeValue.of(command.code());
         CodeState state = command.state() == null || command.state().isBlank() ? CodeState.ACTIVE
@@ -61,6 +66,8 @@ public class CommonCodeService {
             codes.update(wanted);
         }
         revision.bump();
+        audit.record(actor, OwnerAction.CODE_SET, group.name() + "/" + code.value(),
+                (existing == null ? "added" : "changed") + " state=" + state.name());
         return new CodeResult(wanted, revision.current());
     }
 

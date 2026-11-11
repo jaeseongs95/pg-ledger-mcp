@@ -40,7 +40,8 @@ CREATE TABLE id_counter (
   name VARCHAR(30) NOT NULL,
   issued_no BIGINT NOT NULL,
   CONSTRAINT pk_id_counter PRIMARY KEY (name),
-  CONSTRAINT ck_id_counter_name CHECK (name IN ('HISTORY', 'DEFECT_FIX', 'DEFECT_CASE', 'SESSION_GRANT', 'SESSION_KEY'))
+  CONSTRAINT ck_id_counter_name CHECK (name IN ('HISTORY', 'DEFECT_FIX', 'DEFECT_CASE', 'SESSION_GRANT', 'SESSION_KEY',
+    'OWNER_AUDIT'))
 );
 
 CREATE TABLE task (
@@ -220,3 +221,19 @@ CREATE TABLE session_key (
   CONSTRAINT ck_session_key_revoked CHECK (revoked_at IS NULL OR revoked_at >= registered_at)
 );
 CREATE INDEX ix_session_key_author ON session_key (author_id, id);
+
+-- The owner's audit trail: who (the identity the owner signed in with at the admin web, or the command line tool) did
+-- which owner operation (grant, revoke, key registration, replacement or revocation, code change) and when. Append-only:
+-- the application only inserts, and the operator's GRANT gives the application account no UPDATE or DELETE on it.
+CREATE TABLE owner_audit (
+  id BIGINT NOT NULL,
+  at TIMESTAMP NOT NULL,
+  actor VARCHAR(300) NOT NULL,
+  operation VARCHAR(20) NOT NULL,
+  subject VARCHAR(300) NOT NULL,
+  detail VARCHAR(1000),
+  CONSTRAINT pk_owner_audit PRIMARY KEY (id),
+  CONSTRAINT ck_owner_audit_operation CHECK (operation IN ('GRANT_ISSUED', 'GRANT_REVOKED', 'KEY_REGISTERED',
+    'KEY_REPLACED', 'KEY_REVOKED', 'CODE_SET'))
+);
+CREATE INDEX ix_owner_audit_subject ON owner_audit (subject, id);

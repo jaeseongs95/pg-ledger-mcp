@@ -121,4 +121,27 @@ class ArchitectureTest {
         assertThat(SourceRules.vendorNames(MAIN_JAVA)).isEmpty();
         assertThat(SourceRules.forbiddenBuildSwitches(List.of(Path.of("build.gradle.kts")))).isEmpty();
     }
+
+    @Test
+    @DisplayName("ARC-038: every owner operation of the services names its actor; no main code has an actor-less path or "
+            + "the system actor")
+    void arc038_ownerOperationsNameTheirActor() throws java.io.IOException {
+        Set<String> operations = Set.of("grant", "revoke", "set", "register", "registerReplacing");
+        for (Class<?> service : List.of(org.pgledger.application.admin.GrantService.class,
+                org.pgledger.application.admin.CommonCodeService.class,
+                org.pgledger.application.admin.SessionKeyService.class)) {
+            for (java.lang.reflect.Method method : service.getDeclaredMethods()) {
+                if (java.lang.reflect.Modifier.isPublic(method.getModifiers()) && operations.contains(method.getName())) {
+                    assertThat(method.getParameterTypes()).as(method.toString())
+                            .contains(org.pgledger.domain.value.OwnerIdentity.class);
+                }
+            }
+        }
+        try (Stream<Path> files = java.nio.file.Files.walk(MAIN_JAVA)) {
+            for (Path file : files.filter(f -> f.toString().endsWith(".java")).toList()) {
+                assertThat(java.nio.file.Files.readString(file)).as(file.toString()).doesNotContain("OwnerIdentity.SYSTEM")
+                        .doesNotContain("OwnerIdentity.of(\"system\")");
+            }
+        }
+    }
 }

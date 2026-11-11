@@ -368,6 +368,6 @@ class SchemaMigratorTest {
         assertThat(jdbc.sql("SELECT title FROM ledger.defect WHERE id = 'OLD-D-1'").query(String.class).single())
                 .isEqualTo("old");
         assertThat(jdbc.sql("SELECT COUNT(*) FROM information_schema.tables WHERE LOWER(table_schema) = "
-                + "'pgledger'").query(Integer.class).single()).isEqualTo(17);
+                + "'pgledger'").query(Integer.class).single()).isEqualTo(18);
     }
 }

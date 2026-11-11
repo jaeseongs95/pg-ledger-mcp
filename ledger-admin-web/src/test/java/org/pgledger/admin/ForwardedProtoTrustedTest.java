@@ -17,7 +17,8 @@ import org.springframework.test.context.ActiveProfiles;
  * proxies of Tomcat by default), {@code X-Forwarded-Proto: https} makes the session cookie {@code Secure}.
  */
 @SpringBootTest(classes = LedgerAdminApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
+        properties = {AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.INSECURE_COOKIE,
+            AdminTestSettings.NO_GLOBAL_CAP, AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
             AdminTestSettings.NO_JMX})
 @ActiveProfiles("embedded")
 @Import(AdminTestInfrastructure.class)

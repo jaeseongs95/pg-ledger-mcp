@@ -6,6 +6,7 @@ INSERT INTO id_counter (name, issued_no) VALUES ('DEFECT_FIX', 0);
 INSERT INTO id_counter (name, issued_no) VALUES ('DEFECT_CASE', 0);
 INSERT INTO id_counter (name, issued_no) VALUES ('SESSION_GRANT', 0);
 INSERT INTO id_counter (name, issued_no) VALUES ('SESSION_KEY', 0);
+INSERT INTO id_counter (name, issued_no) VALUES ('OWNER_AUDIT', 0);
 
 INSERT INTO code_revision (id, revision) VALUES (1, 0);
 

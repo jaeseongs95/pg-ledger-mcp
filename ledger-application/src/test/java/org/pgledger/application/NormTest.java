@@ -1,6 +1,7 @@
 package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -94,7 +95,7 @@ class NormTest {
                         + "AND evidence_sha256 IS NULL"),
                 new Blank("grant note", s -> {
                     s.bean(GrantService.class).grant(new GrantService.GrantCommand("claude:note", s.projectId(),
-                            List.of("defect"), null, "   "));
+                            List.of("defect"), null, "   "), TestOwners.OWNER);
                     return "claude:note";
                 }, "SELECT COUNT(*) FROM session_grant WHERE author_id = ? AND note IS NULL"));
     }

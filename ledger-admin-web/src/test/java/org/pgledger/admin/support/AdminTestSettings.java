@@ -18,6 +18,10 @@ public final class AdminTestSettings {
     public static final String QUIET_BANNER = "spring.main.banner-mode=off";
     public static final String QUIET_LOG = "logging.level.root=WARN";
     public static final String NO_JMX = "spring.jmx.enabled=false";
+    /** The session cookie is Secure by default; the tests that talk plain HTTP to a real server say so explicitly. */
+    public static final String INSECURE_COOKIE = "server.servlet.session.cookie.secure=false";
+    /** The cap on failures of all clients together is out of the way of the many tests that share one context. */
+    public static final String NO_GLOBAL_CAP = "ledger.admin.lockout.global-max-failures=1000000";
     public static final String OWNER_EMAIL = "owner@example.test";
 
     private AdminTestSettings() {
