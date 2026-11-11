@@ -53,6 +53,7 @@ import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.domain.value.Sha256;
 import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.context.properties.bind.BindException;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.NestedExceptionUtils;
@@ -111,20 +112,20 @@ class DriverBoundaryTest {
         return ((InfrastructureException) thrown).code();
     }
 
-    private static InfrastructureException describing(String jar, String className, String url) {
+    private static InfrastructureException describing(Path jar, String className, String url) {
         return catchThrowableOfType(InfrastructureException.class,
                 () -> DriverLoader.describe(jar, className, url, NOW));
     }
 
-    static Stream<String> unusableJarPaths() {
+    static Stream<Path> unusableJarPaths() {
         Path tmp = Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath();
-        return Stream.of("relative.jar", tmp.toString(), tmp.resolve("no-such-driver.jar").toString(),
-                tmp.resolve("sub").resolve("..").resolve("x.jar").toString());
+        return Stream.of(Path.of("relative.jar"), tmp, tmp.resolve("no-such-driver.jar"),
+                tmp.resolve("sub").resolve("..").resolve("x.jar"));
     }
 
     @ParameterizedTest
     @MethodSource("unusableJarPaths")
-    void drv002_aPathThatIsNotAUsableJarIsRefused(String path) {
+    void drv002_aPathThatIsNotAUsableJarIsRefused(Path path) {
         assertThat(codeOf(describing(path, "org.h2.Driver", "jdbc:h2:mem:x"))).isEqualTo(
                 InfrastructureCode.DRIVER_INVALID);
     }
@@ -148,7 +149,7 @@ class DriverBoundaryTest {
     @MethodSource("brokenArchives")
     void drv003_aFileThatIsNotAJarIsRefused(Broken broken) throws IOException {
         Path file = Files.write(temp.resolve("broken.jar"), broken.content());
-        assertThat(codeOf(describing(file.toString(), "org.h2.Driver", "jdbc:h2:mem:x"))).isEqualTo(
+        assertThat(codeOf(describing(file, "org.h2.Driver", "jdbc:h2:mem:x"))).isEqualTo(
                 InfrastructureCode.DRIVER_INVALID);
     }
 
@@ -165,14 +166,14 @@ class DriverBoundaryTest {
     @ParameterizedTest
     @MethodSource("classProblems")
     void drv004_aClassThatIsNotAUsableDriverIsRefusedWithItsOwnReason(ClassProblem problem) {
-        InfrastructureException thrown = describing(fakeJar.toString(), problem.className(), "jdbc:fake:x");
+        InfrastructureException thrown = describing(fakeJar, problem.className(), "jdbc:fake:x");
         assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
         assertThat(thrown.args().getFirst()).contains(problem.reason());
     }
 
     @Test
     void drv005_aDriverThatDoesNotAcceptTheUrlIsRefusedAndThePasswordIsNotShown() {
-        InfrastructureException thrown = describing(h2Jar().toString(), "org.h2.Driver",
+        InfrastructureException thrown = describing(h2Jar(), "org.h2.Driver",
                 "jdbc:postgresql://localhost/db?user=a&password=top-secret");
         assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
         assertThat(thrown.args().getFirst()).doesNotContain("top-secret").contains("***");
@@ -189,8 +190,8 @@ class DriverBoundaryTest {
         String url = databases.newUrl();
         Path jar = h2Jar();
         Set<String> before = registeredDrivers();
-        DriverRegistration registration = DriverLoader.describe(jar.toString(), "org.h2.Driver", url, NOW);
-        assertThat(registration).isEqualTo(new DriverRegistration(jar.toString(), "org.h2.Driver", sha(jar), NOW));
+        DriverRegistration registration = DriverLoader.describe(jar, "org.h2.Driver", url, NOW);
+        assertThat(registration).isEqualTo(new DriverRegistration(jar, "org.h2.Driver", sha(jar), NOW));
         LedgerJdbcProperties properties = new LedgerJdbcProperties(url, null, null, 2, registration);
         try (RegisteredDriver registered = DriverLoader.load(registration);
                 HikariDataSource pool = DriverDataSources.create(registered, properties, null)) {
@@ -202,17 +203,20 @@ class DriverBoundaryTest {
                 assertThat(rs.next()).isTrue();
             }
             new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(null, Databases.LONG_TEXT, true, null), java.time.Clock.systemUTC())
+                    new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
+                            java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)),
+                    java.time.Clock.systemUTC())
                     .migrate();
             new SchemaVerifier(pool, new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(null, Databases.LONG_TEXT, true, null)).verify();
+                    new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
+                            java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT))).verify();
         }
         assertThat(registeredDrivers()).isEqualTo(before);
     }
 
     @Test
     void drv008_aJarThatChangedSinceRegistrationIsRefusedBeforeAnyConnection() {
-        DriverRegistration registration = new DriverRegistration(h2Jar().toString(), "org.h2.Driver",
+        DriverRegistration registration = new DriverRegistration(h2Jar(), "org.h2.Driver",
                 "0".repeat(64), NOW);
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
                 () -> DriverLoader.load(registration));
@@ -223,7 +227,7 @@ class DriverBoundaryTest {
     @Test
     void drv009_aJarThatIsGoneIsRefusedWithItsPath() throws IOException {
         Path copy = Files.copy(h2Jar(), temp.resolve("gone.jar"));
-        DriverRegistration registration = DriverLoader.describe(copy.toString(), "org.h2.Driver", "jdbc:h2:mem:g", NOW);
+        DriverRegistration registration = DriverLoader.describe(copy, "org.h2.Driver", "jdbc:h2:mem:g", NOW);
         Files.delete(copy);
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
                 () -> DriverLoader.load(registration));
@@ -233,7 +237,7 @@ class DriverBoundaryTest {
 
     static Stream<DriverRegistration> unfinishedRegistrations() {
         return Stream.of(new DriverRegistration(null, null, null, null),
-                new DriverRegistration("", "  ", null, null));
+                new DriverRegistration(null, "  ", null, null));
     }
 
     @ParameterizedTest
@@ -248,7 +252,7 @@ class DriverBoundaryTest {
     @Test
     void drv012_aHalfFilledRegistrationNamesTheMissingKey() {
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
-                () -> DriverLoader.load(new DriverRegistration(h2Jar().toString(), null, null, null)));
+                () -> DriverLoader.load(new DriverRegistration(h2Jar(), null, null, null)));
         assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
         assertThat(thrown.args().getFirst()).contains("ledger.jdbc.driver.class-name");
     }
@@ -258,7 +262,7 @@ class DriverBoundaryTest {
         assumeTrue(temp.getFileSystem().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
         Path copy = Files.copy(h2Jar(), temp.resolve("writable.jar"));
         Files.setPosixFilePermissions(copy, PosixFilePermissions.fromString("rw-rw-r--"));
-        assertThat(codeOf(describing(copy.toString(), "org.h2.Driver", "jdbc:h2:mem:w"))).isEqualTo(
+        assertThat(codeOf(describing(copy, "org.h2.Driver", "jdbc:h2:mem:w"))).isEqualTo(
                 InfrastructureCode.DRIVER_INVALID);
     }
 
@@ -266,7 +270,7 @@ class DriverBoundaryTest {
     void drv018_onlyTheNamedClassIsLoadedWhenTwoDriversShareAJar() {
         System.clearProperty(FakeDriverA.MARK);
         System.clearProperty(FakeDriverB.MARK);
-        DriverLoader.describe(fakeJar.toString(), FakeDriverA.class.getName(), "jdbc:fake:x", NOW);
+        DriverLoader.describe(fakeJar, FakeDriverA.class.getName(), "jdbc:fake:x", NOW);
         assertThat(System.getProperty(FakeDriverA.MARK)).isEqualTo("yes");
         assertThat(System.getProperty(FakeDriverB.MARK)).isNull();
     }
@@ -275,7 +279,7 @@ class DriverBoundaryTest {
     void drv019_closingReleasesTheJarSoItCanBeDeleted(Databases databases) throws IOException, SQLException {
         Path copy = Files.copy(h2Jar(), temp.resolve("release.jar"));
         String url = databases.newUrl();
-        DriverRegistration registration = DriverLoader.describe(copy.toString(), "org.h2.Driver", url, NOW);
+        DriverRegistration registration = DriverLoader.describe(copy, "org.h2.Driver", url, NOW);
         try (RegisteredDriver registered = DriverLoader.load(registration);
                 HikariDataSource pool = DriverDataSources.create(registered,
                         new LedgerJdbcProperties(url, null, null, 1, registration), null);
@@ -306,6 +310,9 @@ class DriverBoundaryTest {
                         InfrastructureCode.DRIVER_INVALID),
                 new RegistrationFile("without class", head + "      sha256: " + sha + "\n",
                         InfrastructureCode.DRIVER_INVALID),
+                new RegistrationFile("relative jar path", "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n    driver:\n"
+                        + "      jar: relative/driver.jar\n      class-name: org.h2.Driver\n      sha256: " + sha + "\n",
+                        InfrastructureCode.DRIVER_INVALID),
                 new RegistrationFile("nothing registered", "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n",
                         InfrastructureCode.DRIVER_NOT_CONFIGURED));
     }
@@ -328,5 +335,27 @@ class DriverBoundaryTest {
         });
         assertThat(failure == null ? null : codeOf(NestedExceptionUtils.getMostSpecificCause(failure)))
                 .isEqualTo(file.failure());
+    }
+
+    @Test
+    void drv024_aJarValueThatIsNotAPathStopsTheStartWithTheBindingFailureNamingTheKey() throws IOException {
+        Path yaml = Files.writeString(temp.resolve("jdbc-driver-bad-path.yaml"),
+                "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n    driver:\n      jar: \"bad\\0path.jar\"\n"
+                        + "      class-name: org.h2.Driver\n");
+        Throwable failure = catchThrowableOfType(Throwable.class, () -> {
+            try (ConfigurableApplicationContext context = new SpringApplicationBuilder(
+                    LedgerDataSourceConfiguration.class).web(WebApplicationType.NONE)
+                    .properties("spring.config.import=file:" + yaml.toUri().getPath(), "spring.main.banner-mode=off",
+                            "logging.level.root=WARN").run()) {
+                assertThat(context.isRunning()).isFalse();
+            }
+        });
+        assertThat(failure).isNotNull();
+        Throwable cause = failure;
+        while (cause != null && !(cause instanceof BindException)) {
+            cause = cause.getCause();
+        }
+        assertThat(cause).isInstanceOf(BindException.class);
+        assertThat(((BindException) cause).getProperty().getName().toString()).isEqualTo("ledger.jdbc.driver.jar");
     }
 }
