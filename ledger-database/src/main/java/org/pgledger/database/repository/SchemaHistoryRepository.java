@@ -30,6 +30,7 @@ public final class SchemaHistoryRepository {
     }
 
     private static final String TABLE = "schema_history";
+    private static final java.util.regex.Pattern SIMPLE_NAME = java.util.regex.Pattern.compile("[a-z][a-z0-9_]{0,29}");
 
     private final Connection connection;
     private final JdbcClient jdbc;
@@ -80,7 +81,7 @@ public final class SchemaHistoryRepository {
     }
 
     private static String requireSimpleName(String name) {
-        if (!name.matches("[a-z][a-z0-9_]{0,29}")) {
+        if (!SIMPLE_NAME.matcher(name).matches()) {
             throw new IllegalArgumentException("schema name must be lower case letters, digits and _ (max 30): "
                     + name);
         }

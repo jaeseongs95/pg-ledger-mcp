@@ -13,7 +13,7 @@ public record PageCursor(Kind kind, String sortKey, String id) {
 
     /** The list a cursor belongs to; a cursor of another list is rejected. */
     public enum Kind {
-        DEFECTS, TASKS, CONDITIONS, HISTORY, SEARCH
+        DEFECTS, TASKS, CONDITIONS, HISTORY, SEARCH, ATTENTION, PROJECTS, CODES
     }
 
     private static final String PATH = "cursor";
@@ -48,10 +48,13 @@ public record PageCursor(Kind kind, String sortKey, String id) {
         if (!checksum(payload).equals(token.substring(dot + 1))) {
             throw ValidationException.invalid(PATH, "is damaged");
         }
-        String[] parts = payload.split("\n", -1);
-        if (parts.length != 3) {
+        int first = payload.indexOf('\n');
+        int second = first < 0 ? -1 : payload.indexOf('\n', first + 1);
+        if (second < 0 || payload.indexOf('\n', second + 1) >= 0) {
             throw ValidationException.invalid(PATH, "is damaged");
         }
+        String[] parts = {payload.substring(0, first), payload.substring(first + 1, second),
+            payload.substring(second + 1)};
         Kind kind;
         try {
             kind = Kind.valueOf(parts[0]);

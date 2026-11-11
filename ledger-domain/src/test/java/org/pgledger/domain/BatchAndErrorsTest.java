@@ -11,6 +11,8 @@ import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.domain.error.AdminCode;
 import org.pgledger.domain.error.AdminException;
 import org.pgledger.domain.error.ConflictCode;
@@ -83,7 +85,7 @@ class BatchAndErrorsTest {
                 null, null, null, null).kind()).isEqualTo(BatchOpKind.RECORD_CASE);
     }
 
-    private static List<ErrorCode> allCodes() {
+    static List<ErrorCode> allCodes() {
         List<ErrorCode> all = new ArrayList<>();
         for (Class<? extends ErrorCode> type : List.of(TrustCode.class, ValidationCode.class, TransitionCode.class,
                 ConflictCode.class, LookupCode.class, AdminCode.class, InfrastructureCode.class)) {
@@ -151,5 +153,17 @@ class BatchAndErrorsTest {
         }
         assertThat(Set.copyOf(en.keySet())).as("no unused key").isEqualTo(expected);
         assertThat(ko.getString("error.SESSION_NOT_GRANTED")).contains("부여");
+    }
+
+    @ParameterizedTest
+    @MethodSource("allCodes")
+    void dom026_withDetailsKeepsTypeCodeAndArguments(ErrorCode code) {
+        LedgerException original = exceptionFor(code);
+        LedgerException wrapped = original.withDetails(java.util.Map.of("op_index", List.of("2")));
+        assertThat(wrapped).isNotSameAs(original).hasSameClassAs(original);
+        assertThat(wrapped.code()).isEqualTo(code);
+        assertThat(wrapped.args()).isEqualTo(original.args());
+        assertThat(wrapped.details()).containsEntry("op_index", List.of("2"));
+        assertThat(original.details()).doesNotContainKey("op_index");
     }
 }

@@ -9,6 +9,15 @@ public final class AdminException extends LedgerException {
     private static final long serialVersionUID = 1L;
 
     public AdminException(AdminCode code, List<String> args) {
-        super(code, args, Map.of(), null);
+        this(code, args, Map.of());
+    }
+
+    private AdminException(AdminCode code, List<String> args, Map<String, List<String>> details) {
+        super(code, args, details, null);
+    }
+
+    @Override
+    protected LedgerException copyWith(Map<String, List<String>> newDetails) {
+        return new AdminException((AdminCode) code(), args(), newDetails);
     }
 }

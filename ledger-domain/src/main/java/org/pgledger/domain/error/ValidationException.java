@@ -30,4 +30,9 @@ public final class ValidationException extends LedgerException {
     public List<ValidationIssue> issues() {
         return issues;
     }
+
+    @Override
+    protected LedgerException copyWith(Map<String, List<String>> newDetails) {
+        return new ValidationException((ValidationCode) code(), args(), issues, newDetails);
+    }
 }

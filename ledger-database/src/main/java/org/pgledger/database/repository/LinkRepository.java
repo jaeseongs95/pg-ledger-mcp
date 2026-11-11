@@ -96,6 +96,24 @@ public class LinkRepository {
                 .update() == 1;
     }
 
+    /** Ids of the conditions linked to a defect, in id order. */
+    public List<String> conditionsOfDefect(DefectId defect) {
+        return jdbc.sql("SELECT condition_id FROM condition_link WHERE defect_id = :d ORDER BY condition_id")
+                .param("d", defect.value()).query(String.class).list();
+    }
+
+    /** Ids of the conditions linked to a task, in id order. */
+    public List<String> conditionsOfTask(TaskId task) {
+        return jdbc.sql("SELECT condition_id FROM condition_link WHERE task_id = :t ORDER BY condition_id")
+                .param("t", task.value()).query(String.class).list();
+    }
+
+    /** Ids of the defects a task works on, in id order. */
+    public List<String> defectsOfTask(TaskId task) {
+        return jdbc.sql("SELECT defect_id FROM defect_task WHERE task_id = :t ORDER BY defect_id")
+                .param("t", task.value()).query(String.class).list();
+    }
+
     public List<ConditionLink> linksOf(ConditionId condition) {
         return jdbc.sql("SELECT condition_id, task_id, defect_id, created_by FROM condition_link "
                 + "WHERE condition_id = :c ORDER BY link_key").param("c", condition.value())

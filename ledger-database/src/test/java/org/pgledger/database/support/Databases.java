@@ -33,7 +33,8 @@ public final class Databases implements AutoCloseable {
     /** The URL of a new empty database (for PostgreSQL the superuser and the database name are in it). */
     public String newUrl(Dbms dbms) {
         return switch (dbms) {
-            case H2 -> "jdbc:h2:mem:t" + UUID.randomUUID().toString().replace("-", "") + ";DB_CLOSE_DELAY=-1";
+            case H2 -> "jdbc:h2:mem:t" + UUID.randomUUID().toString().replace("-", "")
+                    + ";DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=60000";
             case POSTGRESQL -> newPostgresUrl();
         };
     }

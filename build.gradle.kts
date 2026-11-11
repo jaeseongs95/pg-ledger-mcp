@@ -32,8 +32,9 @@ subprojects {
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
         // All time is UTC: the JVM default zone is pinned for the tests as well.
-        jvmArgs("-Duser.timezone=UTC", "-Dfile.encoding=UTF-8")
-        maxParallelForks = 1
+        jvmArgs("-Duser.timezone=UTC", "-Dfile.encoding=UTF-8", "-XX:ActiveProcessorCount=1")
+        // one test JVM at a time on this machine: run Gradle with -Pags.test.forks=1 (the default)
+        maxParallelForks = providers.gradleProperty("ags.test.forks").map(String::toInt).getOrElse(1)
         testLogging {
             events("passed", "failed", "skipped")
             showStandardStreams = false
