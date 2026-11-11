@@ -39,4 +39,13 @@ class MessagesTest {
         assertThat(base.stringPropertyNames()).containsAll(required);
         assertThat(korean.stringPropertyNames()).isEqualTo(base.stringPropertyNames());
     }
+
+    @Test
+    @DisplayName("SEC-013 the foreign-owner message tells the operator to run secret-set as the service account")
+    void foreignOwnerMessageGivesTheSudoGuidance() throws IOException {
+        String key = ErrorCode.FOREIGN_OWNER.messageKey();
+
+        assertThat(load("messages.properties").getProperty(key)).contains("sudo -u").contains("ledger-cli secret-set");
+        assertThat(load("messages_ko.properties").getProperty(key)).contains("sudo -u").contains("ledger-cli secret-set");
+    }
 }

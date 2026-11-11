@@ -14,6 +14,8 @@ public enum ErrorCode {
     NON_POSIX_FILESYSTEM,
     LOOSE_PERMISSIONS,
     UNEXPECTED_FILE_TYPE,
+    FOREIGN_OWNER,
+    PARENT_MISSING,
     IO_FAILED;
 
     public String messageKey() {

@@ -2,6 +2,8 @@ package org.pgledger.cli.secret;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assumptions.assumeThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.condition.OS.LINUX;
 import static org.junit.jupiter.api.condition.OS.WINDOWS;
@@ -13,6 +15,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.nio.file.attribute.UserPrincipal;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -32,7 +36,11 @@ class SecretStoreTest {
     Path tmp;
 
     private static SecretStore store(Path directory) {
-        return new SecretStore(new SecretsProperties("pg-ledger-mcp", directory));
+        return store(directory, new SystemProcessUser());
+    }
+
+    private static SecretStore store(Path directory, ProcessUser user) {
+        return new SecretStore(new SecretsProperties("pg-ledger-mcp", directory), user);
     }
 
     private static List<String> names(Path directory) throws IOException {
@@ -52,7 +60,8 @@ class SecretStoreTest {
     @EnabledOnOs(LINUX)
     @DisplayName("SEC-001 creates the directory 0700 and the file 0600 with the exact UTF-8 bytes and no trailing newline")
     void sec001_createsDirectoryAndFileWithOwnerOnlyModes() throws IOException {
-        Path directory = tmp.resolve("etc").resolve("pg-ledger-mcp").resolve("secrets");
+        Path parent = Files.createDirectories(tmp.resolve("etc").resolve("pg-ledger-mcp"));
+        Path directory = parent.resolve("secrets");
         String value = "päss-한글-😀 with space";
 
         Path file = store(directory).store(NAME, value.toCharArray());
@@ -140,6 +149,91 @@ class SecretStoreTest {
         assertRefused(() -> store.store(NAME, "v".toCharArray()), ErrorCode.UNEXPECTED_FILE_TYPE,
                 directory.resolve("cloudflare-api-token").toString());
         assertThat(Files.readString(directory.resolve("other"))).isEqualTo("x");
+    }
+
+    /** Answers with the given principals one call after the other; the last one repeats. */
+    private static ProcessUser users(UserPrincipal... principals) {
+        Iterator<UserPrincipal> remaining = List.of(principals).iterator();
+        UserPrincipal[] last = new UserPrincipal[1];
+        return fileSystem -> {
+            if (remaining.hasNext()) {
+                last[0] = remaining.next();
+            }
+            return last[0];
+        };
+    }
+
+    private static UserPrincipal named(String name) throws IOException {
+        return FileSystems.getDefault().getUserPrincipalLookupService().lookupPrincipalByName(name);
+    }
+
+    @Test
+    @EnabledOnOs(LINUX)
+    @DisplayName("SEC-013 the real process user owns what the store creates, so the owner check passes")
+    void sec013_processUserIsTheOwnerOfCreatedFiles() throws IOException {
+        Path directory = tmp.resolve("secrets");
+        Path file = store(directory).store(NAME, "v".toCharArray());
+
+        assertThat(new SystemProcessUser().current(directory.getFileSystem())).isEqualTo(Files.getOwner(directory)).isEqualTo(Files.getOwner(file));
+        assertThatCode(() -> store(directory).check(NAME)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @EnabledOnOs(LINUX)
+    @DisplayName("SEC-013 a directory owned by another user is refused naming path, owner and current user, before any prompt")
+    void sec013_refusesDirectoryOfAnotherOwner() throws IOException {
+        Path directory = tmp.resolve("secrets");
+        store(directory).store(NAME, "old".toCharArray());
+        String owner = Files.getOwner(directory).getName();
+        UserPrincipal root = named("root");
+        assumeThat(root).isNotEqualTo(Files.getOwner(directory));
+
+        assertRefused(() -> store(directory, users(root)).store(NAME, "new".toCharArray()), ErrorCode.FOREIGN_OWNER, directory.toString(), owner, "root");
+        assertRefused(() -> store(directory, users(root)).check(NAME), ErrorCode.FOREIGN_OWNER, directory.toString(), owner, "root");
+
+        assertThat(Files.readString(directory.resolve("cloudflare-api-token"))).isEqualTo("old");
+    }
+
+    @Test
+    @EnabledOnOs(LINUX)
+    @DisplayName("SEC-013 an existing secret file owned by another user is refused even when the directory is ours")
+    void sec013_refusesFileOfAnotherOwner() throws IOException {
+        Path directory = tmp.resolve("secrets");
+        Path file = store(directory).store(NAME, "old".toCharArray());
+        String owner = Files.getOwner(file).getName();
+        UserPrincipal me = Files.getOwner(directory);
+        UserPrincipal root = named("root");
+        assumeThat(root).isNotEqualTo(me);
+
+        assertRefused(() -> store(directory, users(me, root)).store(NAME, "new".toCharArray()), ErrorCode.FOREIGN_OWNER, file.toString(), owner, "root");
+
+        assertThat(Files.readString(file)).isEqualTo("old");
+    }
+
+    @Test
+    @DisplayName("SEC-014 a missing parent directory is refused naming the parent and is not created")
+    void sec014_refusesMissingParent() throws IOException {
+        Path parent = tmp.resolve("etc").resolve("pg-ledger-mcp");
+        Path directory = parent.resolve("secrets");
+        assumeThat(directory.getFileSystem().supportedFileAttributeViews()).contains("posix");
+
+        assertRefused(() -> store(directory).store(NAME, "v".toCharArray()), ErrorCode.PARENT_MISSING, parent.toString());
+        assertRefused(() -> store(directory).check(NAME), ErrorCode.PARENT_MISSING, parent.toString());
+
+        assertThat(Files.exists(tmp.resolve("etc"))).isFalse();
+    }
+
+    @Test
+    @EnabledOnOs(LINUX)
+    @DisplayName("SEC-014 only the secrets directory itself is created, with mode 0700, inside an existing parent")
+    void sec014_createsOnlyTheSecretsDirectory() throws IOException {
+        Path parent = Files.createDirectory(tmp.resolve("pg-ledger-mcp"));
+        Path directory = parent.resolve("secrets");
+
+        store(directory).store(NAME, "v".toCharArray());
+
+        assertThat(names(parent)).containsExactly("secrets");
+        assertThat(Files.getPosixFilePermissions(directory)).isEqualTo(PosixFilePermissions.fromString("rwx------"));
     }
 
     @Test
