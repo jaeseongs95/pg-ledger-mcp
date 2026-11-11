@@ -58,7 +58,8 @@ class DpopTest {
     }
 
     @Test
-    @DisplayName("ADM-057: an agent cannot issue a grant by bearer, with or without a DPoP header, in either scheme")
+    @DisplayName("ADM-057: an agent cannot issue a grant: by bearer, also with a DPoP header, it is 401; in the DPoP scheme "
+            + "the request is no bearer request and the CSRF check refuses it with 403")
     void adm057_noGrantByAnAgentToken() throws Exception {
         Seeds.Seeded project = seeds.project();
         int before = grants.liveAll().size();
@@ -70,7 +71,7 @@ class DpopTest {
             agent.perform(agent.form("/grants", key.confirmed(Form.of("author", "claude:dpop-agent", "project",
                     project.project(), "scopes", "defect")), null).accept(MediaType.APPLICATION_JSON)
                     .header(HttpHeaders.AUTHORIZATION, authorization).header("DPoP", PROOF))
-                    .andExpect(status().isUnauthorized());
+                    .andExpect(status().is(authorization.startsWith("Bearer") ? 401 : 403));
         }
 
         assertThat(grants.liveAll()).hasSize(before);
