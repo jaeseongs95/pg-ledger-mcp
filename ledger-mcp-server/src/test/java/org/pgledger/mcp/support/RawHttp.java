@@ -108,6 +108,26 @@ public final class RawHttp {
                 .header("Accept", ACCEPTED_TYPES).POST(BodyPublishers.ofString(body)).build());
     }
 
+    /**
+     * POSTs the text with {@code Transfer-Encoding: chunked}: a publisher that does not know its length makes the JDK
+     * client send no {@code Content-Length}.
+     */
+    public Reply postChunkedText(String path, String body, Header... headers) {
+        return send(request(path, headers).header("Content-Type", "application/json")
+                .header("Accept", ACCEPTED_TYPES).POST(BodyPublishers.fromPublisher(BodyPublishers.ofString(body)))
+                .build());
+    }
+
+    /** The JSON text of a {@code tools/call} message, as {@link #callToolWithoutSession} writes it. */
+    public String toolCallText(String tool, Object arguments) {
+        try {
+            return wire.writeValueAsString(new JSONRPCRequest(McpSchema.JSONRPC_VERSION,
+                    McpSchema.METHOD_TOOLS_CALL, 2, callRequest(tool, arguments)));
+        } catch (IOException failure) {
+            throw new UncheckedIOException("the message cannot be written as JSON", failure);
+        }
+    }
+
     /** POSTs the SDK message written as JSON. */
     public Reply post(String path, Object message, Header... headers) {
         try {

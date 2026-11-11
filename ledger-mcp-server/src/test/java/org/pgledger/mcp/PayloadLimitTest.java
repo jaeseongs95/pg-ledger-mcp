@@ -49,6 +49,36 @@ class PayloadLimitTest {
     }
 
     @Test
+    @DisplayName("MCW-026: a chunked body above the limit (no Content-Length) is HTTP 413 PAYLOAD_TOO_LARGE, nothing "
+            + "is written, the server keeps serving")
+    void anOversizeChunkedBodyIsRefused(RawHttp http, McpSession session, Scenario scenario) {
+        String body = http.toolCallText("ledger_save", oversizeSave(scenario));
+
+        Reply reply = http.postChunkedText("/mcp", body, Header.bearer(McpTestSettings.TOKEN));
+
+        assertThat(reply.status()).isEqualTo(413);
+        assertThat(session.mapper().readValue(reply.body(), ProblemBody.class))
+                .isEqualTo(new ProblemBody(413, "The request body is too large.", "PAYLOAD_TOO_LARGE"));
+        assertThat(Ledger.history(session, scenario.projectId())).isEmpty();
+        assertThat(session.ok("ledger_whoami", Calls.Whoami.as(Scenario.AUTHOR), Whoami.class).author())
+                .isEqualTo(Scenario.AUTHOR);
+    }
+
+    @Test
+    @DisplayName("MCW-026: a chunked body of exactly the limit is accepted and one byte more is refused")
+    void theChunkedLimitIsInclusive(RawHttp http) {
+        int limit = 4 * 1024;
+        String empty = http.toolCallText("ledger_whoami", Calls.Whoami.as(""));
+        String atLimit = http.toolCallText("ledger_whoami", Calls.Whoami.as("x".repeat(limit - empty.length())));
+        String overLimit = http.toolCallText("ledger_whoami", Calls.Whoami.as("x".repeat(limit - empty.length() + 1)));
+        Header bearer = Header.bearer(McpTestSettings.TOKEN);
+
+        assertThat(atLimit.length()).isEqualTo(limit);
+        assertThat(http.postChunkedText("/mcp", atLimit, bearer).status()).isNotEqualTo(413);
+        assertThat(http.postChunkedText("/mcp", overLimit, bearer).status()).isEqualTo(413);
+    }
+
+    @Test
     @DisplayName("MCC-019: an oversize frame inside a session is a client error, writes nothing and the session "
             + "keeps serving")
     void anOversizeFrameInASessionIsAnError(RawHttp http, McpSession session, Scenario scenario) {
