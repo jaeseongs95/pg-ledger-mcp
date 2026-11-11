@@ -26,15 +26,33 @@ dependencies {
     testImplementation(testFixtures(project(":ledger-domain")))
     // The test database is the embedded H2 in its default mode (a driver on the test classpath only; the product ships none).
     testImplementation("com.h2database:h2")
-    // mcp-check is tested against an MCP server started in the test: the MCP Java SDK server over Streamable HTTP in an embedded Tomcat
-    // (a library only: no Spring web auto-configuration reaches the CLI context). Boot excludes tomcat-annotations-api and uses the
-    // Jakarta annotations API instead; so does this.
-    testImplementation("org.apache.tomcat.embed:tomcat-embed-core") {
-        exclude(group = "org.apache.tomcat", module = "tomcat-annotations-api")
-    }
-    testImplementation("jakarta.annotation:jakarta.annotation-api")
 }
 
 tasks.bootJar {
     archiveFileName = "ledger-cli.jar"
 }
+
+// mcp-check is tested against an MCP server started in the test: the MCP Java SDK server over Streamable HTTP in an embedded
+// Tomcat. Tomcat brings the servlet classes, and the tests of the CLI itself assert that the CLI has none (CLI-002), so these
+// tests have a source set and a test task of their own: it sees what the tests see (the test classes and their dependencies)
+// and adds Tomcat. Boot excludes tomcat-annotations-api and uses the Jakarta annotations API instead; so does this.
+val serverTest: SourceSet = sourceSets.create("serverTest") {
+    compileClasspath += sourceSets.main.get().output + sourceSets.test.get().output + configurations.testCompileClasspath.get()
+    runtimeClasspath += output + compileClasspath + configurations.testRuntimeClasspath.get()
+}
+configurations["serverTestImplementation"].extendsFrom(configurations.testImplementation.get())
+configurations["serverTestRuntimeOnly"].extendsFrom(configurations.testRuntimeOnly.get())
+dependencies {
+    "serverTestImplementation"("org.apache.tomcat.embed:tomcat-embed-core") {
+        exclude(group = "org.apache.tomcat", module = "tomcat-annotations-api")
+    }
+    "serverTestImplementation"("jakarta.annotation:jakarta.annotation-api")
+}
+val serverTestTask = tasks.register<Test>("serverTest") {
+    description = "Runs the tests that need an MCP server (embedded Tomcat)."
+    group = "verification"
+    testClassesDirs = serverTest.output.classesDirs
+    classpath = serverTest.runtimeClasspath
+    shouldRunAfter(tasks.test)
+}
+tasks.named("check") { dependsOn(serverTestTask) }
