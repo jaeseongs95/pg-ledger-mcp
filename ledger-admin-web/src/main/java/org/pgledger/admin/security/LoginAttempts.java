@@ -13,29 +13,37 @@ import org.pgledger.admin.app.LedgerAdminProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * The lock after failed token attempts. Two limits, both counted on the monotonic {@link Ticker} (production:
- * {@code System.nanoTime}), never on the wall clock, so a change of the system time cannot end or extend a lock:
+ * The limits on token attempts. Both are counted on the monotonic {@link Ticker} (production: {@code System.nanoTime}),
+ * never on the wall clock, so a change of the system time cannot end or extend a lock. Times of the ticker are compared
+ * by their difference ({@code end - now}), as the documentation of {@link System#nanoTime} asks, because a value of the
+ * ticker may be negative and may wrap around:
  *
  * <ul>
  * <li>per client: {@code maxFailures} attempts within {@code window} lock that client for {@code lockPeriod}. The
  *     client is its IPv4 address or the /64 prefix of its IPv6 address (the owner of an IPv6 network has 2^64 addresses
  *     of its own, so one address per attempt would be no limit at all). An attempt is counted when it is admitted and
  *     before the token is compared ({@link #admit}), in one atomic step with the check of the lock, so concurrent
- *     attempts cannot exceed the limit; a success clears the count.</li>
- * <li>global: {@code globalMaxFailures} failures of all clients together within {@code window} lock every client for
- *     {@code lockPeriod}. It does not depend on the client address, so rotating addresses, or filling the bounded table
- *     of known clients so that entries are evicted, does not give an attacker more attempts than this cap.</li>
+ *     attempts cannot exceed the limit; a success clears the count. A locked client is refused, whatever its token is.</li>
+ * <li>global: {@code globalMaxFailures} token checks of all clients together within {@code window} are the budget; every
+ *     check beyond it is <em>delayed</em> by {@code globalDelay} (it is still made, and the right token still logs in).
+ *     The budget does not depend on the client address, so rotating addresses, or filling the bounded table of known
+ *     clients so that entries are evicted, does not let an attacker check faster than the budget allows for long. It is a
+ *     throttle and not a lock on purpose: a lock that anybody can trigger with wrong tokens from many addresses locks
+ *     the owner out as well (a denial of service of the only login). The check is counted when it is admitted, in one
+ *     atomic step with the decision about the delay, so concurrent checks cannot overshoot the budget; a success gives
+ *     its count back, so the owner's own successful logins do not use the budget up.</li>
  * </ul>
  *
  * <p>Why this is ours (principle 2.1): Spring Security publishes authentication events
- * ({@code AuthenticationFailureBadCredentialsEvent} and the others) but has no lockout feature, see
+ * ({@code AuthenticationFailureBadCredentialsEvent} and the others) but has no lockout or throttle feature, see
  * https://docs.spring.io/spring-security/reference/servlet/authentication/events.html . The table of clients is a
  * Caffeine {@link Cache} (bounded, entries expire by themselves on the ticker). Spring's cache abstraction
  * ({@code org.springframework.cache.Cache}, https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/cache/Cache.html)
  * offers get, put and evict but no atomic update of an entry, which the count-and-check needs; Caffeine's
  * {@code Cache.asMap().compute} runs its function as one atomic operation on the entry
  * (https://github.com/ben-manes/caffeine/wiki/Compute: "Map compute methods provides the ability to perform logic
- * within an atomic operation that may create, update, or remove an entry").
+ * within an atomic operation that may create, update, or remove an entry"). The global budget is one
+ * {@link AtomicReference#updateAndGet} (https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/util/concurrent/atomic/AtomicReference.html).
  * The check runs in {@link AdminTokenProvider}, the one provider of the chain, so every way of presenting the token
  * (login form, bearer) is covered.
  */
@@ -45,29 +53,61 @@ public class LoginAttempts {
     private static final int MAX_CLIENTS = 10_000;
     private static final int IPV6_PREFIX_BYTES = 8;
 
-    /** The state of one counter: attempts counted in the current window, when the window ends and until when it is locked (nanoseconds of the ticker, 0 = not locked). */
-    private record Counter(int used, long windowEnds, long lockedUntil) {
+    /**
+     * What an attempt may do: {@code allowed} is false while its client is locked (the token is not compared at all);
+     * otherwise the token is compared after {@code delay} (zero while the global budget lasts).
+     */
+    public record Admission(boolean allowed, Duration delay) {
 
-        static final Counter NONE = new Counter(0, 0, 0);
+        static final Admission REFUSED = new Admission(false, Duration.ZERO);
+        static final Admission IMMEDIATE = new Admission(true, Duration.ZERO);
+    }
+
+    /**
+     * The state of the lock of one client: attempts counted in the current window ({@code used} is 0 before the first
+     * one), when the window ends, and whether the client is locked and until when (nanoseconds of the ticker;
+     * {@code lockedUntil} means something only while {@code locked} is true, so no ticker value stands for "no lock").
+     */
+    private record Counter(int used, long windowEnds, boolean locked, long lockedUntil) {
+
+        static final Counter NONE = new Counter(0, 0, false, 0);
 
         boolean lockedAt(long now) {
-            return lockedUntil > now;
+            return locked && lockedUntil - now > 0;
         }
 
-        /** The counter after one more count at {@code now}: a finished window or a finished lock starts afresh. */
+        /** The counter after one more count at {@code now}: no window yet, a finished window or a finished lock starts afresh. */
         Counter counted(long now, int limit, long window, long lock) {
-            boolean fresh = windowEnds <= now || lockedUntil != 0;
+            boolean fresh = used == 0 || locked || windowEnds - now <= 0;
             int count = (fresh ? 0 : used) + 1;
             long ends = fresh ? now + window : windowEnds;
-            return new Counter(count, ends, count >= limit ? now + lock : 0);
+            boolean lockNow = count >= limit;
+            return new Counter(count, ends, lockNow, lockNow ? now + lock : 0);
+        }
+    }
+
+    /** The global budget: checks counted in the current window ({@code used} is 0 before the first one) and when it ends. */
+    private record Budget(int used, long windowEnds) {
+
+        static final Budget NONE = new Budget(0, 0);
+
+        Budget counted(long now, long window) {
+            boolean fresh = used == 0 || windowEnds - now <= 0;
+            return new Budget((fresh ? 0 : used) + 1, fresh ? now + window : windowEnds);
+        }
+
+        /** One count given back (the check succeeded); never below none. */
+        Budget refunded() {
+            return used > 0 ? new Budget(used - 1, windowEnds) : this;
         }
     }
 
     private final Cache<String, Counter> clients;
-    private final AtomicReference<Counter> everyone = new AtomicReference<>(Counter.NONE);
+    private final AtomicReference<Budget> everyone = new AtomicReference<>(Budget.NONE);
     private final Ticker ticker;
     private final int maxFailures;
-    private final int globalMaxFailures;
+    private final int globalBudget;
+    private final Duration globalDelay;
     private final long window;
     private final long lock;
 
@@ -75,7 +115,8 @@ public class LoginAttempts {
         LedgerAdminProperties.Lockout lockout = properties.lockout();
         this.ticker = ticker;
         this.maxFailures = lockout.maxFailures();
-        this.globalMaxFailures = lockout.globalMaxFailures();
+        this.globalBudget = lockout.globalMaxFailures();
+        this.globalDelay = lockout.globalDelay();
         this.window = lockout.window().toNanos();
         this.lock = lockout.lockPeriod().toNanos();
         Duration keep = lockout.window().compareTo(lockout.lockPeriod()) > 0 ? lockout.window() : lockout.lockPeriod();
@@ -84,16 +125,15 @@ public class LoginAttempts {
     }
 
     /**
-     * Counts an attempt of the client and tells whether it may go on to the comparison of the token: false while the
-     * client or everybody is locked (an attempt of a locked client is not counted again). The count and the check of the
-     * lock are one atomic step per client. The attempt that reaches the limit is admitted and starts the lock for the
-     * next ones.
+     * Counts an attempt of the client and tells whether, and after how long, it may go on to the comparison of the
+     * token: not at all while the client is locked (an attempt of a locked client is not counted again, neither for the
+     * client nor for the budget); otherwise after the global delay when the attempt is beyond the global budget. The
+     * count and the check of the lock are one atomic step per client, and the count of the budget and the decision about
+     * the delay are one atomic step for everybody. The attempt that reaches the limit of the client is admitted and
+     * starts the lock for the next ones.
      */
-    public boolean admit(String client) {
+    public Admission admit(String client) {
         long now = ticker.read();
-        if (everyone.get().lockedAt(now)) {
-            return false;
-        }
         AtomicBoolean refused = new AtomicBoolean();
         clients.asMap().compute(keyOf(client), (key, current) -> {
             if (current != null && current.lockedAt(now)) {
@@ -102,19 +142,17 @@ public class LoginAttempts {
             }
             return (current == null ? Counter.NONE : current).counted(now, maxFailures, window, lock);
         });
-        return !refused.get();
+        if (refused.get()) {
+            return Admission.REFUSED;
+        }
+        Budget counted = everyone.updateAndGet(current -> current.counted(now, window));
+        return counted.used() > globalBudget ? new Admission(true, globalDelay) : Admission.IMMEDIATE;
     }
 
-    /** Counts a failed attempt of any client towards the cap that does not depend on the client address. */
-    public void failed() {
-        long now = ticker.read();
-        everyone.updateAndGet(current -> current.lockedAt(now) ? current
-                : current.counted(now, globalMaxFailures, window, lock));
-    }
-
-    /** A right token: the count of the client starts again. */
+    /** A right token: the count of the client starts again, and the check gives its count back to the global budget. */
     public void succeeded(String client) {
         clients.invalidate(keyOf(client));
+        everyone.updateAndGet(Budget::refunded);
     }
 
     /**

@@ -1,6 +1,7 @@
 package org.pgledger.admin.security;
 
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
 import org.pgledger.admin.app.LedgerAdminProperties;
@@ -19,7 +20,8 @@ import org.springframework.stereotype.Component;
  * both end here. Presented and expected tokens are hashed first (the shared SHA-256 of the domain) and the digests are
  * compared with {@link MessageDigest#isEqual}, which takes the same time whatever the input is. A locked client
  * address is refused before anything is compared (so a right token does not help during the lock); the token of the
- * MCP agents is refused with its own code and counts as a failure. No token is ever written to a message or a log.
+ * MCP agents is refused with its own code. When the global budget of checks is used up the comparison is delayed, never
+ * refused (see {@link LoginAttempts}). No token is ever written to a message or a log.
  */
 @Component
 public final class AdminTokenProvider implements AuthenticationProvider {
@@ -60,21 +62,40 @@ public final class AdminTokenProvider implements AuthenticationProvider {
     public Authentication authenticate(Authentication authentication) {
         String client = authentication.getDetails() instanceof WebAuthenticationDetails details
                 ? details.getRemoteAddress() : null;
-        if (!attempts.admit(client)) {
+        LoginAttempts.Admission admission = attempts.admit(client);
+        if (!admission.allowed()) {
             throw new AdminAuthenticationException(AdminCode.TOO_MANY_AUTH_FAILURES);
         }
+        slowDown(admission.delay());
         byte[] presented = digest(presentedToken(authentication));
         if (MessageDigest.isEqual(agent, presented)) {
-            attempts.failed();
             throw new AdminAuthenticationException(AdminCode.AGENT_TOKEN_FORBIDDEN);
         }
         if (!MessageDigest.isEqual(expected, presented)) {
-            attempts.failed();
             throw new AdminAuthenticationException(AdminCode.UNAUTHORIZED);
         }
         attempts.succeeded(client);
         return UsernamePasswordAuthenticationToken.authenticated("owner", null,
                 List.of(new SimpleGrantedAuthority("ROLE_OWNER")));
+    }
+
+    /**
+     * Waits before the token is compared when the global budget of checks is used up (see {@link LoginAttempts}): the
+     * check is slowed down and still made, so the owner with the right token logs in, only later. A wait that is
+     * interrupted (the server is stopping) restores the interrupt and refuses the attempt without comparing, since the
+     * delay it stands for did not happen.
+     * {@link Thread#sleep(java.time.Duration)}: https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Thread.html
+     */
+    private static void slowDown(Duration delay) {
+        if (delay.isZero()) {
+            return;
+        }
+        try {
+            Thread.sleep(delay);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AdminAuthenticationException(AdminCode.TOO_MANY_AUTH_FAILURES, interrupted);
+        }
     }
 
     @Override

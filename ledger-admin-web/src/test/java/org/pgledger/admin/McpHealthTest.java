@@ -57,7 +57,7 @@ class McpHealthTest {
     private static LedgerAdminProperties properties(String url, Duration timeout) {
         return new LedgerAdminProperties("a-token-of-sixteen-chars", "an-agent-token-of-sixteen", List.of("localhost"),
                 org.springframework.util.unit.DataSize.ofKilobytes(64), Path.of("/unused"), Path.of("/unused-drivers"),
-                new LedgerAdminProperties.Lockout(5, Duration.ofSeconds(60), Duration.ofSeconds(60), 50),
+                new LedgerAdminProperties.Lockout(5, Duration.ofSeconds(60), Duration.ofSeconds(60), 50, Duration.ofSeconds(1)),
                 new LedgerAdminProperties.Oidc(List.of()), new LedgerAdminProperties.Mcp(url, timeout));
     }
 

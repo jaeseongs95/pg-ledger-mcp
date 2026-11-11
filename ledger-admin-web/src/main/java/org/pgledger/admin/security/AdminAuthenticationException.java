@@ -15,6 +15,11 @@ public final class AdminAuthenticationException extends AuthenticationException 
         this.code = code;
     }
 
+    public AdminAuthenticationException(AdminCode code, Throwable cause) {
+        super(code.token(), cause);
+        this.code = code;
+    }
+
     public AdminCode code() {
         return code;
     }

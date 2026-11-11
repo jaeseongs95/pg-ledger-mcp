@@ -74,13 +74,21 @@ public record LedgerAdminProperties(String token, String agentToken,
     }
 
     /**
-     * Failed token attempts: {@code maxFailures} of one client within {@code window} lock that client for
-     * {@code lockPeriod}; and {@code globalMaxFailures} failures of all clients together within {@code window} lock
-     * every client for {@code lockPeriod}, whatever the addresses are (a client that changes its address, or fills
-     * the table of known clients, still meets this cap).
+     * Token attempts: {@code maxFailures} of one client within {@code window} lock that client for {@code lockPeriod};
+     * and {@code globalMaxFailures} token checks of all clients together within {@code window} are the global budget:
+     * every check beyond it waits {@code globalDelay} before the token is compared, whatever the addresses are (a client
+     * that changes its address, or fills the table of known clients, still meets this throttle). The global limit slows
+     * down and never locks, so wrong tokens from many addresses cannot keep the owner with the right token out.
      */
     public record Lockout(@DefaultValue("5") @Min(1) int maxFailures, @DefaultValue("60s") Duration window,
-            @DefaultValue("60s") Duration lockPeriod, @DefaultValue("50") @Min(1) int globalMaxFailures) {
+            @DefaultValue("60s") Duration lockPeriod, @DefaultValue("50") @Min(1) int globalMaxFailures,
+            @DefaultValue("1s") Duration globalDelay) {
+
+        /** The delay is zero or more (a negative delay would not slow anything down). */
+        @AssertTrue(message = "ledger.admin.lockout.global-delay must not be negative")
+        public boolean isGlobalDelayUsable() {
+            return !globalDelay.isNegative();
+        }
     }
 
     /**
