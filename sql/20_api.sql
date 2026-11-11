@@ -388,7 +388,7 @@ BEGIN
                         'owner_actor_id', v_next_owner, 'version', v_ver, 'history_id', v_hist, 'transition_history_id', v_trans, 'author', p_author, 'login', session_user));
 END $f$;
 
--- link: defect_task | relation kinds (same_site, caused_by, blocks, same_family, same_fix_unit) -> scope 'defect' on the
+-- link: defect_task | relation kinds (same_site, caused_by, blocks, same_family, same_fix_unit, regression_of) -> scope 'defect' on the
 -- project(s) of the defect(s); condition_task | condition_defect -> scope 'task' on the condition's project.
 CREATE OR REPLACE FUNCTION ledger.link(p_request uuid, p_author text, p_kind text, p_a text, p_b text, p_reason text, p_remove boolean DEFAULT false)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = ledger, pg_temp AS $f$

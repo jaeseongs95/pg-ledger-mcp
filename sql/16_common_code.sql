@@ -33,7 +33,8 @@ BEGIN
     ('RELATION_KIND','caused_by','원인 관계','Caused by','a의 원인은 b','a is caused by b',2,true),
     ('RELATION_KIND','blocks','차단','Blocks','a가 b를 차단','a blocks b',3,true),
     ('RELATION_KIND','same_family','동일 계열','Same family','근본 원인이 다른 유사 결함','Similar defects with different root causes',4,true),
-    ('RELATION_KIND','same_fix_unit','동일 수정 단위','Same fix unit','하나의 변경에서 함께 수정','Fixed together in one change',5,true);
+    ('RELATION_KIND','same_fix_unit','동일 수정 단위','Same fix unit','하나의 변경에서 함께 수정','Fixed together in one change',5,true),
+    ('RELATION_KIND','regression_of','재발(회귀)','Regression of','b는 검증까지 끝난 a가 다시 나타난 것(나중 번호가 재발)','b is a recurrence of a after a was verified (the later id is the recurrence)',6,true);
   -- Preserve Korean source text. Unknown category codes copy it into their English fallback.
   INSERT INTO ledger.common_code (code_group,code,name_ko,name_en,description_ko,description_en)
   SELECT 'DEFECT_CATEGORY',c.code,c.name,coalesce(e.name,c.name),c.definition,coalesce(e.description,c.definition)
