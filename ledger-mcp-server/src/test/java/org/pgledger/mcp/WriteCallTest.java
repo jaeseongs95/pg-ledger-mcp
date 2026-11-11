@@ -160,6 +160,19 @@ class WriteCallTest {
     }
 
     @Test
+    @DisplayName("MCW-027: ops that are no JSON at all are refused with the sentence of the reason bundle, not the "
+            + "text of the JSON library")
+    void unreadableOpsGetTheSentenceOfTheBundle(McpSession session) {
+        Args call = Args.of().with("ops", "[{not json").with("_hostAttestation", Scenario.AUTHOR);
+
+        ToolError error = session.failed("ledger_batch", call);
+
+        assertThat(error.code()).isEqualTo("VALIDATION_FAILED");
+        assertThat(error.issues()).containsExactly(
+                new ToolError.Issue("ops", "does not fit the input of the tool as JSON", List.of()));
+    }
+
+    @Test
     @DisplayName("MCW-006: an empty _hostAttestation is AUTHOR_ID_FORMAT")
     void anEmptyAttestationIsAMalformedAuthorId(McpSession session, Scenario scenario) {
         ToolError error = session.failed("ledger_save",

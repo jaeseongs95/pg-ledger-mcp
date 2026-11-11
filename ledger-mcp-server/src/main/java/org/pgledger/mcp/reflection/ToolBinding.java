@@ -66,9 +66,6 @@ import tools.jackson.databind.json.JsonMapper;
  */
 public final class ToolBinding {
 
-    /** The reason of an argument that does not read as the type of its parameter and has no better name. */
-    private static final String UNREADABLE = "the value does not fit the input of the tool";
-
     private final String name;
     private final Object bean;
     private final Method method;
@@ -183,9 +180,8 @@ public final class ToolBinding {
                         List.of(mismatch.getTargetType().getSimpleName()), List.of());
             case InvalidTypeIdException typeId -> typeIdIssue(path.toString(), typeId);
             // the text of the JSON library names internal classes: the cause keeps it for the log, the caller
-            // gets a fixed reason
-            default -> new ValidationIssue(path.toString(), ValidationReason.INVALID_JSON,
-                    List.of(UNREADABLE), List.of());
+            // gets the sentence of the reason bundle
+            default -> new ValidationIssue(path.toString(), ValidationReason.INVALID_JSON, List.of(), List.of());
         };
     }
 
@@ -199,7 +195,7 @@ public final class ToolBinding {
         JsonTypeInfo info = base == null ? null : base.getAnnotation(JsonTypeInfo.class);
         JsonSubTypes subtypes = base == null ? null : base.getAnnotation(JsonSubTypes.class);
         if (info == null || subtypes == null) {
-            return new ValidationIssue(path, ValidationReason.INVALID_JSON, List.of(UNREADABLE), List.of());
+            return new ValidationIssue(path, ValidationReason.INVALID_JSON, List.of(), List.of());
         }
         String at = path + "." + info.property();
         if (failure.getTypeId() == null) {

@@ -37,7 +37,7 @@ public enum ValidationReason {
     /** {0} = the lowest, {1} = the highest value. */
     OUT_OF_RANGE,
     NOT_ACTIVE_CODE,
-    /** {0} = the text of the JSON library about the damage. */
+    /** No argument: the text of the JSON library names internal classes, so it stays in the cause. */
     INVALID_JSON,
     /** The name is not an argument of the tool. */
     UNKNOWN_ARGUMENT,
