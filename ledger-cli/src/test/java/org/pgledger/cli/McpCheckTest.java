@@ -143,6 +143,7 @@ class McpCheckTest {
 
             assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
             assertThat(result.code()).contains(ErrorCode.MCP_AUTHORIZATION_REFUSED);
+            assertThat(captured.getAll()).contains("the MCP check of").contains("exception chain").contains("Exception");
         }
         assertNoSecret(captured, output);
     }
@@ -160,6 +161,7 @@ class McpCheckTest {
 
         assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
         assertThat(result.code()).contains(ErrorCode.MCP_UNREACHABLE);
+        assertThat(captured.getAll()).contains("exception chain").contains("Exception");
         assertThat(captured.getAll()).contains(url);
         assertNoSecret(captured, output);
     }

@@ -25,6 +25,8 @@ import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.domain.rule.ToolContract;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
@@ -45,8 +47,10 @@ import tools.jackson.databind.json.JsonMapper;
  * <p>The client reports every failure of the transport as an unchecked exception whose type depends on the layer that
  * failed (the SDK, Reactor, the JDK HTTP client), so the command catches {@link RuntimeException} here and nowhere else in
  * the CLI, sorts the cause chain by type, and rethrows every case as a {@link FailureException}. The cause is not attached
- * (an exception of the client can carry request headers, and a stack trace would put them into a log); the message names
- * the types of the chain instead, so nothing is swallowed.
+ * and the messages of the chain are left out of the output, the log and the failure: an exception of the client can carry the
+ * request, whose headers hold the bearer token, so a message or a stack trace could leak it. The diagnosis is kept without
+ * the messages: the exception class names of the whole chain are logged at WARN, and the message of an unclassified failure
+ * names them too, so nothing is swallowed.
  */
 @Component
 public class McpCheckCommand implements Command {
@@ -55,6 +59,8 @@ public class McpCheckCommand implements Command {
 
     /** The address the MCP server binds to by default (see its {@code server.address} and {@code server.port}). */
     static final String DEFAULT_URL = "http://127.0.0.1:8765/mcp";
+
+    private static final Logger LOG = LoggerFactory.getLogger(McpCheckCommand.class);
 
     private static final String DEFAULT_PATH = "/mcp";
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
@@ -156,6 +162,8 @@ public class McpCheckCommand implements Command {
             refused |= cause instanceof McpHttpClientTransportAuthorizationException;
             unreachable |= cause instanceof IOException || cause instanceof UnresolvedAddressException;
         }
+        LOG.warn("the MCP check of {} failed; exception chain (class names only, the messages can hold the request): {}", shown,
+                String.join(" <- ", chain));
         if (refused) {
             return new FailureException(ErrorCode.MCP_AUTHORIZATION_REFUSED, shown);
         }
