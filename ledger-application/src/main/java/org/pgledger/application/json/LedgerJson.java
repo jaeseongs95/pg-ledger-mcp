@@ -7,6 +7,7 @@ import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.domain.value.JsonDocument;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.PropertyNamingStrategies;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -20,6 +21,12 @@ public final class LedgerJson {
 
     private final JsonMapper mapper = JsonMapper.builder()
             .propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
+            .build();
+
+    /** For input from callers: a key that no record knows is refused. */
+    private final JsonMapper strict = JsonMapper.builder()
+            .propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
+            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
             .build();
 
     public JsonDocument write(Object value) {
@@ -51,7 +58,7 @@ public final class LedgerJson {
             throw ValidationException.invalid(rootPath, "is required");
         }
         try {
-            return mapper.readValue(text, mapper.getTypeFactory().constructCollectionType(List.class, element));
+            return strict.readValue(text, strict.getTypeFactory().constructCollectionType(List.class, element));
         } catch (JacksonException e) {
             StringBuilder path = new StringBuilder(rootPath);
             for (JacksonException.Reference step : e.getPath()) {

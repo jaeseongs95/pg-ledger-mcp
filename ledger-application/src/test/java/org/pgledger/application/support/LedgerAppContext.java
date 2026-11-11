@@ -34,7 +34,7 @@ public final class LedgerAppContext implements AutoCloseable {
     private final JdbcClient jdbc;
     private final AtomicInteger projects = new AtomicInteger();
 
-    private LedgerAppContext(Dbms dbms, HikariDataSource pool) {
+    private LedgerAppContext(Dbms dbms, HikariDataSource pool, boolean seedCategories) {
         this.dbms = dbms;
         this.pool = pool;
         this.spy = new RecordingDataSource(pool);
@@ -42,9 +42,11 @@ public final class LedgerAppContext implements AutoCloseable {
                 new SchemaProperties(null, dbms.longText(), true, null), clock).migrate();
         this.context = startApplication();
         this.jdbc = JdbcClient.create(pool);
-        CommonCodeService codes = bean(CommonCodeService.class);
-        codes.set(new CodeCommand("DEFECT_CATEGORY", "ARC", "구조", "Architecture", null, null, 1, "ACTIVE"));
-        codes.set(new CodeCommand("DEFECT_CATEGORY", "RETIRED", "폐기", "Retired", null, null, 9, "INACTIVE"));
+        if (seedCategories) {
+            CommonCodeService codes = bean(CommonCodeService.class);
+            codes.set(new CodeCommand("DEFECT_CATEGORY", "ARC", "구조", "Architecture", null, null, 1, "ACTIVE"));
+            codes.set(new CodeCommand("DEFECT_CATEGORY", "RETIRED", "폐기", "Retired", null, null, 9, "INACTIVE"));
+        }
     }
 
     /**
@@ -62,7 +64,17 @@ public final class LedgerAppContext implements AutoCloseable {
     }
 
     public static LedgerAppContext create(Databases databases, Dbms dbms) {
-        return new LedgerAppContext(dbms, databases.newDataSource(dbms, "UTC"));
+        return new LedgerAppContext(dbms, databases.newDataSource(dbms, "UTC"), true);
+    }
+
+    /** A context whose database sessions run in {@code zone} (the guard is not part of this application). */
+    public static LedgerAppContext createInZone(Databases databases, Dbms dbms, String zone) {
+        return new LedgerAppContext(dbms, databases.newDataSource(dbms, zone), true);
+    }
+
+    /** A fresh installation: the category list is still empty. */
+    public static LedgerAppContext createWithoutCategories(Databases databases, Dbms dbms) {
+        return new LedgerAppContext(dbms, databases.newDataSource(dbms, "UTC"), false);
     }
 
     public Dbms dbms() {

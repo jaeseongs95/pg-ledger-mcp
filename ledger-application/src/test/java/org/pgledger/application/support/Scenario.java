@@ -43,7 +43,8 @@ public final class Scenario {
     private final String projectId;
     private final String code;
 
-    Scenario(LedgerAppContext ctx) {
+    /** A scenario in a project of its own on this context. */
+    public Scenario(LedgerAppContext ctx) {
         this.ctx = ctx;
         int number = ctx.nextProjectNumber();
         this.projectId = "p" + number;
@@ -186,6 +187,11 @@ public final class Scenario {
         return actor;
     }
 
+    /** A new author id that holds no grant. */
+    public String actorWithoutGrants() {
+        return "claude:n" + UUID.randomUUID().toString().substring(0, 8);
+    }
+
     public void grant(String actor, String project, String... scopes) {
         bean(GrantService.class).grant(new GrantCommand(actor, project, List.of(scopes), null, null));
     }
@@ -213,6 +219,17 @@ public final class Scenario {
 
     public HistoryEntry historyRow(long id) {
         return bean(HistoryRepository.class).findById(id).orElseThrow();
+    }
+
+    /** The {@code changes} of a history row. */
+    public org.pgledger.application.history.ChangeSet changes(long historyId) {
+        return bean(org.pgledger.application.json.LedgerJson.class).read(historyRow(historyId).changes(),
+                org.pgledger.application.history.ChangeSet.class);
+    }
+
+    /** The {@code before_data} of a history row, read into the record of its entity. */
+    public <T> T before(long historyId, Class<T> type) {
+        return bean(org.pgledger.application.json.LedgerJson.class).read(historyRow(historyId).beforeData(), type);
     }
 
     public long count(String sql, String... values) {

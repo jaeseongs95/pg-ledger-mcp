@@ -13,6 +13,12 @@ public final class Expect {
     private Expect() {
     }
 
+    /** The English message of a failure, resolved from the message bundle of the domain. */
+    public static String message(LedgerException failure) {
+        return new java.text.MessageFormat(java.util.ResourceBundle.getBundle("messages/ledger-errors",
+                java.util.Locale.ROOT).getString(failure.code().messageKey())).format(failure.args().toArray());
+    }
+
     /** What the call (run once) ended with: no value for a success, the error code of a business failure. */
     public static java.util.Optional<ErrorCode> outcome(ThrowingCallable call) {
         Throwable failure = catchThrowable(call);
