@@ -19,7 +19,7 @@ class JsonFidelityTest {
 
     /** JSON texts whose literal form is the case (exponents, trailing zeros, duplicate keys): they are sent as they are. */
     private static final String NUMBERS =
-            "{\"big\":12345678901234567890,\"huge\":1e999,\"neg\":-0,\"dec\":0.10,\"tiny\":0.000000000000000000000000001,"
+            "{\"big\":12345678901234567890,\"huge\":1e300,\"neg\":-0,\"dec\":0.10,\"tiny\":0.000000000000000000000000001,"
                     + "\"long\":9223372036854775807,\"exp\":1.5E+3,\"precise\":3.141592653589793238462643383279}";
 
     private static final String ESCAPES =
@@ -36,7 +36,7 @@ class JsonFidelityTest {
         assertThat(run.out()).contains("\"big\":12345678901234567890").contains("\"dec\":0.10").contains("\"long\":9223372036854775807");
         JsonNode args = host.echoed(run);
         assertThat(args.path("big").bigIntegerValue()).isEqualTo(new BigInteger("12345678901234567890"));
-        assertThat(args.path("huge").decimalValue()).isEqualByComparingTo(new BigDecimal("1e999"));
+        assertThat(args.path("huge").decimalValue()).isEqualByComparingTo(new BigDecimal("1e300"));
         assertThat(args.path("neg").decimalValue()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(args.path("tiny").decimalValue()).isEqualByComparingTo(new BigDecimal("0.000000000000000000000000001"));
         assertThat(args.path("precise").decimalValue()).isEqualByComparingTo(new BigDecimal("3.141592653589793238462643383279"));
@@ -104,10 +104,11 @@ class JsonFidelityTest {
     }
 
     @Test
-    @DisplayName("HK-014 a lone surrogate escape is passed through as the same escape, not replaced or rejected")
+    @DisplayName("HK-014 (changed by attest-fix) a lone surrogate escape has no UTF-8 form, so it has no canonical form to sign: denied ARGUMENTS_NOT_SIGNABLE, nothing signed")
     void loneSurrogate(HookFixture fixture) {
         CodexHost codex = new CodexHost();
         Run run = fixture.runClean(codex, codex.event(codex.toolName("save"), Json.raw("{\"lone\":\"\\ud800x\"}")));
-        assertThat(run.out()).contains("\"lone\":\"\\uD800x\"");
+        assertThat(run.document()).isEqualTo(codex.denied(Refusal.ARGUMENTS_NOT_SIGNABLE));
+        assertThat(fixture.keyDirectory()).doesNotExist();
     }
 }

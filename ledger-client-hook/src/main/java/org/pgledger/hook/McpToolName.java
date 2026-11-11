@@ -46,7 +46,7 @@ record McpToolName(String server, WriteTool tool) {
     private static final String CODEX_APPS = "codex_apps";
     private static final int MAX_APP_LENGTH = MAX_SERVER_LENGTH - CODEX_APPS.length() - 1;
     private static final Pattern CODEX_APP = Pattern.compile(
-            "^mcp__" + CODEX_APPS + "__app_([A-Za-z0-9_-]{1," + MAX_APP_LENGTH + "}?)_ledger_" + OPERATIONS + "$");
+            "^mcp__" + CODEX_APPS + "__app_([A-Za-z0-9][A-Za-z0-9_-]{0," + (MAX_APP_LENGTH - 1) + "}?)_ledger_" + OPERATIONS + "$");
     private static final Pattern ANTIGRAVITY_DIRECT = Pattern.compile(
             "^mcp:([" + SERVER_CHARACTERS + "]{1," + MAX_SERVER_LENGTH + "}?)[:/_](?:\\1_)?ledger_" + OPERATIONS + "$");
 
