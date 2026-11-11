@@ -4,18 +4,22 @@ import org.springframework.beans.factory.BeanFactory;
 import org.springframework.boot.diagnostics.AbstractFailureAnalyzer;
 import org.springframework.boot.diagnostics.FailureAnalysis;
 
-/** Boot standard path that prints a refusal as its message (and the usage text) instead of a stack trace; see META-INF/spring.factories. */
+/**
+ * Boot standard path that reports a refusal as its message (and, for a usage error, the usage text) instead of a stack trace;
+ * registered in META-INF/spring.factories. The translator is looked up only when a refusal actually occurs, so an unrelated
+ * startup failure is never affected by this analyzer.
+ */
 public class CliFailureAnalyzer extends AbstractFailureAnalyzer<CliException> {
 
-    private final CliErrorTranslator translator;
+    private final BeanFactory beanFactory;
 
     public CliFailureAnalyzer(BeanFactory beanFactory) {
-        this.translator = beanFactory.getBean(CliErrorTranslator.class);
+        this.beanFactory = beanFactory;
     }
 
     @Override
     protected FailureAnalysis analyze(Throwable rootFailure, CliException cause) {
-        CliErrorTranslator.Report report = translator.translate(cause);
+        CliErrorTranslator.Report report = beanFactory.getBean(CliErrorTranslator.class).translate(cause);
         return new FailureAnalysis(report.description(), report.action(), cause);
     }
 }

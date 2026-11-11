@@ -9,6 +9,6 @@ class CliOutputConfiguration {
 
     @Bean
     CliOutput cliOutput() {
-        return new StreamCliOutput(System.out, System.err);
+        return new StreamCliOutput(System.out);
     }
 }
