@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.pgledger.database.time.UtcTime;
+import org.pgledger.domain.rule.AttentionKind;
 import org.pgledger.domain.rule.DefectStatus;
 import org.pgledger.domain.value.CodeValue;
 import org.pgledger.domain.value.DefectId;
@@ -24,9 +25,19 @@ public class DefectQueryRepository {
 
     /** Optional filters of a defect list; the creation times are inclusive limits (UTC instants). */
     public record Filter(DefectStatus status, CodeValue severity, CodeValue category, Instant createdFrom,
-            Instant createdTo) {
+            Instant createdTo, String owner, AttentionKind attention) {
         public static final Filter NONE = new Filter(null, null, null, null, null);
+
+        public Filter(DefectStatus status, CodeValue severity, CodeValue category, Instant createdFrom,
+                Instant createdTo) {
+            this(status, severity, category, createdFrom, createdTo, null, null);
+        }
     }
+
+    /** The owner of a defect: its own, or the recorder of its latest fix. */
+    private static final String OWNER = "COALESCE(owner_actor_id, (SELECT f.recorded_by FROM defect_fix f "
+            + "WHERE f.defect_id = defect.id AND f.id = (SELECT MAX(f2.id) FROM defect_fix f2 "
+            + "WHERE f2.defect_id = defect.id)))";
 
     /** Which end of the list comes first. */
     public enum Order {
@@ -37,8 +48,10 @@ public class DefectQueryRepository {
     public record Position(Instant createdAt, DefectId id) {
     }
 
-    private static final String SELECT = "SELECT id, title, category, severity, status, version, created_at, "
-            + "updated_at FROM defect WHERE project_id = :project";
+    private static final String SELECT = "SELECT id, title, category, severity, status, merged_into, " + OWNER
+            + " AS owner, version, created_at, updated_at FROM defect WHERE project_id = :project";
+
+    private static final String HAS_FIX = "EXISTS (SELECT 1 FROM defect_fix x WHERE x.defect_id = defect.id)";
 
     private final JdbcClient jdbc;
 
@@ -66,6 +79,18 @@ public class DefectQueryRepository {
         } else if (filter.createdTo() != null) {
             sql.append(" AND created_at <= :to");
         }
+        if (filter.owner() != null) {
+            sql.append(" AND ").append(OWNER).append(" = :owner");
+        }
+        if (filter.attention() != null) {
+            sql.append(switch (filter.attention()) {
+                case OPEN_WITH_FIX -> " AND status = 'OPEN' AND " + HAS_FIX;
+                case FIXED_WITHOUT_COMMIT -> " AND status IN ('SOURCE_FIXED', 'VERIFIED') AND NOT " + HAS_FIX;
+                case OPEN_NO_OWNER -> " AND status = 'OPEN' AND owner_actor_id IS NULL";
+                case TASK_UNKNOWN, DONE_NOT_VERIFIED ->
+                    throw new IllegalArgumentException("not a defect attention kind: " + filter.attention());
+            });
+        }
         if (after != null) {
             sql.append(newestFirst
                     ? " AND (created_at < :after OR (created_at = :after AND id < :afterId))"
@@ -82,6 +107,9 @@ public class DefectQueryRepository {
         }
         if (filter.category() != null) {
             spec = spec.param("category", filter.category().value());
+        }
+        if (filter.owner() != null) {
+            spec = spec.param("owner", filter.owner());
         }
         if (filter.createdFrom() != null) {
             spec = spec.param("from", UtcTime.toDb(filter.createdFrom()));
@@ -120,10 +148,12 @@ public class DefectQueryRepository {
     }
 
     private static DefectSummary summary(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+        String mergedInto = rs.getString("merged_into");
         return new DefectSummary(DefectId.of(rs.getString("id")), rs.getString("title"),
                 CodeValue.of(rs.getString("category")), CodeValue.of(rs.getString("severity")),
-                DefectStatus.valueOf(rs.getString("status")), rs.getLong("version"),
-                UtcTime.read(rs, "created_at"), UtcTime.read(rs, "updated_at"));
+                DefectStatus.valueOf(rs.getString("status")), mergedInto == null ? null : DefectId.of(mergedInto),
+                rs.getString("owner"), rs.getLong("version"), UtcTime.read(rs, "created_at"),
+                UtcTime.read(rs, "updated_at"));
     }
 
     private static String escapeLike(String keyword) {
