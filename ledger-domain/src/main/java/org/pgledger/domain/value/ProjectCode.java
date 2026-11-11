@@ -2,6 +2,7 @@ package org.pgledger.domain.value;
 
 import java.util.regex.Pattern;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /** Short upper-case project code that forms the prefix of defect and task ids. */
 public record ProjectCode(String value) {
@@ -10,7 +11,7 @@ public record ProjectCode(String value) {
 
     public ProjectCode {
         if (value == null || !FORMAT.matcher(value).matches()) {
-            throw ValidationException.invalid("project_code", "must match [A-Z][A-Z0-9_]{0,31}");
+            throw ValidationException.invalid("project_code", ValidationReason.MUST_MATCH, FORMAT.pattern());
         }
     }
 

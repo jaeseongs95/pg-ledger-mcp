@@ -6,6 +6,7 @@ import java.util.Map;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationIssue;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.CodeGroup;
 import org.pgledger.domain.value.CodeValue;
 
@@ -37,7 +38,7 @@ public record CodeCatalog(CodeGroup group, List<CommonCode> entries) {
         String validText = String.join(", ", valid);
         if (candidate == null) {
             throw new ValidationException(ValidationCode.CODE_REQUIRED, List.of(column, validText, group.name()),
-                    List.of(new ValidationIssue(column, "is required", valid)), Map.of("valid", valid));
+                    List.of(new ValidationIssue(column, ValidationReason.REQUIRED, List.of(), valid)), Map.of("valid", valid));
         }
         CommonCode entry = entries.stream().filter(e -> e.code().equals(candidate)).findFirst().orElse(null);
         boolean known = entry != null;
@@ -47,7 +48,7 @@ public record CodeCatalog(CodeGroup group, List<CommonCode> entries) {
             boolean holdsLegacyValue = group.alwaysActive() && known;
             throw new ValidationException(ValidationCode.CODE_INVALID,
                     List.of(column, candidate.value(), group.name(), validText),
-                    List.of(new ValidationIssue(column, "is not an active code", valid)),
+                    List.of(new ValidationIssue(column, ValidationReason.NOT_ACTIVE_CODE, List.of(), valid)),
                     Map.of("valid", valid, "holdsLegacyValue", List.of(Boolean.toString(holdsLegacyValue))));
         }
     }

@@ -299,7 +299,7 @@ class SaveTest {
 
     private static void create(Scenario s, String entity, Map<String, String> fields) {
         s.bean(SaveService.class).save(Scenario.AUTHOR, s.create(entity,
-                entity.equals("condition") ? s.conditionId("1") : null, fields));
+                "condition".equals(entity) ? s.conditionId("1") : null, fields));
     }
 
     @ParameterizedTest

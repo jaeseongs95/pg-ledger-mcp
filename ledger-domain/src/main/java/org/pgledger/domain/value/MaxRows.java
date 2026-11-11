@@ -1,6 +1,7 @@
 package org.pgledger.domain.value;
 
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /** Row limit of a list tool: 1..1000, default 50. */
 public record MaxRows(int value) {
@@ -11,7 +12,7 @@ public record MaxRows(int value) {
 
     public MaxRows {
         if (value < MIN || value > MAX) {
-            throw ValidationException.invalid("max_rows", "must be " + MIN + ".." + MAX);
+            throw ValidationException.invalid("max_rows", ValidationReason.OUT_OF_RANGE, String.valueOf(MIN), String.valueOf(MAX));
         }
     }
 
@@ -21,11 +22,11 @@ public record MaxRows(int value) {
             return DEFAULT;
         }
         if (raw.doubleValue() != Math.rint(raw.doubleValue())) {
-            throw ValidationException.invalid("max_rows", "must be an integer");
+            throw ValidationException.invalid("max_rows", ValidationReason.NOT_AN_INTEGER);
         }
         long whole = raw.longValue();
         if (whole < MIN || whole > MAX) {
-            throw ValidationException.invalid("max_rows", "must be " + MIN + ".." + MAX);
+            throw ValidationException.invalid("max_rows", ValidationReason.OUT_OF_RANGE, String.valueOf(MIN), String.valueOf(MAX));
         }
         return new MaxRows((int) whole);
     }

@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.pgledger.domain.error.ErrorCode;
 import org.pgledger.domain.error.LedgerException;
+import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationIssue;
 
 /** Assertions on the business failures of the services. */
 public final class Expect {
@@ -17,6 +19,12 @@ public final class Expect {
     public static String message(LedgerException failure) {
         return new java.text.MessageFormat(java.util.ResourceBundle.getBundle("messages/ledger-errors",
                 java.util.Locale.ROOT).getString(failure.code().messageKey())).format(failure.args().toArray());
+    }
+
+    /** The first issue of a validation failure. */
+    public static ValidationIssue firstIssue(LedgerException failure) {
+        assertThat(failure).isInstanceOf(ValidationException.class);
+        return ((ValidationException) failure).issues().getFirst();
     }
 
     /** What the call (run once) ended with: no value for a success, the error code of a business failure. */

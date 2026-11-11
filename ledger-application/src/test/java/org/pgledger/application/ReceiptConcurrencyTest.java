@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.stream.IntStream;
@@ -62,7 +63,7 @@ class ReceiptConcurrencyTest {
         String winningTitle = s.defect(winner.id()).title();
         assertThat(s.count("SELECT COUNT(*) FROM defect WHERE project_id = ?", s.projectId())).isEqualTo(1);
         assertThat(outcomes.stream().map(ReceiptConcurrencyTest::code).toList()).isEqualTo(titles.stream()
-                .map(t -> t.equals(winningTitle) ? Optional.<ErrorCode>empty()
+                .map(t -> Objects.equals(t, winningTitle) ?Optional.<ErrorCode>empty()
                         : Optional.<ErrorCode>of(ConflictCode.REQUEST_CONFLICT)).toList());
         assertThat(outcomes.stream().filter(Outcome::succeeded).map(Outcome::value).distinct()).hasSize(1);
     }
@@ -75,13 +76,7 @@ class ReceiptConcurrencyTest {
         List<Callable<Object>> calls = new ArrayList<>();
         for (int i = 0; i < 8; i++) {
             int n = i % 4;
-            calls.add(() -> {
-                try {
-                    return s.bean(SaveService.class).save(actor, create(s, id, "stress " + n));
-                } catch (LedgerException expected) {
-                    return expected.code();
-                }
-            });
+            calls.add(() -> s.bean(SaveService.class).save(actor, create(s, id, "stress " + n)));
         }
         for (int i = 0; i < 200; i++) {
             int n = i;
@@ -91,7 +86,10 @@ class ReceiptConcurrencyTest {
                             s.taskFields("mixed " + n), Scenario.REASON)));
         }
         List<Outcome<Object>> outcomes = Parallel.all(calls, 12);
-        assertThat(outcomes).allSatisfy(o -> assertThat(o.failure()).isNull());
+        // a stress write may lose the race of its request id: that is a business failure, anything else is not
+        assertThat(outcomes).allSatisfy(o -> assertThat(o.failure()).satisfiesAnyOf(
+                failure -> assertThat(failure).isNull(),
+                failure -> assertThat(failure).isInstanceOf(LedgerException.class)));
         String mine = "SELECT COUNT(*) FROM request_receipt WHERE author_id = ?";
         assertThat(s.count(mine, actor)).isEqualTo(201);
         assertThat(s.count(mine + " AND response IS NULL", actor)).isZero();

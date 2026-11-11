@@ -12,19 +12,35 @@ public final class ValidationException extends LedgerException {
 
     public ValidationException(ValidationCode code, List<String> args, List<ValidationIssue> issues,
             Map<String, List<String>> details) {
-        super(code, args, details, null);
+        this(code, args, issues, details, null);
+    }
+
+    public ValidationException(ValidationCode code, List<String> args, List<ValidationIssue> issues,
+            Map<String, List<String>> details, Throwable cause) {
+        super(code, args, details, cause);
         this.issues = List.copyOf(issues);
     }
 
-    /** VALIDATION_FAILED for one path. */
-    public static ValidationException invalid(String path, String reason) {
-        return invalid(path, reason, List.of());
+    /** VALIDATION_FAILED for one path; {@code reasonArgs} fill the placeholders of the reason's pattern. */
+    public static ValidationException invalid(String path, ValidationReason reason, String... reasonArgs) {
+        return invalid(path, reason, List.of(), reasonArgs);
     }
 
-    /** VALIDATION_FAILED for one path of a closed value set. */
-    public static ValidationException invalid(String path, String reason, List<String> allowed) {
-        return new ValidationException(ValidationCode.VALIDATION_FAILED, List.of(path, reason),
-                List.of(new ValidationIssue(path, reason, allowed)), Map.of());
+    /**
+     * VALIDATION_FAILED for one path of a closed value set. The code's arguments are the path only: the reason lives
+     * in the issue, and its sentence comes from the reason bundles.
+     */
+    public static ValidationException invalid(String path, ValidationReason reason, List<String> allowed,
+            String... reasonArgs) {
+        return new ValidationException(ValidationCode.VALIDATION_FAILED, List.of(path),
+                List.of(new ValidationIssue(path, reason, List.of(reasonArgs), allowed)), Map.of());
+    }
+
+    /** VALIDATION_FAILED for one path whose input failed in a parser: {@code cause} is that failure. */
+    public static ValidationException invalid(String path, ValidationReason reason, Throwable cause,
+            String... reasonArgs) {
+        return new ValidationException(ValidationCode.VALIDATION_FAILED, List.of(path),
+                List.of(new ValidationIssue(path, reason, List.of(reasonArgs), List.of())), Map.of(), cause);
     }
 
     public List<ValidationIssue> issues() {
@@ -33,6 +49,6 @@ public final class ValidationException extends LedgerException {
 
     @Override
     protected LedgerException copyWith(Map<String, List<String>> newDetails) {
-        return new ValidationException((ValidationCode) code(), args(), issues, newDetails);
+        return new ValidationException((ValidationCode) code(), args(), issues, newDetails, getCause());
     }
 }

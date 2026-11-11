@@ -8,6 +8,7 @@ import org.springframework.data.annotation.Version;
 import org.springframework.data.relational.core.mapping.InsertOnlyProperty;
 import org.springframework.data.relational.core.mapping.Table;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.DefectStatus;
 import org.pgledger.domain.value.ActorId;
 import org.pgledger.domain.value.CodeValue;
@@ -27,10 +28,10 @@ public record Defect(@Id DefectId id, ProjectId projectId, String title, CodeVal
 
     public Defect {
         if ((status == DefectStatus.MERGED) != (mergedInto != null)) {
-            throw ValidationException.invalid("merged_into", "is set exactly when the status is MERGED");
+            throw ValidationException.invalid("merged_into", ValidationReason.SET_EXACTLY_WHEN_STATUS_IS, "MERGED");
         }
         if (id.equals(mergedInto)) {
-            throw ValidationException.invalid("merged_into", "must not be the defect itself");
+            throw ValidationException.invalid("merged_into", ValidationReason.MUST_NOT_BE_THE_DEFECT_ITSELF);
         }
     }
 

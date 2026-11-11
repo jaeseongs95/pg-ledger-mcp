@@ -6,6 +6,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.regex.Pattern;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /** A SHA-256 digest as 64 lower-case hex characters (evidence, payload and file digests). */
 public record Sha256(String hex) {
@@ -14,7 +15,7 @@ public record Sha256(String hex) {
 
     public Sha256 {
         if (hex == null || !FORMAT.matcher(hex).matches()) {
-            throw ValidationException.invalid("sha256", "must be 64 lower-case hex characters");
+            throw ValidationException.invalid("sha256", ValidationReason.MUST_BE_LOWER_CASE_HEX, "64");
         }
     }
 

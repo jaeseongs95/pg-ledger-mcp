@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.Condition;
 import org.pgledger.domain.model.ConditionFields;
 import org.pgledger.domain.model.Defect;
@@ -38,21 +39,21 @@ public class EntityEditors {
             case TASK -> TASK_KEYS;
             case CONDITION -> CONDITION_KEYS;
             case DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE ->
-                throw ValidationException.invalid("entity", "cannot be saved: " + entity.token(),
-                        List.of("defect", "task", "condition"));
+                throw ValidationException.invalid("entity", ValidationReason.CANNOT_BE_SAVED,
+                        List.of("defect", "task", "condition"), entity.token());
         };
     }
 
     /** Refuses unknown keys and builds the typed fields; a missing map is a failure. */
     public EntityFields parse(HistoryEntity entity, Map<String, String> raw) {
         if (raw == null) {
-            throw ValidationException.invalid("fields", "is required");
+            throw ValidationException.invalid("fields", ValidationReason.REQUIRED);
         }
         List<String> allowed = keys(entity);
         for (String key : raw.keySet()) {
             if (!allowed.contains(key)) {
-                throw ValidationException.invalid("fields." + key, "is not an editable field of "
-                        + entity.token() + " (state changes use transition)", allowed);
+                throw ValidationException.invalid("fields." + key, ValidationReason.NOT_AN_EDITABLE_FIELD_OF, allowed,
+                        entity.token());
             }
         }
         return switch (entity) {

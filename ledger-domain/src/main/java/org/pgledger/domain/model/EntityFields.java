@@ -1,6 +1,7 @@
 package org.pgledger.domain.model;
 
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.value.Patch;
 
@@ -20,7 +21,7 @@ public sealed interface EntityFields permits DefectFields, TaskFields, Condition
 
     static void requireValue(String path, Patch<?> patch) {
         if (!patch.hasValue()) {
-            throw ValidationException.invalid(path, "is required");
+            throw ValidationException.invalid(path, ValidationReason.REQUIRED);
         }
     }
 
@@ -30,6 +31,6 @@ public sealed interface EntityFields permits DefectFields, TaskFields, Condition
                 return;
             }
         }
-        throw ValidationException.invalid("fields", "must mention at least one field");
+        throw ValidationException.invalid("fields", ValidationReason.MUST_MENTION_A_FIELD);
     }
 }

@@ -2,6 +2,7 @@ package org.pgledger.domain.value;
 
 import java.util.regex.Pattern;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /** A git commit id: 40 lower-case hex characters. */
 public record CommitSha(String value) {
@@ -10,7 +11,7 @@ public record CommitSha(String value) {
 
     public CommitSha {
         if (value == null || !FORMAT.matcher(value).matches()) {
-            throw ValidationException.invalid("commit_sha", "must be 40 lower-case hex characters");
+            throw ValidationException.invalid("commit_sha", ValidationReason.MUST_BE_LOWER_CASE_HEX, "40");
         }
     }
 

@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.function.Function;
 import org.pgledger.database.repository.KeysetPage;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.value.MaxRows;
 import org.pgledger.domain.value.PageCursor;
 import org.pgledger.domain.value.Sha256;
@@ -39,7 +40,7 @@ public class Cursors {
         String expected = digest(filter) + ":";
         String sortKey = decoded.sortKey();
         if (sortKey == null || !sortKey.startsWith(expected)) {
-            throw ValidationException.invalid("cursor", "was made for other filters");
+            throw ValidationException.invalid("cursor", ValidationReason.CURSOR_OTHER_FILTERS);
         }
         String rest = sortKey.substring(expected.length());
         return new Position(rest.isEmpty() ? null : rest, decoded.id());

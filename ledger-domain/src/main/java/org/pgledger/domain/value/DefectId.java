@@ -4,6 +4,7 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /** {@code <PROJECT_CODE>-D-<number>}: the number is zero padded to 4 digits and grows past 9999. */
 public record DefectId(String value) {
@@ -23,7 +24,7 @@ public record DefectId(String value) {
 
     /** The failure of a text that is not a defect id (the constructor throws it; a gate may carry it as a value). */
     public static ValidationException malformed() {
-        return ValidationException.invalid("defect_id", "must match <PROJECT_CODE>-D-<number of 4 or more digits>");
+        return ValidationException.invalid("defect_id", ValidationReason.DEFECT_ID_FORMAT);
     }
 
     public static DefectId of(String value) {
@@ -52,7 +53,7 @@ public record DefectId(String value) {
 
     static String zeroPadded(long number) {
         if (number < 1) {
-            throw ValidationException.invalid("number", "must be positive");
+            throw ValidationException.invalid("number", ValidationReason.MUST_BE_POSITIVE);
         }
         String digits = Long.toString(number);
         return "0".repeat(Math.max(0, 4 - digits.length())) + digits;

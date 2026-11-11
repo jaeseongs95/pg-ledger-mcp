@@ -1,6 +1,7 @@
 package org.pgledger.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -30,6 +31,7 @@ import org.pgledger.domain.error.TrustCode;
 import org.pgledger.domain.error.TrustException;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.Batch;
 import org.pgledger.domain.model.BatchOp;
 import org.pgledger.domain.model.BatchOpKind;
@@ -153,6 +155,56 @@ class BatchAndErrorsTest {
         }
         assertThat(Set.copyOf(en.keySet())).as("no unused key").isEqualTo(expected);
         assertThat(ko.getString("error.SESSION_NOT_GRANTED")).contains("부여");
+    }
+
+    @Test
+    void dom027_reasonBundlesHaveAPatternForEveryValidationReason() {
+        ResourceBundle en = ResourceBundle.getBundle("messages/ledger-reasons", Locale.ROOT);
+        ResourceBundle ko = ResourceBundle.getBundle("messages/ledger-reasons", Locale.of("ko"));
+        assertThat(Set.copyOf(en.keySet())).isEqualTo(Set.copyOf(ko.keySet()));
+        Set<String> expected = new HashSet<>();
+        for (ValidationReason reason : ValidationReason.values()) {
+            assertThat(reason.messageKey()).isEqualTo("reason." + reason.name());
+            expected.add(reason.messageKey());
+            assertThat(en.getString(reason.messageKey())).as(reason.messageKey()).isNotBlank();
+            assertThat(ko.getString(reason.messageKey())).as(reason.messageKey()).isNotBlank();
+            // the patterns parse, and both languages use the same number of arguments
+            MessageFormat english = new MessageFormat(en.getString(reason.messageKey()));
+            MessageFormat korean = new MessageFormat(ko.getString(reason.messageKey()));
+            assertThat(korean.getFormatsByArgumentIndex()).as(reason.messageKey()).hasSameSizeAs(
+                    english.getFormatsByArgumentIndex());
+            assertThat(english.format(new Object[] {"a", "b", "c"})).as(reason.messageKey()).doesNotContain("{");
+        }
+        assertThat(Set.copyOf(en.keySet())).as("no unused key").isEqualTo(expected);
+        assertThat(new MessageFormat(en.getString("reason.MUST_BE_AT_MOST_CHARS")).format(new Object[] {"200"}))
+                .isEqualTo("must be at most 200 characters");
+        assertThat(new MessageFormat(ko.getString("reason.REQUIRED")).format(new Object[0])).contains("필수");
+    }
+
+    @Test
+    void dom027_aJakartaTemplateNamesOneReason() {
+        for (ValidationReason reason : ValidationReason.values()) {
+            assertThat(ValidationReason.ofTemplate("{" + reason.messageKey() + "}")).isSameAs(reason);
+        }
+        assertThatThrownBy(() -> ValidationReason.ofTemplate("{jakarta.validation.constraints.NotNull.message}"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ValidationReason.ofTemplate("is required"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void dom027_aValidationFailureCarriesThePathAndTheReasonSeparately() {
+        ValidationException e = ValidationException.invalid("ops", ValidationReason.MUST_HOLD_ITEMS, "1", "100");
+        assertThat(e.code()).isEqualTo(ValidationCode.VALIDATION_FAILED);
+        assertThat(e.args()).containsExactly("ops");
+        assertThat(e.issues()).hasSize(1);
+        assertThat(e.issues().get(0).reason()).isEqualTo(ValidationReason.MUST_HOLD_ITEMS);
+        assertThat(e.issues().get(0).reasonArgs()).containsExactly("1", "100");
+        assertThat(e.issues().get(0).allowed()).isEmpty();
+        ValidationException closed = ValidationException.invalid("kind", ValidationReason.UNKNOWN_VALUE,
+                List.of("a", "b"), "x");
+        assertThat(closed.issues().get(0).allowed()).containsExactly("a", "b");
+        assertThat(closed.issues().get(0).reasonArgs()).containsExactly("x");
     }
 
     @ParameterizedTest

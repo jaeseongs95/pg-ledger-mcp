@@ -23,6 +23,7 @@ import org.pgledger.domain.error.ConflictException;
 import org.pgledger.domain.error.TrustCode;
 import org.pgledger.domain.error.TrustException;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.Condition;
 import org.pgledger.domain.model.Defect;
 import org.pgledger.domain.model.ReceiptOperation;
@@ -120,7 +121,7 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
     protected Prepared<TransitionResult> prepare(TransitionCommand c) {
         HistoryEntity entity = Tokens.parse("entity", c.entity(), STATEFUL);
         if (c.expectedVersion() == null) {
-            throw ValidationException.invalid("expected_version", "is required");
+            throw ValidationException.invalid("expected_version", ValidationReason.REQUIRED);
         }
         EntityId.of(c.id());
         Evidence evidence = Evidence.of(c.evidenceUri(), c.evidenceSha256());

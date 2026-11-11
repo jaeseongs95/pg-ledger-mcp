@@ -43,30 +43,35 @@ public final class Parallel {
         executor.setThreadNamePrefix("parallel-");
         executor.initialize();
         try {
-            List<Future<Outcome<T>>> futures = new ArrayList<>();
+            List<Future<T>> futures = new ArrayList<>();
             for (Callable<T> task : tasks) {
                 futures.add(executor.submit(() -> {
                     start.await();
-                    try {
-                        return new Outcome<>(task.call(), null);
-                    } catch (Exception | AssertionError e) {
-                        return new Outcome<>(null, e);
-                    }
+                    return task.call();
                 }));
             }
             start.countDown();
             List<Outcome<T>> results = new ArrayList<>();
-            for (Future<Outcome<T>> future : futures) {
-                results.add(future.get(180, TimeUnit.SECONDS));
+            for (Future<T> future : futures) {
+                results.add(outcome(future));
             }
             return results;
-        } catch (ExecutionException | TimeoutException e) {
+        } catch (TimeoutException e) {
             throw new IllegalStateException("parallel run did not finish", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("parallel run interrupted", e);
         } finally {
             executor.shutdown();
+        }
+    }
+
+    /** The value of a finished task, or the failure it ended with (the cause of the execution failure). */
+    private static <T> Outcome<T> outcome(Future<T> future) throws InterruptedException, TimeoutException {
+        try {
+            return new Outcome<>(future.get(180, TimeUnit.SECONDS), null);
+        } catch (ExecutionException e) {
+            return new Outcome<>(null, e.getCause());
         }
     }
 

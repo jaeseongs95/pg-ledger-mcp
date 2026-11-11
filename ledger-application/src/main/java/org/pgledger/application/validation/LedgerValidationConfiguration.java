@@ -15,6 +15,7 @@ import org.aopalliance.intercept.MethodInterceptor;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationIssue;
+import org.pgledger.domain.error.ValidationReason;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -53,23 +54,42 @@ public class LedgerValidationConfiguration {
                 try {
                     return validation.invoke(invocation);
                 } catch (ConstraintViolationException violations) {
-                    throw translate(violations.getConstraintViolations());
+                    throw translate(violations.getConstraintViolations(), violations);
                 }
             };
         }
     }
 
-    /** One issue per violated property, in the order of their paths; the first one names the failure. */
-    static ValidationException translate(Set<ConstraintViolation<?>> violations) {
+    /**
+     * One issue per violated property, in the order of their paths; the first one names the failure. The reason is
+     * the one the message template of the constraint names ({@code {reason.REQUIRED}}), its arguments are attributes
+     * of the constraint ({@code max} of a size); the interpolated message of the violation is never read, so the
+     * result does not depend on the locale of the JVM and the sentence is the business of the reason bundles.
+     */
+    static ValidationException translate(Set<ConstraintViolation<?>> violations, Throwable cause) {
         List<ValidationIssue> issues = violations.stream()
-                .map(violation -> new ValidationIssue(path(violation.getPropertyPath()), violation.getMessage(),
-                        List.of()))
+                .map(violation -> {
+                    ValidationReason reason = ValidationReason.ofTemplate(violation.getMessageTemplate());
+                    return new ValidationIssue(path(violation.getPropertyPath()), reason,
+                            reasonArgs(reason, violation));
+                })
                 .distinct()
                 .sorted(Comparator.comparing(ValidationIssue::path).thenComparing(ValidationIssue::reason))
                 .toList();
         ValidationIssue first = issues.getFirst();
-        return new ValidationException(ValidationCode.VALIDATION_FAILED, List.of(first.path(), first.reason()),
-                issues, Map.of());
+        return new ValidationException(ValidationCode.VALIDATION_FAILED, List.of(first.path()), issues, Map.of(),
+                cause);
+    }
+
+    /** The arguments of a reason: the constraint attributes its pattern names, in the order of its placeholders. */
+    private static List<String> reasonArgs(ValidationReason reason, ConstraintViolation<?> violation) {
+        Map<String, Object> attributes = violation.getConstraintDescriptor().getAttributes();
+        return switch (reason) {
+            case MUST_BE_AT_MOST_CHARS -> List.of(String.valueOf(attributes.get("max")));
+            case MUST_BE_CHARS_RANGE -> List.of(String.valueOf(attributes.get("min")),
+                    String.valueOf(attributes.get("max")));
+            default -> List.of();
+        };
     }
 
     /** The wire name of a property path: the property nodes only, in snake case ({@code maxRows} is max_rows). */

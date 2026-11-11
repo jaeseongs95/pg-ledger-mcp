@@ -1,6 +1,7 @@
 package org.pgledger.domain.value;
 
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /**
  * JSON text kept in a long text column (history changes, before_data, receipt response). The domain does not
@@ -12,7 +13,7 @@ public record JsonDocument(String text) {
 
     public JsonDocument {
         if (text == null || text.isBlank()) {
-            throw ValidationException.invalid("json", "must not be blank");
+            throw ValidationException.invalid("json", ValidationReason.MUST_NOT_BE_BLANK);
         }
     }
 

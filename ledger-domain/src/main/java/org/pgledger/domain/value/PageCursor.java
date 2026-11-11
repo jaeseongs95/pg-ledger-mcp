@@ -1,8 +1,11 @@
 package org.pgledger.domain.value;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.Objects;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /**
  * Position after the last row of a page: the sort key (may be absent) and the id, for one kind of list. The
@@ -21,7 +24,7 @@ public record PageCursor(Kind kind, String sortKey, String id) {
     public PageCursor {
         if (kind == null || id == null || id.isEmpty() || id.indexOf('\n') >= 0
                 || (sortKey != null && sortKey.indexOf('\n') >= 0)) {
-            throw ValidationException.invalid(PATH, "is not a valid position");
+            throw ValidationException.invalid(PATH, ValidationReason.NOT_A_VALID_POSITION);
         }
     }
 
@@ -33,36 +36,32 @@ public record PageCursor(Kind kind, String sortKey, String id) {
 
     public static PageCursor decode(String token, Kind expected) {
         if (token == null) {
-            throw ValidationException.invalid(PATH, "is required");
+            throw ValidationException.invalid(PATH, ValidationReason.REQUIRED);
         }
         int dot = token.lastIndexOf('.');
         if (dot < 1) {
-            throw ValidationException.invalid(PATH, "is damaged");
+            throw ValidationException.invalid(PATH, ValidationReason.CURSOR_DAMAGED);
         }
         String payload;
         try {
             payload = new String(Base64.getUrlDecoder().decode(token.substring(0, dot)), StandardCharsets.UTF_8);
         } catch (IllegalArgumentException e) {
-            throw ValidationException.invalid(PATH, "is damaged");
+            throw ValidationException.invalid(PATH, ValidationReason.CURSOR_DAMAGED, e);
         }
-        if (!checksum(payload).equals(token.substring(dot + 1))) {
-            throw ValidationException.invalid(PATH, "is damaged");
+        if (!Objects.equals(checksum(payload), token.substring(dot + 1))) {
+            throw ValidationException.invalid(PATH, ValidationReason.CURSOR_DAMAGED);
         }
         int first = payload.indexOf('\n');
         int second = first < 0 ? -1 : payload.indexOf('\n', first + 1);
         if (second < 0 || payload.indexOf('\n', second + 1) >= 0) {
-            throw ValidationException.invalid(PATH, "is damaged");
+            throw ValidationException.invalid(PATH, ValidationReason.CURSOR_DAMAGED);
         }
         String[] parts = {payload.substring(0, first), payload.substring(first + 1, second),
             payload.substring(second + 1)};
-        Kind kind;
-        try {
-            kind = Kind.valueOf(parts[0]);
-        } catch (IllegalArgumentException e) {
-            throw ValidationException.invalid(PATH, "is damaged");
-        }
+        Kind kind = Arrays.stream(Kind.values()).filter(candidate -> Objects.equals(candidate.name(), parts[0])).findFirst()
+                .orElseThrow(() -> ValidationException.invalid(PATH, ValidationReason.CURSOR_DAMAGED));
         if (kind != expected) {
-            throw ValidationException.invalid(PATH, "belongs to another list");
+            throw ValidationException.invalid(PATH, ValidationReason.CURSOR_OTHER_LIST);
         }
         return new PageCursor(kind, parts[1].isEmpty() ? null : parts[1], parts[2]);
     }

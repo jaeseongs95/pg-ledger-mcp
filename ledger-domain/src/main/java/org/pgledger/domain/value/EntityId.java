@@ -2,6 +2,7 @@ package org.pgledger.domain.value;
 
 import java.util.regex.Pattern;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /**
  * An id of a defect, task or condition. Ids are accepted only in upper case, so equality does not depend on a
@@ -26,7 +27,7 @@ public record EntityId(String value) {
     }
 
     static ValidationException malformed(String path) {
-        return ValidationException.invalid(path, "must be an upper-case id matching " + PATTERN.pattern());
+        return ValidationException.invalid(path, ValidationReason.MUST_BE_UPPER_CASE_ID_MATCHING, PATTERN.pattern());
     }
 
     static void requireValid(String path, String value) {

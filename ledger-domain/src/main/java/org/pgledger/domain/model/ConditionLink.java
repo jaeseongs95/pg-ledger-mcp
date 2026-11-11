@@ -1,6 +1,7 @@
 package org.pgledger.domain.model;
 
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.LinkKind;
 import org.pgledger.domain.value.ActorId;
@@ -18,7 +19,7 @@ public record ConditionLink(ConditionId conditionId, TaskId taskId, DefectId def
 
     public ConditionLink {
         if ((taskId == null) == (defectId == null)) {
-            throw ValidationException.invalid("target", "must be exactly one of task or defect");
+            throw ValidationException.invalid("target", ValidationReason.MUST_BE_EXACTLY_ONE_OF, "task", "defect");
         }
     }
 

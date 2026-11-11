@@ -1,6 +1,7 @@
 package org.pgledger.domain.rule;
 
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.value.Token;
 
 /** What a session grant allows on a project. */
@@ -30,7 +31,7 @@ public enum Scope implements Token {
             case DEFECT -> DEFECT;
             case TASK, CONDITION -> TASK;
             case DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE ->
-                throw ValidationException.invalid("entity", "has no state: " + entity.token());
+                throw ValidationException.invalid("entity", ValidationReason.HAS_NO_STATE, entity.token());
         };
     }
 }

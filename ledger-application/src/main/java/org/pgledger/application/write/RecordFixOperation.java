@@ -22,6 +22,7 @@ import org.pgledger.domain.error.ConflictException;
 import org.pgledger.domain.error.TransitionCode;
 import org.pgledger.domain.error.TransitionException;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.Defect;
 import org.pgledger.domain.model.DefectFix;
 import org.pgledger.domain.model.ReceiptOperation;
@@ -90,7 +91,7 @@ public class RecordFixOperation extends WriteOperation<RecordFixCommand, RecordF
         Instant completedAt = c.ciCompletedAt() == null || c.ciCompletedAt().isBlank() ? null
                 : UtcInstant.parse("ci_completed_at", c.ciCompletedAt()).value();
         if (conclusion != null && ciRef == null) {
-            throw ValidationException.invalid("ci_ref", "is required when ci_conclusion is set");
+            throw ValidationException.invalid("ci_ref", ValidationReason.REQUIRED_WHEN_SET, "ci_conclusion");
         }
         boolean mark = c.markSourceFixed() == null || c.markSourceFixed();
         CanonicalPayload.Fields payload = CanonicalPayload.Fields.empty().text("defect", defectId.value())

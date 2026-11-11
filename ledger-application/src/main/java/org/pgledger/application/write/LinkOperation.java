@@ -2,6 +2,7 @@ package org.pgledger.application.write;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Target;
@@ -18,6 +19,7 @@ import org.pgledger.database.repository.TaskRepository;
 import org.pgledger.domain.error.TransitionCode;
 import org.pgledger.domain.error.TransitionException;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.CodeCatalog;
 import org.pgledger.domain.model.ConditionLink;
 import org.pgledger.domain.model.DefectRelation;
@@ -74,13 +76,13 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
             return kind;
         }
         CodeCatalog catalog = codes.catalog(CodeGroup.RELATION_KIND);
-        if (token != null && catalog.entries().stream().anyMatch(e -> e.code().value().equals(token))) {
+        if (token != null && catalog.entries().stream().anyMatch(e -> Objects.equals(e.code().value(), token))) {
             return kind;
         }
         List<String> allowed = new ArrayList<>(List.of(LinkKind.DEFECT_TASK.token(),
                 LinkKind.CONDITION_TASK.token(), LinkKind.CONDITION_DEFECT.token()));
         catalog.validCodes().forEach(code -> allowed.add(code.value()));
-        throw ValidationException.invalid("kind", "unknown value " + token, allowed);
+        throw ValidationException.invalid("kind", ValidationReason.UNKNOWN_VALUE, allowed, String.valueOf(token));
     }
 
     @Override
@@ -166,7 +168,7 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
                 changed = addLink(link);
             }
         } catch (DuplicateKeyException e) {
-            throw new TransitionException(TransitionCode.NOTHING_CHANGES, List.of());
+            throw new TransitionException(TransitionCode.NOTHING_CHANGES, List.of(), e);
         }
         if (!changed) {
             throw new TransitionException(TransitionCode.NOTHING_CHANGES, List.of());

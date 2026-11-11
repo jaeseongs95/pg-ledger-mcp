@@ -4,6 +4,7 @@ import java.time.Instant;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.ProjectId;
@@ -20,7 +21,7 @@ public record SessionGrant(@Id Long id, AuthorId authorId, ProjectId projectId, 
 
     public SessionGrant {
         if (expiresAt != null && !expiresAt.isAfter(grantedAt)) {
-            throw ValidationException.invalid("expires_at", "must be after the grant time");
+            throw ValidationException.invalid("expires_at", ValidationReason.MUST_BE_AFTER_GRANT_TIME);
         }
     }
 

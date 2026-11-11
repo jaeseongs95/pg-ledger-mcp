@@ -9,6 +9,7 @@ import org.pgledger.application.receipt.ReceiptService;
 import org.pgledger.application.write.WriteResult.CorrectResult;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.HistoryEntry;
 import org.pgledger.domain.model.ReceiptOperation;
 import org.pgledger.domain.rule.HistoryEntity;
@@ -43,7 +44,7 @@ public class CorrectOperation extends WriteOperation<CorrectCommand, CorrectResu
 
     private static long historyId(CorrectCommand c) {
         if (c.historyId() == null) {
-            throw ValidationException.invalid("history_id", "is required");
+            throw ValidationException.invalid("history_id", ValidationReason.REQUIRED);
         }
         return c.historyId();
     }
@@ -52,7 +53,7 @@ public class CorrectOperation extends WriteOperation<CorrectCommand, CorrectResu
     protected Lookup resolve(CorrectCommand c) {
         return Lookup.verifiable(() -> {
             if (c.historyId() == null) {
-                return Resolution.unresolved(ValidationException.invalid("history_id", "is required"));
+                return Resolution.unresolved(ValidationException.invalid("history_id", ValidationReason.REQUIRED));
             }
             return historyRows.findById(c.historyId()).map(this::target)
                     .orElseGet(() -> Resolution.unresolved(Rows.notFound("history", c.historyId().toString())));

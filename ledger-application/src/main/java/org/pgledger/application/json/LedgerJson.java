@@ -2,6 +2,7 @@ package org.pgledger.application.json;
 
 import java.util.List;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.domain.value.JsonDocument;
@@ -59,7 +60,7 @@ public final class LedgerJson {
      */
     public <T> List<T> readInputList(String rootPath, String text, Class<T> element) {
         if (text == null || text.isBlank()) {
-            throw ValidationException.invalid(rootPath, "is required");
+            throw ValidationException.invalid(rootPath, ValidationReason.REQUIRED);
         }
         try {
             return strict.readValue(text, strict.getTypeFactory().constructCollectionType(List.class, element));
@@ -72,7 +73,7 @@ public final class LedgerJson {
                     path.append('.').append(step.getPropertyName());
                 }
             }
-            throw ValidationException.invalid(path.toString(), e.getOriginalMessage());
+            throw ValidationException.invalid(path.toString(), ValidationReason.INVALID_JSON, e, e.getOriginalMessage());
         }
     }
 }

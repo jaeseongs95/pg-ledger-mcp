@@ -23,8 +23,10 @@ import org.pgledger.application.write.WhoamiService.GrantView;
 import org.pgledger.domain.error.ConflictCode;
 import org.pgledger.domain.error.ErrorCode;
 import org.pgledger.domain.error.LookupCode;
+import org.pgledger.domain.error.LedgerException;
 import org.pgledger.domain.error.TrustCode;
 import org.pgledger.domain.error.ValidationCode;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.Channel;
 
 /** SVC-GRT-01 .. SVC-GRT-05 (SVC-GRT-06 needs both databases and is in the race test). */
@@ -78,7 +80,7 @@ class GrantProjectTest {
     @DisplayName("SVC-GRT-02: invalid grants are refused")
     void grt02_validation(Bad bad, Scenario s) {
         GrantCommand c = bad.command();
-        GrantCommand onProject = new GrantCommand(c.author(), c.project().equals("P") ? s.projectId() : c.project(),
+        GrantCommand onProject = new GrantCommand(c.author(), "P".equals(c.project()) ? s.projectId() : c.project(),
                 c.scopes(), c.expiresAt(), c.note());
         assertThat(Expect.outcome(() -> s.bean(GrantService.class).grant(onProject)))
                 .isEqualTo(Optional.of(bad.expected()));
@@ -165,10 +167,14 @@ class GrantProjectTest {
                 .isEqualTo(Optional.ofNullable(project.expected()));
         if (project.expected() == null) {
             // the id and the code are required; the violation names the property as the callers know it
-            assertThat(Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand(null, "PRJN", "t")),
-                    ValidationCode.VALIDATION_FAILED).args()).containsExactly("id", "is required");
-            assertThat(Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand("prj-n", null, "t")),
-                    ValidationCode.VALIDATION_FAILED).args()).containsExactly("code", "is required");
+            LedgerException noId = Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand(null, "PRJN", "t")),
+                    ValidationCode.VALIDATION_FAILED);
+            assertThat(noId.args()).containsExactly("id");
+            assertThat(Expect.firstIssue(noId).reason()).isEqualTo(ValidationReason.REQUIRED);
+            LedgerException noCode = Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand("prj-n", null, "t")),
+                    ValidationCode.VALIDATION_FAILED);
+            assertThat(noCode.args()).containsExactly("code");
+            assertThat(Expect.firstIssue(noCode).reason()).isEqualTo(ValidationReason.REQUIRED);
         }
     }
 
