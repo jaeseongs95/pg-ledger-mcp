@@ -21,6 +21,7 @@ import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
 import org.pgledger.application.history.Snapshot;
 import org.pgledger.application.json.LedgerJson;
+import org.pgledger.domain.value.JsonDocument;
 import org.pgledger.application.read.AttentionService;
 import org.pgledger.application.read.AttentionService.AttentionQuery;
 import org.pgledger.application.read.CatalogService;
@@ -231,14 +232,20 @@ class ReadQueryTest {
         assertThat(history(s).history(history(s.projectId(), false)).items()).allSatisfy(h -> assertThat(
                 h.beforeData()).isNull());
         List<HistoryView> with = history(s).history(history(s.projectId(), true)).items();
-        assertThat(with.stream().filter(h -> h.id() == edited.historyId()).findFirst().orElseThrow().beforeData())
+        LedgerJson json = s.bean(LedgerJson.class);
+        assertThat(json.read(beforeOf(with, edited.historyId()), Snapshot.DefectRow.class))
                 .isInstanceOf(Snapshot.DefectRow.class);
-        assertThat(with.stream().filter(h -> h.id() == transitioned.historyId()).findFirst().orElseThrow()
-                .beforeData()).isInstanceOf(Snapshot.DefectRow.class);
-        assertThat(with.stream().filter(h -> h.id() == unlinked.historyId()).findFirst().orElseThrow().beforeData())
+        assertThat(json.read(beforeOf(with, transitioned.historyId()), Snapshot.DefectRow.class))
+                .isInstanceOf(Snapshot.DefectRow.class);
+        assertThat(json.read(beforeOf(with, unlinked.historyId()), Snapshot.DefectTaskRow.class))
                 .isInstanceOf(Snapshot.DefectTaskRow.class);
         assertThat(with.stream().filter(h -> h.id() == d.historyId() || h.id() == kept.historyId()))
                 .allSatisfy(h -> assertThat(h.beforeData()).isNull());
+    }
+
+    /** The stored before_data text of the history row with the id. */
+    private static JsonDocument beforeOf(List<HistoryView> rows, long id) {
+        return rows.stream().filter(h -> h.id() == id).findFirst().orElseThrow().beforeData();
     }
 
     @Test
