@@ -154,7 +154,7 @@ class CatalogChangeTest {
         TransactionTemplate transaction = new TransactionTemplate(context.getBean(PlatformTransactionManager.class));
 
         transaction.executeWithoutResult(status -> {
-            codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "NEVER_COMMITTED"));
+            codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "NEVER_COMMITTED"), TestOwners.OWNER);
             status.setRollbackOnly();
         });
 
