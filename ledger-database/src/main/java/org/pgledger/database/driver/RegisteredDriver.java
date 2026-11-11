@@ -2,6 +2,7 @@ package org.pgledger.database.driver;
 
 import java.io.IOException;
 import java.net.URLClassLoader;
+import java.nio.file.Path;
 import java.sql.Driver;
 import java.sql.SQLException;
 import java.util.List;
@@ -12,9 +13,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * A driver instance loaded from the registered jar, with the class loader that holds it. Closing it closes the jar
- * (the file can be deleted or replaced afterwards, also on Windows). The driver is never registered with
- * {@code java.sql.DriverManager} by this code.
+ * A driver instance loaded from the registered jar, with the class loader that holds it. The classes come from a
+ * private copy of the jar that {@link DriverLoader} made (the registered file is not held open, so it can be deleted or
+ * replaced at any time, also on Windows, without changing what runs). Closing the driver closes the class loader and
+ * then deletes the private copy. The driver is never registered with {@code java.sql.DriverManager} by this code.
  */
 public final class RegisteredDriver implements AutoCloseable {
 
@@ -24,10 +26,12 @@ public final class RegisteredDriver implements AutoCloseable {
 
     private final Driver driver;
     private final URLClassLoader loader;
+    private final Path privateCopy;
 
-    RegisteredDriver(Driver driver, URLClassLoader loader) {
+    RegisteredDriver(Driver driver, URLClassLoader loader, Path privateCopy) {
         this.driver = driver;
         this.loader = loader;
+        this.privateCopy = privateCopy;
     }
 
     public Driver driver() {
@@ -64,5 +68,6 @@ public final class RegisteredDriver implements AutoCloseable {
         } catch (IOException e) {
             LOG.warn("cannot close the driver class loader", e);
         }
+        DriverLoader.deleteCopy(privateCopy);
     }
 }
