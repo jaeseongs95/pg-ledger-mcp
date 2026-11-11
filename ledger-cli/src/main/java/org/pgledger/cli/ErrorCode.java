@@ -17,7 +17,10 @@ public enum ErrorCode {
     FOREIGN_OWNER,
     UNKNOWN_PROCESS_USER,
     PARENT_MISSING,
-    IO_FAILED;
+    IO_FAILED,
+    INVALID_PUBLIC_KEY,
+    FINGERPRINT_MISMATCH,
+    REGISTRY_NOT_CONFIGURED;
 
     public String messageKey() {
         return "error." + name();

@@ -9,6 +9,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter")
     // Bean Validation for the @Validated settings records: a bad value stops the startup (version from the Boot BOM)
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    // Reads and fingerprints the public key of a session key (JDK only, shared with the hook and the server).
+    implementation(project(":ledger-attestation"))
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: see gradle/libs.versions.toml

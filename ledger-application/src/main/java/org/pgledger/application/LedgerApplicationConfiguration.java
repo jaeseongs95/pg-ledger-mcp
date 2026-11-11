@@ -1,6 +1,8 @@
 package org.pgledger.application;
 
+import org.pgledger.application.gate.AttestationProperties;
 import org.pgledger.database.jdbc.LedgerJdbcConfiguration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -13,6 +15,7 @@ import org.springframework.resilience.annotation.EnableResilientMethods;
  */
 @Configuration(proxyBeanMethods = false)
 @EnableResilientMethods
+@EnableConfigurationProperties(AttestationProperties.class)
 @Import(LedgerJdbcConfiguration.class)
 @ComponentScan(basePackageClasses = LedgerApplicationConfiguration.class)
 public class LedgerApplicationConfiguration {

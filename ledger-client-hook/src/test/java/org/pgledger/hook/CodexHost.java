@@ -12,7 +12,7 @@ final class CodexHost extends FlatHost {
     }
 
     @Override
-    public String attestation(String hostId) {
+    public String author(String hostId) {
         return "codex:" + hostId;
     }
 
@@ -22,8 +22,8 @@ final class CodexHost extends FlatHost {
     }
 
     @Override
-    public Optional<JsonNode> allowed(JsonNode sent, String attestation) {
-        return answer(new Specific(EVENT_NAME, "allow", null, Json.stamped(sent, attestation)));
+    public Optional<JsonNode> allowed(JsonNode sent, String token, String addedRequestId) {
+        return answer(new Specific(EVENT_NAME, "allow", null, Json.stamped(sent, token, addedRequestId)));
     }
 
     @Override

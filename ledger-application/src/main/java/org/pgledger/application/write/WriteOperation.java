@@ -51,7 +51,15 @@ public abstract class WriteOperation<C extends WriteCommand, R extends WriteResu
      * called inside a transaction.
      */
     public final R run(String actor, Channel channel, C command) {
-        GateSession session = gate.open(actor, channel, resolve(command));
+        return run(actor, command.requestId(), channel, command);
+    }
+
+    /**
+     * As {@link #run(String, Channel, WriteCommand)}, for an operation of a batch: the attestation of the call is bound
+     * to {@code boundRequestId}, the request id of the whole batch, while the operation has a request id of its own.
+     */
+    public final R run(String actor, String boundRequestId, Channel channel, C command) {
+        GateSession session = gate.open(actor, boundRequestId, channel, resolve(command));
         return session.bind(() -> {
             Reason reason = Reason.of(command.reason());
             RequestId requestId = requestId(command.requestId());

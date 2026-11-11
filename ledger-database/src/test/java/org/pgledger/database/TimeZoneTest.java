@@ -29,6 +29,8 @@ import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.database.repository.IdAllocator;
 import org.pgledger.database.repository.ReceiptRepository;
 import org.pgledger.database.repository.SessionGrantRepository;
+import org.pgledger.database.repository.SessionKeyRepository;
+import org.pgledger.database.repository.SessionKeyStateRepository;
 import org.pgledger.database.repository.TaskRepository;
 import org.pgledger.database.schema.LedgerSchemaGuardConfiguration;
 import org.pgledger.database.schema.SchemaMigrationException;
@@ -46,6 +48,7 @@ import org.pgledger.domain.model.Project;
 import org.pgledger.domain.model.Receipt;
 import org.pgledger.domain.model.ReceiptOperation;
 import org.pgledger.domain.model.SessionGrant;
+import org.pgledger.domain.model.SessionPublicKey;
 import org.pgledger.domain.rule.ActorAssurance;
 import org.pgledger.domain.rule.Channel;
 import org.pgledger.domain.rule.CiConclusion;
@@ -170,6 +173,8 @@ class TimeZoneTest {
             expected.put("session_grant.expires_at", I.plusSeconds(3600));
             expected.put("session_grant.revoked_at", I.plusSeconds(5));
             expected.put("session_grant.last_used_at", I.plusSeconds(4));
+            expected.put("session_key.registered_at", I);
+            expected.put("session_key.revoked_at", I.plusSeconds(6));
             expected.put("history.at", I);
             expected.put("request_receipt.created_at", I);
             expected.put("schema_history.applied_at", LedgerTestContext.START);
@@ -206,6 +211,10 @@ class TimeZoneTest {
         GrantStateRepository grants = ctx.bean(GrantStateRepository.class);
         ctx.tx(() -> grants.markUsed(Seed.ALICE, project.id(), Scope.DEFECT, I.plusSeconds(4)));
         ctx.tx(() -> grants.revoke(grant.id(), I.plusSeconds(5)));
+        SessionPublicKey key = ctx.tx(() -> ctx.bean(SessionKeyRepository.class).insert(SessionPublicKey.register(
+                ids.next(Counter.SESSION_KEY), Seed.ALICE, "MCowBQYDK2VwAyEA" + "A".repeat(43), "c".repeat(64),
+                AuthorId.OWNER, I, null)));
+        ctx.tx(() -> ctx.bean(SessionKeyStateRepository.class).close(key.id(), I.plusSeconds(6)));
         ctx.tx(() -> ctx.bean(HistoryRepository.class).insert(new HistoryEntry(ids.next(Counter.HISTORY), I,
                 Seed.ALICE, Channel.AUTHOR.login(), ActorAssurance.DECLARED, HistoryEntity.DEFECT,
                 defect.id().value(), HistoryOp.CREATE, null, null, JsonDocument.EMPTY_OBJECT, null,

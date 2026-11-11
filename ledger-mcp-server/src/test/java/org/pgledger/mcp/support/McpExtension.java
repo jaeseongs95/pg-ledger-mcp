@@ -37,7 +37,7 @@ public final class McpExtension implements ParameterResolver {
         }
         if (type == RawHttp.class) {
             return new RawHttp(context.getEnvironment().getRequiredProperty("local.server.port", Integer.class),
-                    context.getBean(JsonMapper.class));
+                    context.getBean(JsonMapper.class), Attester.of(context));
         }
         throw new ParameterResolutionException("unsupported parameter " + type);
     }

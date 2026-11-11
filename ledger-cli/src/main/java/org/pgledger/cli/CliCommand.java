@@ -6,7 +6,8 @@ import java.util.Optional;
 /** The commands this tool offers. Only implemented commands are listed here. */
 public enum CliCommand {
 
-    SECRET_SET("secret-set");
+    SECRET_SET("secret-set"),
+    KEY_REGISTER("key-register");
 
     private final String cliName;
 

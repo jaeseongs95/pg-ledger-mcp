@@ -2,6 +2,8 @@ package org.pgledger.application.support;
 
 import java.util.function.Supplier;
 import javax.sql.DataSource;
+import org.pgledger.apptest.SigningAttestationVerifier;
+import org.pgledger.apptest.TestKeyRing;
 import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -28,6 +30,16 @@ public final class LedgerAppContext {
 
     public TestClock clock() {
         return context.getBean(TestClock.class);
+    }
+
+    /** The key pairs of the test authors and the signing of attestations (the hook of the service tests). */
+    public TestKeyRing keys() {
+        return context.getBean(TestKeyRing.class);
+    }
+
+    /** Registers the key of the author as the owner would, so the author can write (once per context). */
+    public void enroll(String author) {
+        context.getBean(SigningAttestationVerifier.class).enroll(author);
     }
 
     public JdbcClient jdbc() {

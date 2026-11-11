@@ -78,7 +78,9 @@ public enum ValidationReason {
     NOT_AN_EDITABLE_FIELD_OF,
     MUST_NOT_BE_NEGATIVE,
     /** {0} = the prefix the id must start with. */
-    MUST_START_WITH;
+    MUST_START_WITH,
+    /** The text is not an Ed25519 public key in X.509 DER form in base64 (what the hook command session-key prints). */
+    MUST_BE_ED25519_PUBLIC_KEY;
 
     private static final String PREFIX = "reason.";
 

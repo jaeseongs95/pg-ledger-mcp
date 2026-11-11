@@ -1,12 +1,17 @@
-// One executable jar for the three client hooks: `java -jar ledger-client-hook.jar <claude|codex|antigravity>`.
+// One executable jar for the three client hooks: `java -jar ledger-client-hook.jar <claude|codex|antigravity>`, and for
+// the key command `java -jar ledger-client-hook.jar session-key <author>`.
 // Spring is not used here; the Spring Boot plugin (bootJar and its loader) is deliberately absent (HK-018).
 
 val hookJarName = "ledger-client-hook.jar"
 val hookMainClass = "org.pgledger.hook.Main"
 
 dependencies {
-    // Jackson 3 (tools.jackson), version from the Boot BOM; the only runtime dependency (the JDK has no JSON parser).
+    // Jackson 3 (tools.jackson), version from the Boot BOM; the only third-party runtime dependency (the JDK has no JSON parser).
     implementation("tools.jackson.core:jackson-databind")
+
+    // The attestation token and the Ed25519 key text forms (pure JDK): the hook signs with them, the server verifies
+    // with the same classes. The jar task below merges this module's classes into ledger-client-hook.jar.
+    implementation(project(":ledger-attestation"))
 
     // ArchUnit 1.5.1: not in the Boot BOM, see gradle/libs.versions.toml; checks the no-network/no-file rules of HK-018.
     testImplementation(libs.archunit)
@@ -25,6 +30,8 @@ tasks.jar {
     // Standard `jar` task with the dependencies merged in: classes of the runtime classpath without signature files,
     // module descriptors and Maven metadata. Own classes come first, so they win a name clash. The licence and
     // notice texts of each dependency are kept under META-INF/third-party/<jar> (they would clash at META-INF/).
+    // the dependency jars (Jackson and the project jar of ledger-attestation) are built before they are merged
+    dependsOn(configurations.runtimeClasspath)
     val licenseFiles = listOf("META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/*-LICENSE")
     configurations.runtimeClasspath.get().filter { it.name.endsWith(".jar") }.forEach { dependency ->
         from(zipTree(dependency)) { exclude(licenseFiles) }

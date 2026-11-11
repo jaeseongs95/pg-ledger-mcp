@@ -85,11 +85,19 @@ public final class RawHttp {
     private final String base;
     private final JsonMapper mapper;
     private final McpJsonMapper wire;
+    private final Attester attester;
 
+    /** A client that sends what it is given (no hook). */
     public RawHttp(int port, JsonMapper mapper) {
+        this(port, mapper, Attester.none());
+    }
+
+    /** A client of the server of the context that signs the plain author of a write call like a hook (see {@link Attester}). */
+    public RawHttp(int port, JsonMapper mapper, Attester attester) {
         this.base = "http://127.0.0.1:" + port;
         this.mapper = mapper;
         this.wire = new JacksonMcpJsonMapper(mapper);
+        this.attester = attester;
     }
 
     // ------------------------------------------------------------------------------------------- the requests
@@ -206,7 +214,8 @@ public final class RawHttp {
     }
 
     private CallToolRequest callRequest(String tool, Object arguments) {
-        return CallToolRequest.builder(tool).arguments(wire, mapper.writeValueAsString(arguments)).build();
+        return CallToolRequest.builder(tool)
+                .arguments(wire, mapper.writeValueAsString(attester.stamp(tool, arguments))).build();
     }
 
     private static Header[] withSession(String sessionId, Header[] headers) {

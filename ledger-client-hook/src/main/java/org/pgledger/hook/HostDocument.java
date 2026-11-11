@@ -28,8 +28,13 @@ sealed interface HostDocument {
     /** What the host merges into its tool args. */
     sealed interface Overwrite {
 
-        /** A direct call: only the reserved key. */
-        record Attestation(@JsonProperty(Intake.RESERVED_KEY) String hostAttestation) implements Overwrite {}
+        /**
+         * A direct call: the reserved key (the attestation token) and, only when the hook generated one, the
+         * {@code request_id} that the token covers; {@code null} leaves it out.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        record Attestation(@JsonProperty(Intake.RESERVED_KEY) String hostAttestation,
+                @JsonProperty("request_id") String requestId) implements Overwrite {}
 
         /** A wrapped call whose Arguments was an object. */
         record ObjectArguments(@JsonProperty("Arguments") JsonNode arguments) implements Overwrite {}

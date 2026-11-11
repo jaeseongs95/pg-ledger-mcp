@@ -15,8 +15,8 @@ interface HostScenario {
 
     Client client();
 
-    /** The id the host gets from {@code hostId}, spelled out as the contract has it. */
-    String attestation(String hostId);
+    /** The author of the host id: {@code <vendor>:<host id>}, spelled out as the contract has it. */
+    String author(String hostId);
 
     /** The host's name for {@code ledger_<operation>}. */
     String toolName(String operation);
@@ -38,8 +38,17 @@ interface HostScenario {
     /** The complete arguments of the answer to an {@link #echoEvent}. */
     JsonNode echoed(Run run);
 
-    /** The answer to a call that gets stamped; {@code sent} are the arguments of the direct call. */
-    Optional<JsonNode> allowed(JsonNode sent, String attestation);
+    /**
+     * The answer to a call that gets stamped; {@code sent} are the arguments of the direct call, {@code token} the
+     * attestation the hook wrote, {@code addedRequestId} the request id the hook generated (null if it added none).
+     */
+    Optional<JsonNode> allowed(JsonNode sent, String token, String addedRequestId);
+
+    /**
+     * The object of the answer to a direct call that carries {@code _hostAttestation}: the whole stamped arguments
+     * (Claude, Codex) or the overwrite that is merged into the host's arguments (Antigravity).
+     */
+    JsonNode stampedPart(Run run);
 
     Optional<JsonNode> denied(Refusal reason);
 

@@ -51,7 +51,8 @@ class JsonFidelityTest {
         JsonNode args = host.echoed(run);
         assertThat(args.path("esc").stringValue()).isEqualTo("\"\\/\b\f\n\r\tA");
         assertThat(args.path("pair").stringValue()).isEqualTo("😀");
-        assertThat(args).isEqualTo(Json.stamped(Json.of(ESCAPES), host.attestation(HookFixture.HOST_ID)));
+        Attestations.Stamp stamp = fixture.stampCarrier(host.author(HookFixture.HOST_ID), "save", Json.of(ESCAPES), args);
+        assertThat(args).isEqualTo(Json.stamped(Json.of(ESCAPES), stamp.token(), stamp.addedRequestId()));
         assertThat(run.stdout()).contains("한글".getBytes(StandardCharsets.UTF_8));
     }
 
@@ -59,11 +60,12 @@ class JsonFidelityTest {
     @MethodSource("org.pgledger.hook.Hosts#all")
     @DisplayName("HK-014 100 levels of nesting and duplicate keys: no crash (the last duplicate wins, as in JSON.parse)")
     void nestingAndDuplicates(HostScenario host, HookFixture fixture) {
-        Run run = fixture.runClean(host, host.echoEvent("save", Json.raw("{\"deep\":" + DEPTH_100 + ",\"dup\":1,\"dup\":2}")));
+        String sent = "{\"deep\":" + DEPTH_100 + ",\"dup\":1,\"dup\":2}";
+        Run run = fixture.runClean(host, host.echoEvent("save", Json.raw(sent)));
         JsonNode args = host.echoed(run);
         assertThat(args.path("deep")).isEqualTo(Json.of(DEPTH_100));
         assertThat(args.path("dup").intValue()).isEqualTo(2);
-        assertThat(args.path(Json.RESERVED_KEY).stringValue()).isEqualTo(host.attestation(HookFixture.HOST_ID));
+        fixture.stampCarrier(host.author(HookFixture.HOST_ID), "save", Json.of(sent), args);
     }
 
     @ParameterizedTest
@@ -86,7 +88,9 @@ class JsonFidelityTest {
         long start = System.nanoTime();
         Run run = fixture.runClean(host, event);
         long millis = (System.nanoTime() - start) / 1_000_000;
-        assertThat(host.echoed(run)).isEqualTo(Json.stamped(input, host.attestation(HookFixture.HOST_ID)));
+        JsonNode args = host.echoed(run);
+        Attestations.Stamp stamp = fixture.stampCarrier(host.author(HookFixture.HOST_ID), "save", input, args);
+        assertThat(args).isEqualTo(Json.stamped(input, stamp.token(), stamp.addedRequestId()));
         assertThat(millis).as("in-process milliseconds").isLessThan(3_000);
     }
 

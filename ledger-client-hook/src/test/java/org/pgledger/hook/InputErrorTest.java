@@ -94,6 +94,7 @@ class InputErrorTest {
         System.arraycopy(new byte[] {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF}, 0, withBom, 0, 3);
         System.arraycopy(json, 0, withBom, 3, json.length);
         Run run = fixture.runClean(host, withBom);
-        assertThat(run.document()).isEqualTo(host.allowed(input, host.attestation(HookFixture.HOST_ID)));
+        Attestations.Stamp stamp = fixture.stamp(host, "whoami", input, run);
+        assertThat(run.document()).isEqualTo(host.allowed(input, stamp.token(), stamp.addedRequestId()));
     }
 }

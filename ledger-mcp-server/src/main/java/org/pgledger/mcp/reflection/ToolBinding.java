@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.pgledger.domain.context.ToolScope;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationIssue;
@@ -100,7 +101,8 @@ public final class ToolBinding {
     }
 
     /**
-     * Binds the arguments and calls the tool.
+     * Binds the arguments and calls the tool. The name of the tool is bound to {@link ToolScope} for the call, which is
+     * how the write gate learns which tool the author attestation of the call has to be signed for.
      *
      * @throws ValidationException when the arguments do not fit the tool
      */
@@ -137,7 +139,8 @@ public final class ToolBinding {
             throw new ValidationException(ValidationCode.VALIDATION_FAILED, List.of(issues.getFirst().path()),
                     issues, Map.of(), causes.isEmpty() ? null : causes.getFirst());
         }
-        return invoke(values);
+        // the gate compares the tool the author attestation was signed for with the tool of this call
+        return ScopedValue.where(ToolScope.CURRENT, name).call(() -> invoke(values));
     }
 
     private Object bind(ToolParameter parameter, Object raw, List<ValidationIssue> issues,

@@ -40,7 +40,7 @@ CREATE TABLE id_counter (
   name VARCHAR(30) NOT NULL,
   issued_no BIGINT NOT NULL,
   CONSTRAINT pk_id_counter PRIMARY KEY (name),
-  CONSTRAINT ck_id_counter_name CHECK (name IN ('HISTORY', 'DEFECT_FIX', 'DEFECT_CASE', 'SESSION_GRANT'))
+  CONSTRAINT ck_id_counter_name CHECK (name IN ('HISTORY', 'DEFECT_FIX', 'DEFECT_CASE', 'SESSION_GRANT', 'SESSION_KEY'))
 );
 
 CREATE TABLE task (
@@ -198,3 +198,25 @@ CREATE TABLE session_grant (
   CONSTRAINT ck_session_grant_revoked CHECK (revoked_at IS NULL OR revoked_at >= granted_at)
 );
 CREATE INDEX ix_session_grant_author ON session_grant (author_id, project_id, scope);
+
+-- The public key an author signs its writes with (Ed25519, X.509 DER in base64). Registered by the owner only
+-- (admin web, CLI), never through a tool. A key is replaced or revoked by closing its row: revoked_at is set and both
+-- key columns become revoked:<id>; rows are never deleted. active_key (author|live) keeps one live key per author and
+-- fingerprint_key (the fingerprint while live) keeps one author per live key.
+CREATE TABLE session_key (
+  id BIGINT NOT NULL,
+  author_id VARCHAR(200) NOT NULL,
+  public_key VARCHAR(128) NOT NULL,
+  fingerprint VARCHAR(64) NOT NULL,
+  registered_by VARCHAR(200) NOT NULL,
+  registered_at TIMESTAMP NOT NULL,
+  revoked_at TIMESTAMP,
+  note VARCHAR(500),
+  active_key VARCHAR(300) NOT NULL,
+  fingerprint_key VARCHAR(100) NOT NULL,
+  CONSTRAINT pk_session_key PRIMARY KEY (id),
+  CONSTRAINT uq_session_key_active UNIQUE (active_key),
+  CONSTRAINT uq_session_key_fingerprint UNIQUE (fingerprint_key),
+  CONSTRAINT ck_session_key_revoked CHECK (revoked_at IS NULL OR revoked_at >= registered_at)
+);
+CREATE INDEX ix_session_key_author ON session_key (author_id, id);

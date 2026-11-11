@@ -34,9 +34,11 @@ public final class McpSession implements AutoCloseable {
     private final JsonMapper mapper;
     private final McpJsonMapper wire;
     private final BlockingQueue<List<Tool>> listChanges = new LinkedBlockingQueue<>();
+    private final Attester attester;
 
-    private McpSession(int port, String bearer, JsonMapper mapper) {
+    private McpSession(int port, String bearer, JsonMapper mapper, Attester attester) {
         this.mapper = mapper;
+        this.attester = attester;
         this.wire = new JacksonMcpJsonMapper(mapper);
         HttpClientStreamableHttpTransport transport = HttpClientStreamableHttpTransport
                 .builder("http://localhost:" + port).endpoint("/mcp").jsonMapper(wire)
@@ -48,15 +50,18 @@ public final class McpSession implements AutoCloseable {
         this.client.initialize();
     }
 
-    /** Opens a session on the server at the port, presenting the token. */
+    /** Opens a session on the server at the port, presenting the token. Its calls are sent as they are written (no hook). */
     public static McpSession open(int port, String bearer, JsonMapper mapper) {
-        return new McpSession(port, bearer, mapper);
+        return new McpSession(port, bearer, mapper, Attester.none());
     }
 
-    /** Opens a session on the server of the context with the test token. */
+    /**
+     * Opens a session on the server of the context with the test token. Like the client of an author whose host runs the
+     * hook, it signs the plain author of a write call (see {@link Attester}).
+     */
     public static McpSession open(ApplicationContext context) {
         int port = context.getEnvironment().getRequiredProperty("local.server.port", Integer.class);
-        return open(port, McpTestSettings.TOKEN, context.getBean(JsonMapper.class));
+        return new McpSession(port, McpTestSettings.TOKEN, context.getBean(JsonMapper.class), Attester.of(context));
     }
 
     public McpSyncClient client() {
@@ -75,8 +80,13 @@ public final class McpSession implements AutoCloseable {
         return tools().stream().filter(tool -> tool.name().equals(name)).findFirst().orElseThrow();
     }
 
-    /** Calls a tool with the arguments written by Jackson from the record. */
+    /** Calls a tool with the arguments written by Jackson from the record; a plain author is signed first (see {@link Attester}). */
     public CallToolResult call(String tool, Object arguments) {
+        return callUnsigned(tool, attester.stamp(tool, arguments));
+    }
+
+    /** Calls a tool with exactly these arguments: nothing is signed, nothing is added. */
+    public CallToolResult callUnsigned(String tool, Object arguments) {
         return client.callTool(CallToolRequest.builder(tool).arguments(wire, mapper.writeValueAsString(arguments)).build());
     }
 
