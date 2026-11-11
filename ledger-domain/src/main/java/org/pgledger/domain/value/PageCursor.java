@@ -13,7 +13,7 @@ public record PageCursor(Kind kind, String sortKey, String id) {
 
     /** The list a cursor belongs to; a cursor of another list is rejected. */
     public enum Kind {
-        DEFECTS, TASKS, CONDITIONS, HISTORY, SEARCH
+        DEFECTS, TASKS, CONDITIONS, HISTORY, SEARCH, ATTENTION, PROJECTS, CODES
     }
 
     private static final String PATH = "cursor";

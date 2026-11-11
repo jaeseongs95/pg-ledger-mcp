@@ -9,6 +9,15 @@ public final class LookupException extends LedgerException {
     private static final long serialVersionUID = 1L;
 
     public LookupException(LookupCode code, List<String> args) {
-        super(code, args, Map.of(), null);
+        this(code, args, Map.of());
+    }
+
+    private LookupException(LookupCode code, List<String> args, Map<String, List<String>> details) {
+        super(code, args, details, null);
+    }
+
+    @Override
+    protected LedgerException copyWith(Map<String, List<String>> newDetails) {
+        return new LookupException((LookupCode) code(), args(), newDetails);
     }
 }
