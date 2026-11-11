@@ -38,6 +38,8 @@ public final class DriverRegistrationFile {
     public record Entry(String jar, String className, String sha256, Instant registeredAt) {
     }
 
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DriverRegistrationFile.class);
+
     private final YAMLMapper yaml;
     private final Path file;
 
@@ -88,8 +90,7 @@ public final class DriverRegistrationFile {
         try {
             Files.deleteIfExists(temporary);
         } catch (IOException e) {
-            org.slf4j.LoggerFactory.getLogger(DriverRegistrationFile.class)
-                    .warn("cannot remove the temporary registration file {}", temporary, e);
+            LOG.warn("cannot remove the temporary registration file {}", temporary, e);
         }
     }
 }

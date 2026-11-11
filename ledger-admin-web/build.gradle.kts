@@ -29,7 +29,9 @@ dependencies {
 
     testImplementation(testFixtures(project(":ledger-domain")))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // MockMvc and @AutoConfigureMockMvc (Boot 4 keeps the MVC test support in its own starter).
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    // Spring Security test support: the security filter chain in MockMvc.
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
     // ArchUnit 1.5.1: not in the Boot BOM, see gradle/libs.versions.toml
     testImplementation(libs.archunit)

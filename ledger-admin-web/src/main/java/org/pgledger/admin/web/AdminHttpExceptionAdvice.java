@@ -107,7 +107,6 @@ public class AdminHttpExceptionAdvice extends ResponseEntityExceptionHandler {
         if (request.getAttribute(DispatcherServlet.WEB_APPLICATION_CONTEXT_ATTRIBUTE) != null && navigates(request)) {
             Map<String, Object> model = new LinkedHashMap<>();
             model.put("status", problem.getStatus());
-            model.put("reason", HttpStatus.valueOf(problem.getStatus()).getReasonPhrase());
             model.put("code", problem.getProperties() == null ? "" : problem.getProperties().get("code"));
             model.put("detail", problem.getDetail());
             model.put("traceId", problem.getProperties() == null ? null : problem.getProperties().get("traceId"));

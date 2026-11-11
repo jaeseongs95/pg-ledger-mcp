@@ -5,7 +5,7 @@
 <th:block th:replace="~{fragments :: header('error')}"></th:block>
 <main id="main" class="narrow">
   <h1 th:text="#{error.page.title}">Something went wrong</h1>
-  <p class="error" role="alert"><span class="code" th:text="${status} + ' ' + ${reason}">400 Bad Request</span></p>
+  <p class="error" role="alert"><span class="code" th:text="${status}">400</span></p>
   <p th:if="${code != null and code != ''}"><span class="code" th:text="${code}">CODE</span></p>
   <p th:text="${detail}">Detail</p>
   <p th:if="${traceId != null}" th:text="#{error.page.trace(${traceId})}">Trace</p>
