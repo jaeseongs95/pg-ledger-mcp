@@ -35,8 +35,8 @@ of the write tools, the keys of the results, the `_hostAttestation` key) and cha
   recorded fix from another session than the verifier; the verification and rework requests go to the session that recorded
   the fix (`fixed_by`), not to the one that registered the defect (`created_by`). CI results are optional metadata.
 - **History is append-only.** Every write adds a history row: when, author, channel, operation, state change and reason. The
-  application has no path that updates or deletes a history row, and the optional grant template of the database module gives the
-  application account no `UPDATE` or `DELETE` on it. A mistake is marked with a `CORRECT` row. An operation that changes an
+  application has no path that updates or deletes a history row, and the grant template of the database module (`migrate` applies it to
+  the application account) gives that account no `UPDATE` or `DELETE` on it. A mistake is marked with a `CORRECT` row. An operation that changes an
   existing row also stores the full row as it was before the change (`before_data`, returned by `ledger_history` with
   `include_before`).
 - **Retries are safe.** Pass `request_id`, a UUID. Repeating the same request returns the stored result and writes nothing twice.
@@ -170,6 +170,7 @@ There is no command that prints a stored secret.
 | `ledger.import.source.username` | `import-legacy` | a read-only account of that database |
 | `ledger.import.source.password` | `import-legacy` | its password (secret) |
 | `ledger.import.source.schema` | `import-legacy` | the 1.x schema, default `ledger` |
+| `ledger.secrets.home` | `ledger-cli` | the directory of the installation that holds the settings, the driver registration, the driver jars and the secret directory, default `/etc/pg-ledger-mcp` (the Windows installer gives its own) |
 | `ledger.secrets.directory` | `ledger-cli` | the secret directory, default `/etc/pg-ledger-mcp/secrets` |
 | `ledger.secrets.instance` | `ledger-cli` | the instance name that the default paths follow, default `pg-ledger-mcp` |
 | `ledger.cli.driver.directory` | `ledger-cli` | the directory `driver-register` takes a jar from, default `/etc/pg-ledger-mcp/drivers` |
@@ -178,65 +179,144 @@ There is no command that prints a stored secret.
 The servers listen on loopback only (MCP `127.0.0.1:8765`, admin web `127.0.0.1:8865`); publish them through a reverse proxy
 that terminates HTTPS and list its public host name in the allowed hosts. The admin web trusts `X-Forwarded-For` and
 `X-Forwarded-Proto` from the loopback address only. The servers read the driver registration file and the secret directory
-through `spring.config.import`, which is part of the launch line (see Installation); `ledger-cli` reads them by default.
+through `spring.config.import`, which the installers put into the service definition (see Installation); `ledger-cli` reads them by default.
 
 ## Installation
 
-An installer is planned and is not part of this release; the steps below are the manual ones. The build needs JDK 25.
+Two installers cover three targets. A **personal PC** (Windows) runs `deploy\install.cmd` with its defaults: both servers listen on
+the loopback address only, and there is no reverse proxy and no TLS. A **Windows server** runs the same script and, when it is
+reached from outside, names its public host names and puts a reverse proxy that the operator has prepared in front of it. A **Linux
+server** runs `sudo deploy/install.sh`, optionally with an nginx site. macOS is not supported; a Linux desktop that is a personal PC
+follows the Linux procedure. The build needs JDK 25 and the host needs a Java 25 runtime.
 
-1. Build the jars: `./gradlew build`. The jars are `ledger-cli/build/libs/ledger-cli.jar`, `ledger-mcp-server/build/libs/ledger-mcp-server.jar`,
-   `ledger-admin-web/build/libs/ledger-admin-web.jar` and `ledger-client-hook/build/libs/ledger-client-hook.jar`; the plugin directories of
-   the clients are `ledger-client-hook/build/client-plugins/<client>`. Place them on the host; a Java 25 runtime is needed there.
-2. Prepare the database: an empty database and an account for the ledger, with the session time zone UTC. An optional template of
-   least-privilege grants for the application account is `ledger-database/src/main/resources/db-templates/dml-grants.sql`.
-3. Obtain the JDBC driver of that database yourself and put its jar into the driver directory; it is not bundled. Register it with the
-   URL of the database (the driver class must accept it):
+What every target has in common:
 
-```sh
-java -jar ledger-cli.jar driver-register --jar=/etc/pg-ledger-mcp/drivers/<driver>.jar --class=<driver-class> --ledger.jdbc.url=<jdbc-url>
-```
-
-4. Store the secrets, each with hidden input, as the user that runs the services:
-
-```sh
-java -jar ledger-cli.jar secret-set ledger.jdbc.password
-java -jar ledger-cli.jar secret-set ledger.mcp.token
-java -jar ledger-cli.jar secret-set ledger.admin.token
-java -jar ledger-cli.jar secret-set ledger.admin.agent-token
-```
-
-5. Create the schema: `migrate` applies the files `V{n}__*.sql` in order and records every attempt, with the SHA-256 of the file, in the
-   table `schema_history`. A file that was changed after it was applied stops every process at start.
+- **One service account.** The MCP server and the admin web run as one operating system account that belongs to no person: on
+  Linux the system user `pg-ledger-mcp` (no login, not root), on Windows the predefined account LocalService (no password). Its purpose
+  is to keep the secrets of the ledger, the admin token and the database password, away from the account of the person who works on
+  the machine and from the agents that run under it: the secret directory is readable by the service account only. The two
+  services are named `pg-ledger-mcp` and `pg-ledger-admin`.
+- **Two database accounts**, created beforehand with the tools of your DBMS (creating an account is not ANSI SQL and is not part of the
+  product). The application account is used by both servers and by the owner commands of `ledger-cli`; `migrate` gives it the least
+  privilege of `ledger-database/src/main/resources/db-templates/dml-grants.sql` (no DDL, no `UPDATE` or `DELETE` on the history). The
+  DDL account is used only by `migrate` and `import-legacy`; its password is typed with hidden input and is never stored. The
+  session time zone of the database must be UTC, and the application account must be able to see the schema (a step of the DBMS).
+- **Jars and the driver.** Build the jars with `./gradlew build` and collect the three jars of the host in one directory. The
+  JDBC driver of your database is obtained by you, and you name its class; it is not bundled.
 
 ```sh
-java -jar ledger-cli.jar migrate --ledger.jdbc.url=<jdbc-url> --ledger.jdbc.username=<account>
+mkdir dist
+cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-server.jar ledger-admin-web/build/libs/ledger-admin-web.jar dist/
 ```
 
-6. Set up the owner side: `project-add`, `code-set`, and, when you come from 1.x, `import-legacy` (see Migrating from 1.x).
-7. Start the MCP server and the admin web with the same settings (the url, the account, the allowed hosts) and with the driver
-   registration and the secrets as configuration sources:
+- **What an installer does.** It checks the Java version, creates the folders and sets their owners, copies the jars and the driver
+  jar, lets `ledger-cli render-deploy` write the service definitions and the settings (`application.yaml` and one file per service in
+  one directory; your own settings belong in `local.yaml` there, which is read last and never replaced), stores the database password
+  of the application account (hidden input), generates `ledger.admin.token` and `ledger.mcp.token` (shown once, at the end of
+  their step), stores the copy `ledger.admin.agent-token`, registers the driver, runs `migrate` with the DDL account and starts the
+  two services. Nothing is downloaded or installed. Running it again with newer jars is the upgrade: files and services are replaced,
+  the schema and the grants are applied again, and secrets, tokens and data are kept. The settings directory is `ledger.secrets.home`
+  of the tool; the services read the same sources through `spring.config.import`.
+
+The options of `deploy/install.sh` are given as `--name=value`; the ones it does not read itself go on to `render-deploy`:
+
+| Option | Meaning |
+|---|---|
+| `--jars=<dir>` | the directory that holds the three jars |
+| `--driver-jar=<file>` | the JDBC driver jar |
+| `--driver-class=<class>` | the driver class, which must accept the JDBC URL |
+| `--owner-account=<account>` | the DDL account (its password is asked for) |
+| `--app-account=<account>` | the application account |
+| `--jdbc-url=<url>` | the JDBC URL of the ledger database (no password in it) |
+| `--schema=<name>` | `ledger.schema.name`, optional |
+| `--long-text-type=<type>` | `ledger.schema.long-text-type`, optional |
+| `--mcp-port=<n>` | the loopback port of the MCP server, default 8765 |
+| `--admin-port=<n>` | the loopback port of the admin web, default 8865 |
+| `--mcp-host=<host>` | the public host name of the MCP server, allowed in its `Host` check |
+| `--admin-host=<host>` | the public host name of the admin web |
+| `--nginx-conf=<path>` | Linux: write the nginx site to this file; needs both host names, `--tls-certificate=<path>` and `--tls-key=<path>` |
+| `--tls-certificate=<path>` | the TLS certificate of the operator; nothing issues or renews one |
+| `--tls-key=<path>` | the TLS key of the operator |
+
+`render-deploy` takes four more options that the installers set themselves: `--platform=<platform>` (`linux`, the default, or `windows`),
+`--home=<path>` (Windows: the installation directory), `--java=<path>` (the Java executable) and `--root=<directory>` (write the
+files below a directory instead of at their paths, for a look before they are put in place).
+
+### Linux server
+
+Run as root; the user `pg-ledger-mcp` is created when it is missing, the units are rendered into `/etc/systemd/system` and enabled,
+and the secrets are stored by the service user.
 
 ```sh
-java -Duser.timezone=UTC -jar ledger-mcp-server.jar --spring.config.import=optional:file:/etc/pg-ledger-mcp/jdbc-driver.yaml,optional:configtree:/etc/pg-ledger-mcp/secrets/ --ledger.jdbc.url=<jdbc-url> --ledger.jdbc.username=<account>
-java -Duser.timezone=UTC -jar ledger-admin-web.jar --spring.config.import=optional:file:/etc/pg-ledger-mcp/jdbc-driver.yaml,optional:configtree:/etc/pg-ledger-mcp/secrets/ --ledger.jdbc.url=<jdbc-url> --ledger.jdbc.username=<account>
+sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url>
 ```
 
-   Without a registered driver the MCP server stops and says why; the admin web starts in a setup mode that offers only the sign-in
-   and the driver page. `ledger-cli mcp-check` connects to the running MCP server and checks that every tool of the contract is listed.
-8. Install the client hooks (see Client hooks), register the key of each session with `key-register` and issue the grants with `grant`.
+With a public name and TLS, add the host names and the paths of your certificate and key; the nginx site overwrites
+`X-Forwarded-For` with the address of the connection, which the admin web trusts from the loopback proxy only:
+
+```sh
+sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --mcp-host=<mcp-host> --admin-host=<admin-host> --nginx-conf=/etc/nginx/conf.d/pg-ledger-mcp.conf --tls-certificate=<certificate> --tls-key=<key>
+```
+
+### Windows: a personal PC or a server
+
+Run in an elevated prompt. The script takes its arguments in this order, and the services are registered with WinSW, the way
+Spring Boot's documentation describes for Windows services; you obtain the WinSW 2.x executable yourself, as you do the JDBC driver,
+and the installer neither bundles nor downloads it.
+
+| Argument | Meaning |
+|---|---|
+| `<jars-dir>` | the directory that holds the three jars |
+| `<winsw-exe>` | the WinSW 2.x executable |
+| `<driver-jar>` | the JDBC driver jar |
+| `<driver-class>` | the driver class |
+| `<ddl-account>` | the DDL account |
+| `<app-account>` | the application account |
+| `"<jdbc-url>"` | the JDBC URL, in quotes |
+| `"<more options>"` | optional, in quotes: more options of `render-deploy`, for example the host names of a server |
+
+```bat
+deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <app-account> "<jdbc-url>"
+```
+
+A Windows server that is reached from outside adds its host names and puts a reverse proxy that you have prepared in front of the two
+loopback ports (the installer writes no proxy site on Windows):
+
+```bat
+deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <app-account> "<jdbc-url>" "--mcp-host=<mcp-host> --admin-host=<admin-host>"
+```
+
+Everything lives in `C:\ProgramData\pg-ledger-mcp`. Both services run as LocalService, restart after a failure (the WinSW
+configuration), and write their logs to the `logs` folder. The secrets are handed over to LocalService at the end of the
+installation; the installing user can only see that a file exists, and the script takes them back for the duration of a re-run. So the
+owner commands of `ledger-cli` cannot read them afterwards: do the owner work (projects, common codes, grants, keys) on the pages of
+the admin web, which sign in with `ledger.admin.token`. The admin web sets a `Secure` session cookie; if a browser does not accept it on
+the loopback address over plain HTTP, set `server.servlet.session.cookie.secure` to false in `local.yaml`.
+
+### After the installation
+
+1. Check the MCP server with `ledger-cli mcp-check`; without a registered driver the MCP server stops and says why, and the admin web
+   starts in a setup mode that offers only the sign-in and the driver page.
+2. Set up the owner side: `project-add`, `code-set` and, when you come from 1.x, `import-legacy` (see Migrating from 1.x). On Linux run
+   `ledger-cli` as the service user, for example `sudo -u pg-ledger-mcp java -jar /opt/pg-ledger-mcp/ledger-cli.jar project-add ...`.
+3. Install the client hooks (see Client hooks), register the key of each session with `key-register` and issue the grants with `grant`.
+
+`migrate` applies the files `V{n}__*.sql` in order and records every attempt, with the SHA-256 of the file, in the table
+`schema_history`. A file that was changed after it was applied stops every process at start.
 
 ## ledger-cli
 
 `java -jar ledger-cli.jar <command> [arguments]`. An option is written `--name=value`. A Spring property (a name with a dot, such as
-`--ledger.jdbc.url=...`) is passed the same way. The tool runs as the user that owns the secret directory, and every owner
-operation is recorded with that user.
+`--ledger.jdbc.url=...`) is passed the same way. The tool runs as the user that owns the secret directory (on Linux the
+service user), and every owner operation is recorded with that user.
 
 | Command | Syntax | What |
 |---|---|---|
 | `secret-set` | `secret-set <name>` | store a secret from hidden input |
 | `driver-register` | `driver-register --jar=<path> --class=<driver-class>` | register the JDBC driver; needs no database |
-| `migrate` | `migrate` | apply the pending schema files |
-| `import-legacy` | `import-legacy [--verify-only]` | copy the 1.x ledger into the new schema and compare every table |
+| `token-generate` | `token-generate <name> [--print]` | store a random token (32 bytes from `SecureRandom`) as a secret; an existing secret is kept; `--print` shows a token that was just created, once |
+| `migrate` | `migrate [--owner-account=<account>] [--app-account=<account>]` | apply the pending schema files, as the DDL account when `--owner-account` is given (its password is typed and not stored), and then the grants of `dml-grants.sql` to the application account |
+| `import-legacy` | `import-legacy [--verify-only] [--owner-account=<account>]` | copy the 1.x ledger into the new schema and compare every table; it writes the whole ledger, so it runs as the DDL account |
 | `key-register` | `key-register <author> <public-key-or-block> <fingerprint> [--replace=<current-fingerprint>]` | bind the public key a session printed to its author; a live key is replaced only with `--replace` |
 | `key-revoke` | `key-revoke <author> --fingerprint=<fingerprint>` | close the live key of an author |
 | `project-add` | `project-add <id> <code> <title>` | add a project |
@@ -246,11 +326,12 @@ operation is recorded with that user.
 | `revoke` | `revoke <author> [<project> [<scope>]]` | revoke live grants |
 | `grants` | `grants [<author>]` | list live grants |
 | `mcp-check` | `mcp-check [--url=<url>] [--ledger.mcp.token=<token>]` | connect to a running MCP server and check its tools |
+| `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | write the service definitions (systemd units, or WinSW configurations on Windows), the settings and the optional nginx site; the installers call it |
 
 ## Admin web
 
 The admin web (`ledger-admin-web.jar`) is a server-rendered console for the owner, on `127.0.0.1:8865` by default. It runs as
-an ordinary user and needs no root rights.
+the service account of the installation and never as root.
 
 - **Sign-in.** The admin token `ledger.admin.token`, or OpenID Connect for the people listed in `ledger.admin.oidc.owners`. The
   agents' token is refused, so an agent that holds the MCP token cannot grant itself anything. Failed attempts lock the client and
@@ -293,10 +374,10 @@ content, its order and its request id) and the time. A captured token cannot car
 1.x was a DBHub and Node implementation on PostgreSQL functions; 2.0.0 replaces all of it. Existing data is moved, not converted in
 place. The 1.x schema stays and can be used to go back. See the [release notes](docs/release-notes/2.0.0.md) for the contract changes.
 
-1. Register the driver, store the secrets and run `migrate` as above. When the new schema lives in the database of the 1.x ledger,
+1. Install as above, on the Linux host. When the new schema lives in the database of the 1.x ledger,
    set `ledger.schema.name` to a schema other than the 1.x schema `ledger`.
-2. Store the password of a read-only account of the 1.x database: `secret-set ledger.import.source.password`, and run
-   `import-legacy --ledger.import.source.url=<jdbc-url> --ledger.import.source.username=<account>`.
+2. As the service user, store the password of a read-only account of the 1.x database: `secret-set ledger.import.source.password`, and run
+   `import-legacy --owner-account=<account> --ledger.import.source.url=<jdbc-url> --ledger.import.source.username=<account>`.
 3. The import reads the 1.x schema read only, copies everything in one transaction and rolls back on any failure; then it compares the
    number of rows and the SHA-256 digest of every table (`--verify-only` repeats the comparison). It refuses when the new schema
    already holds data, and it lists every value of the old data that the new schema cannot hold; it never invents a value.
@@ -325,7 +406,8 @@ release notes against the code.
   the hook jar into `ledger-client-hook/build/client-plugins`.
 - `docs/`: the test case catalogue, the release note format and the release notes.
 - `gradle/`, `build.gradle.kts`, `settings.gradle.kts`: the build.
-- `bin/`, `web/`, `mcp/`, `sql/`, `tests/*.mjs`, `deploy/*.sh`: the 1.x implementation (DBHub, Node and PostgreSQL functions), kept in the tree until a later stage removes it. It is not part of 2.x.
+- `deploy/`: the two installers, `install.sh` (Linux) and `install.cmd` (Windows).
+- `bin/`, `web/`, `mcp/`, `sql/`, `tests/*.mjs`: the 1.x implementation (DBHub, Node and PostgreSQL functions), kept in the tree until a later stage removes it. It is not part of 2.x.
 
 ## License
 
