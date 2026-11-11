@@ -287,4 +287,116 @@ class GrantScreenTest {
                 "GRANT_REVOKED token:owner", "CODE_SET token:owner");
         assertThat(grants.live(author)).allMatch(g -> "user:owner".equals(g.grantedBy().value()));
     }
+
+    @Test
+    @DisplayName("ADM-073 (audit2 S1): the whole block that the hook command session-key prints can be pasted in place of the bare key: the preview shows the fingerprint and the server name, the confirmation carries the bare key, and it registers and grants")
+    void adm073_theBlockOfTheHookIsAccepted() throws Exception {
+        Seeded project = seeds.project();
+        String author = newAuthor();
+        AuthorKeys.Pair key = AuthorKeys.newPair();
+        Browser browser = Browser.signedIn(mvc);
+
+        String page = browser.perform(browser.form("/grants/preview",
+                key.pastedBlock(issue(author, project), "ledger-test", author), browser.csrfOf("/grants")))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+
+        assertThat(page).contains(key.fingerprint()).contains("ledger-test").contains(key.publicKey());
+        assertThat(page).as("the confirmation carries the bare key, not the four lines").doesNotContain("public-key: ");
+        assertThat(keys.live(author)).isEmpty();
+
+        MultiValueMap<String, String> confirm = key.pastedBlock(issue(author, project), "ledger-test", author);
+        confirm.add("fingerprint", key.fingerprint());
+        confirm.add("confirmFingerprint", "yes");
+        browser.perform(browser.form("/grants", confirm, browser.csrfOf("/grants"))).andExpect(status().is3xxRedirection());
+
+        assertThat(keys.live(author).orElseThrow().publicKey()).isEqualTo(key.publicKey());
+        assertThat(grants.live(author)).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("ADM-073 (audit2 S1): a block for another author than the author field is 400 VALIDATION_FAILED path author; a block whose fingerprint line is not the fingerprint of its key, or that lacks a line, is 400 path public_key; nothing is stored")
+    void adm073_aBadBlockIsRefused() throws Exception {
+        Seeded project = seeds.project();
+        String author = newAuthor();
+        AuthorKeys.Pair key = AuthorKeys.newPair();
+        Browser browser = Browser.signedIn(mvc);
+
+        post(browser, "/grants/preview", key.pastedBlock(issue(author, project), "ledger", newAuthor()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].path").value("author"));
+        MultiValueMap<String, String> changed = issue(author, project);
+        changed.add("publicKey", key.block("ledger", author).replace(key.fingerprint(), "0".repeat(64)));
+        post(browser, "/grants/preview", changed).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].path").value("public_key"));
+        MultiValueMap<String, String> incomplete = issue(author, project);
+        incomplete.add("publicKey", "author: " + author + "\npublic-key: " + key.publicKey() + "\n");
+        post(browser, "/grants/preview", incomplete).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].path").value("public_key"));
+
+        assertThat(keys.live(author)).isEmpty();
+        assertThat(grants.live(author)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ADM-074 (audit2 S5): the owner role user:owner gets no key from the screen: 400 VALIDATION_FAILED path author")
+    void adm074_theOwnerRoleHasNoKey() throws Exception {
+        Seeded project = seeds.project();
+        AuthorKeys.Pair key = AuthorKeys.newPair();
+        Browser browser = Browser.signedIn(mvc);
+
+        post(browser, "/grants", key.confirmed(issue("user:owner", project))).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].path").value("author"));
+
+        assertThat(keys.live("user:owner")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ADM-075 (audit2 N3): the owner closes the key of an author on the grants page: the page lists the live key, the POST needs the CSRF token and the fingerprint of the live key (a wrong one is 400 path fingerprint, no key is 404), the key is closed with its row kept, the grants stay, and the audit trail has KEY_REVOKED with token:owner")
+    void adm075_theOwnerClosesAKey() throws Exception {
+        Seeded project = seeds.project();
+        String author = newAuthor();
+        AuthorKeys.Pair key = AuthorKeys.newPair();
+        Browser browser = Browser.signedIn(mvc);
+        browser.perform(browser.form("/grants", key.confirmed(issue(author, project)), browser.csrfOf("/grants")))
+                .andExpect(status().is3xxRedirection());
+        String page = browser.perform(browser.get("/grants")).andReturn().getResponse().getContentAsString();
+        assertThat(page).contains(author).contains(key.fingerprint()).contains("/grants/keys/revoke");
+
+        browser.perform(browser.form("/grants/keys/revoke", Form.of("author", author, "fingerprint", key.fingerprint()),
+                null).accept(MediaType.APPLICATION_JSON)).andExpect(status().isForbidden());
+        post(browser, "/grants/keys/revoke", Form.of("author", author, "fingerprint", AuthorKeys.newPair().fingerprint()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.errors[0].path").value("fingerprint"));
+        post(browser, "/grants/keys/revoke", Form.of("author", author)).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].path").value("fingerprint"));
+        assertThat(keys.live(author)).as("nothing was closed").isPresent();
+
+        browser.perform(browser.form("/grants/keys/revoke", Form.of("author", author, "fingerprint",
+                key.fingerprint().toUpperCase(java.util.Locale.ROOT)), browser.csrfOf("/grants")))
+                .andExpect(status().is3xxRedirection());
+
+        assertThat(keys.live(author)).isEmpty();
+        assertThat(keys.history(author)).hasSize(1);
+        assertThat(grants.live(author)).hasSize(2);
+        assertThat(jdbc.sql("SELECT operation || ' ' || actor FROM owner_audit WHERE subject = :author ORDER BY id")
+                .param("author", author).query(String.class).list())
+                .containsExactly("KEY_REGISTERED token:owner", "KEY_REVOKED token:owner");
+        post(browser, "/grants/keys/revoke", Form.of("author", author, "fingerprint", key.fingerprint()))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("ADM-076 (audit2 N3): adding a project is recorded in the owner audit trail with the signed-in owner (PROJECT_ADDED, the project id as subject, the code in the detail)")
+    void adm076_aNewProjectIsAudited() throws Exception {
+        int number = SEQUENCE.incrementAndGet();
+        String id = "audit-project-" + number;
+        Browser browser = Browser.signedIn(mvc);
+
+        browser.perform(browser.form("/projects", Form.of("id", id, "code", "AUDITP" + number, "title", "Audited"),
+                browser.csrfOf("/projects"))).andExpect(status().is3xxRedirection());
+
+        assertThat(jdbc.sql("SELECT operation || ' ' || actor || ' ' || detail FROM owner_audit WHERE subject = :id")
+                .param("id", id).query(String.class).list())
+                .containsExactly("PROJECT_ADDED token:owner code=AUDITP" + number);
+    }
 }

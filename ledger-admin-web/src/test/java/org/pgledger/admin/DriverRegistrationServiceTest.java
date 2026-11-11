@@ -27,6 +27,8 @@ import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.database.driver.LedgerJdbcProperties;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
+import org.pgledger.testing.OwnerOnlyFiles;
+import org.pgledger.testing.TestOwners;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
@@ -57,11 +59,15 @@ class DriverRegistrationServiceTest {
 
     /** The registered paths are real paths (symbolic links resolved), so the tests compare with real paths. */
     private static Path realDirectory(Path directory, String name) throws IOException {
-        return Files.createDirectories(directory.toRealPath().resolve(name)).toRealPath();
+        return OwnerOnlyFiles.restrict(Files.createDirectories(directory.toRealPath().resolve(name))).toRealPath();
     }
 
     private static Path h2JarIn(Path directory, String name) throws IOException, URISyntaxException {
-        return Files.copy(h2Jar(), directory.resolve(name)).toRealPath();
+        return OwnerOnlyFiles.copy(h2Jar(), directory.resolve(name)).toRealPath();
+    }
+
+    private static DriverRegistration register(DriverRegistrationService service, String jar, String className) {
+        return service.register(jar, className, TestOwners.OWNER);
     }
 
     private static LedgerAdminProperties adminProperties(Path registrationFile, Path driverDirectory) {
@@ -113,7 +119,7 @@ class DriverRegistrationServiceTest {
         Path jar = h2JarIn(realDirectory(directory, "drivers"), "h2.jar");
 
         withService(file, jar.getParent(), "jdbc:postgresql://db.example/ledger?password=secret-value", service -> {
-            assertThatThrownBy(() -> service.register(jar.toString(), "org.h2.Driver"))
+            assertThatThrownBy(() -> register(service, jar.toString(), "org.h2.Driver"))
                     .isInstanceOfSatisfying(InfrastructureException.class, e -> {
                         assertThat(e.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
                         assertThat(e.args()).isEqualTo(List.of(REFUSED));
@@ -131,9 +137,9 @@ class DriverRegistrationServiceTest {
         Path jar = h2JarIn(realDirectory(directory, "drivers"), "h2.jar");
 
         withService(file, jar.getParent(), "jdbc:h2:mem:x", service -> {
-            service.register(jar.toString(), "org.h2.Driver");
+            register(service, jar.toString(), "org.h2.Driver");
             String first = Files.readString(file);
-            DriverRegistration second = service.register(jar.toString(), "org.h2.Driver");
+            DriverRegistration second = register(service, jar.toString(), "org.h2.Driver");
 
             assertThat(Files.readString(file)).isEqualTo(first).contains("registered-at: \"2026-11-05T10:00:00Z\"");
             assertThat(second.registeredAt()).isEqualTo(Instant.parse("2026-11-05T10:00:00Z"));
@@ -152,7 +158,7 @@ class DriverRegistrationServiceTest {
         withService(file, jar.getParent(), "jdbc:h2:mem:x", service -> {
             assertThat(service.state().registered()).isEmpty();
             assertThat(service.state().restartRequired()).isFalse();
-            service.register(jar.toString(), "org.h2.Driver");
+            register(service, jar.toString(), "org.h2.Driver");
 
             assertThat(service.state().registered()).isPresent();
             assertThat(service.state().restartRequired()).isTrue();
@@ -164,10 +170,10 @@ class DriverRegistrationServiceTest {
     void adm060_aJarInsideTheAllowedDirectoryIsRegistered(@TempDir Path directory) throws Exception {
         Path file = directory.resolve("jdbc-driver.yaml");
         Path drivers = realDirectory(directory, "drivers");
-        Path jar = h2JarIn(Files.createDirectories(drivers.resolve("vendor")), "h2.jar");
+        Path jar = h2JarIn(OwnerOnlyFiles.restrict(Files.createDirectories(drivers.resolve("vendor"))), "h2.jar");
 
         withService(file, drivers, "jdbc:h2:mem:x", service -> {
-            DriverRegistration registration = service.register(jar.toString(), "org.h2.Driver");
+            DriverRegistration registration = register(service, jar.toString(), "org.h2.Driver");
 
             assertThat(registration.jar()).isEqualTo(jar);
             assertThat(file).exists();
@@ -182,7 +188,7 @@ class DriverRegistrationServiceTest {
         Path outside = h2JarIn(realDirectory(directory, "outside"), "h2.jar");
 
         withService(file, drivers, "jdbc:h2:mem:x", service -> assertRefused(
-                catchThrowable(() -> service.register(outside.toString(),
+                catchThrowable(() -> register(service, outside.toString(),
                         "org.h2.Driver")), outside, drivers));
         assertThat(file).doesNotExist();
     }
@@ -195,7 +201,7 @@ class DriverRegistrationServiceTest {
         Path sibling = h2JarIn(realDirectory(directory, "drivers-evil"), "h2.jar");
 
         withService(file, drivers, "jdbc:h2:mem:x", service -> assertRefused(
-                catchThrowable(() -> service.register(sibling.toString(),
+                catchThrowable(() -> register(service, sibling.toString(),
                         "org.h2.Driver")), sibling));
         assertThat(file).doesNotExist();
     }
@@ -209,7 +215,7 @@ class DriverRegistrationServiceTest {
         Path escaping = drivers.resolve("..").resolve("outside").resolve("h2.jar");
 
         withService(file, drivers, "jdbc:h2:mem:x", service -> assertRefused(
-                catchThrowable(() -> service.register(escaping.toString(),
+                catchThrowable(() -> register(service, escaping.toString(),
                         "org.h2.Driver"))));
         assertThat(file).doesNotExist();
     }
@@ -225,7 +231,7 @@ class DriverRegistrationServiceTest {
         linkOrSkip(link, outside);
 
         withService(file, drivers, "jdbc:h2:mem:x", service -> assertRefused(
-                catchThrowable(() -> service.register(link.toString(),
+                catchThrowable(() -> register(service, link.toString(),
                         "org.h2.Driver")), outside));
         assertThat(file).doesNotExist();
     }
@@ -238,7 +244,7 @@ class DriverRegistrationServiceTest {
         Path missing = directory.toRealPath().resolve("no-such-directory");
 
         withService(file, missing, "jdbc:h2:mem:x", service -> assertRefused(
-                catchThrowable(() -> service.register(jar.toString(),
+                catchThrowable(() -> register(service, jar.toString(),
                         "org.h2.Driver")), missing));
         assertThat(file).doesNotExist();
     }
@@ -252,11 +258,11 @@ class DriverRegistrationServiceTest {
         Path subdirectory = Files.createDirectories(drivers.resolve("a-directory.jar"));
 
         withService(file, drivers, "jdbc:h2:mem:x", service -> {
-            assertRefused(catchThrowable(() -> service.register(missing.toString(),
+            assertRefused(catchThrowable(() -> register(service, missing.toString(),
                     "org.h2.Driver")), missing);
-            assertRefused(catchThrowable(() -> service.register(
+            assertRefused(catchThrowable(() -> register(service, 
                     subdirectory.toString(), "org.h2.Driver")), subdirectory);
-            assertRefused(catchThrowable(() -> service.register("h2.jar",
+            assertRefused(catchThrowable(() -> register(service, "h2.jar",
                     "org.h2.Driver")));
         });
         assertThat(file).doesNotExist();
@@ -274,7 +280,7 @@ class DriverRegistrationServiceTest {
         assumeFalse(Files.isReadable(jar), "the process can read the file anyway (a privileged user)");
 
         withService(file, drivers, "jdbc:h2:mem:x", service -> assertRefused(
-                catchThrowable(() -> service.register(jar.toString(),
+                catchThrowable(() -> register(service, jar.toString(),
                         "org.h2.Driver")), jar));
         assertThat(file).doesNotExist();
     }
@@ -286,14 +292,15 @@ class DriverRegistrationServiceTest {
         Path file = directory.resolve("jdbc-driver.yaml");
         Path drivers = realDirectory(directory, "drivers");
         Path jar = h2JarIn(drivers, "h2.jar");
-        Path notAnArchive = Files.writeString(drivers.resolve("text.jar"), "this is text, not an archive");
+        Path notAnArchive = OwnerOnlyFiles.write(drivers.resolve("text.jar"),
+                    "this is text, not an archive".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
         withService(file, drivers, "jdbc:h2:mem:x", service -> {
-            assertRefused(catchThrowable(() -> service.register(
+            assertRefused(catchThrowable(() -> register(service, 
                     notAnArchive.toString(), "org.h2.Driver")), notAnArchive);
-            assertRefused(catchThrowable(() -> service.register(jar.toString(),
+            assertRefused(catchThrowable(() -> register(service, jar.toString(),
                     "org.example.NoSuchDriver")), jar);
-            assertRefused(catchThrowable(() -> service.register(jar.toString(),
+            assertRefused(catchThrowable(() -> register(service, jar.toString(),
                     "org.h2.engine.Constants")), jar);
         });
         assertThat(file).doesNotExist();
@@ -306,10 +313,10 @@ class DriverRegistrationServiceTest {
         Path drivers = realDirectory(directory, "drivers");
 
         withService(file, drivers, "jdbc:h2:mem:x", service -> {
-            assertThatThrownBy(() -> service.register("  ", "org.h2.Driver"))
+            assertThatThrownBy(() -> register(service, "  ", "org.h2.Driver"))
                     .isInstanceOfSatisfying(InfrastructureException.class, e -> assertThat(e.args())
                             .isEqualTo(List.of("the jar path is missing")));
-            assertThatThrownBy(() -> service.register("/some/where.jar", " "))
+            assertThatThrownBy(() -> register(service, "/some/where.jar", " "))
                     .isInstanceOfSatisfying(InfrastructureException.class, e -> assertThat(e.args())
                             .isEqualTo(List.of("the driver class name is missing")));
         });
@@ -320,10 +327,10 @@ class DriverRegistrationServiceTest {
     void adm061_aPathWithAPlaceholderIsRefused(@TempDir Path directory) throws Exception {
         Path file = directory.resolve("jdbc-driver.yaml");
         Path drivers = realDirectory(directory, "drivers");
-        Path jar = h2JarIn(Files.createDirectories(drivers.resolve("${x}")), "h2.jar");
+        Path jar = h2JarIn(OwnerOnlyFiles.restrict(Files.createDirectories(drivers.resolve("${x}"))), "h2.jar");
 
         withService(file, drivers, "jdbc:h2:mem:x", service -> assertRefused(
-                catchThrowable(() -> service.register(jar.toString(),
+                catchThrowable(() -> register(service, jar.toString(),
                         "org.h2.Driver")), jar));
         assertThat(file).doesNotExist();
     }

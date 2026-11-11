@@ -48,6 +48,11 @@ class KeyRegisterCommandTest {
         public void registerReplacing(String author, String publicKey, String replacedFingerprint) {
             calls.add("replace " + author + " " + publicKey + " " + replacedFingerprint);
         }
+
+        @Override
+        public void revoke(String author, String fingerprint) {
+            calls.add("revoke " + author + " " + fingerprint);
+        }
     }
 
     private static KeyPair pair() {
@@ -150,6 +155,90 @@ class KeyRegisterCommandTest {
         assertThat(captured.getAll()).contains("driver-register");
     }
 
+
+    private static String block(String server, String author, String key, String fingerprint) {
+        return "server: " + server + "\nauthor: " + author + "\npublic-key: " + key + "\nfingerprint: " + fingerprint + "\n";
+    }
+
+    @Test
+    @DisplayName("CLI-033 (audit2 S1) key-register takes the four lines of the hook command session-key in place of the bare key: the canonical key is registered for the author, the server is printed next to the fingerprint; a block for another author, a changed block and a bad key are refused with nothing registered")
+    void takesTheBlockOfTheHook(Cli cli) {
+        KeyPair pair = pair();
+        String key = PublicKeys.encode(pair.getPublic());
+        String fingerprint = PublicKeys.fingerprint(pair.getPublic());
+        RecordingRegistry registry = new RecordingRegistry();
+        RecordingOutput output = new RecordingOutput();
+
+        Outcome registered = cli.run(secrets(), null, output, registry, "key-register", AUTHOR,
+                block("codex_apps.ledger", AUTHOR, key, fingerprint), fingerprint);
+
+        assertThat(registered.exitCode()).isZero();
+        assertThat(registry.calls).containsExactly("register " + AUTHOR + " " + key);
+        assertThat(output.info()).contains(AUTHOR).contains(fingerprint).contains("codex_apps.ledger");
+
+        RecordingRegistry untouched = new RecordingRegistry();
+        Outcome otherAuthor = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-register", AUTHOR,
+                block("ledger", "claude:session-2", key, fingerprint), fingerprint);
+        Outcome changed = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-register", AUTHOR,
+                block("ledger", AUTHOR, key, PublicKeys.fingerprint(pair().getPublic())), fingerprint);
+        Outcome incomplete = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-register", AUTHOR,
+                "author: " + AUTHOR + "\npublic-key: " + key + "\n", fingerprint);
+        Outcome badKey = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-register", AUTHOR,
+                block("ledger", AUTHOR, "AAAA", fingerprint), fingerprint);
+        Outcome anotherFingerprint = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-register", AUTHOR,
+                block("ledger", AUTHOR, key, fingerprint), PublicKeys.fingerprint(pair().getPublic()));
+
+        assertThat(otherAuthor.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(otherAuthor.code()).contains(ErrorCode.KEY_BLOCK_AUTHOR_MISMATCH);
+        assertThat(changed.code()).contains(ErrorCode.INVALID_KEY_BLOCK);
+        assertThat(incomplete.code()).contains(ErrorCode.INVALID_KEY_BLOCK);
+        assertThat(badKey.code()).contains(ErrorCode.INVALID_PUBLIC_KEY);
+        assertThat(anotherFingerprint.code()).as("the fingerprint operand is still the owner's comparison")
+                .contains(ErrorCode.FINGERPRINT_MISMATCH);
+        assertThat(untouched.calls).isEmpty();
+    }
+
+    @Test
+    @DisplayName("CLI-034 (audit2 N3) key-revoke <author> --fingerprint=<fingerprint> asks the registry to close that key (any letter case) and prints the author and the fingerprint; no author, no option, a blank or second value, a surplus operand and an unknown option are usage errors (exit 2); without a driver the command is DRIVER_NOT_CONFIGURED")
+    void revokesAKey(Cli cli, CapturedOutput captured) {
+        String fingerprint = PublicKeys.fingerprint(pair().getPublic());
+        RecordingRegistry registry = new RecordingRegistry();
+        RecordingOutput output = new RecordingOutput();
+
+        Outcome revoked = cli.run(secrets(), null, output, registry, "key-revoke", AUTHOR,
+                "--fingerprint=" + fingerprint.toUpperCase(Locale.ROOT));
+
+        assertThat(revoked.exitCode()).isZero();
+        assertThat(registry.calls).containsExactly("revoke " + AUTHOR + " " + fingerprint);
+        assertThat(output.info()).contains(AUTHOR).contains(fingerprint);
+
+        RecordingRegistry untouched = new RecordingRegistry();
+        Outcome noAuthor = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-revoke",
+                "--fingerprint=" + fingerprint);
+        Outcome noOption = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-revoke", AUTHOR);
+        Outcome blank = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-revoke", AUTHOR, "--fingerprint=");
+        Outcome twice = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-revoke", AUTHOR,
+                "--fingerprint=" + fingerprint, "--fingerprint=" + fingerprint);
+        Outcome surplus = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-revoke", AUTHOR, "x",
+                "--fingerprint=" + fingerprint);
+        Outcome unknown = cli.run(secrets(), null, new RecordingOutput(), untouched, "key-revoke", AUTHOR,
+                "--fingerprint=" + fingerprint, "--force");
+        Outcome unconnected = cli.run(secrets(), null, new RecordingOutput(), "key-revoke", AUTHOR,
+                "--fingerprint=" + fingerprint);
+
+        assertThat(noAuthor.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+        assertThat(noAuthor.code()).contains(ErrorCode.MISSING_ARGUMENT);
+        assertThat(noOption.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+        assertThat(noOption.code()).contains(ErrorCode.MISSING_ARGUMENT);
+        assertThat(blank.code()).contains(ErrorCode.MISSING_OPTION_VALUE);
+        assertThat(twice.code()).contains(ErrorCode.TOO_MANY_ARGUMENTS);
+        assertThat(surplus.code()).contains(ErrorCode.TOO_MANY_ARGUMENTS);
+        assertThat(unknown.code()).contains(ErrorCode.UNKNOWN_OPTION);
+        assertThat(untouched.calls).isEmpty();
+        assertThat(unconnected.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(unconnected.code()).contains(ErrorCode.DRIVER_NOT_CONFIGURED);
+        assertThat(captured.getAll()).contains("driver-register");
+    }
     @Test
     @DisplayName("CLI-029 --replace without a value or with a blank or a second value, an unknown single-word option and a surplus operand are usage errors (exit 2) and register nothing; dotted Spring options pass")
     void optionsAreChecked(Cli cli) {

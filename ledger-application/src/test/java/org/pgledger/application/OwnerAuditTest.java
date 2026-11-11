@@ -14,6 +14,8 @@ import org.pgledger.application.admin.CommonCodeService.CodeCommand;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.GrantService.RevokeCommand;
+import org.pgledger.application.admin.ProjectService;
+import org.pgledger.application.admin.ProjectService.ProjectCommand;
 import org.pgledger.application.admin.SessionKeyService;
 import org.pgledger.application.admin.SessionKeyService.RegisterCommand;
 import org.pgledger.application.admin.SessionKeyService.Registered;
@@ -209,5 +211,21 @@ class OwnerAuditTest {
                 ValidationCode.VALIDATION_FAILED);
         assertThat(invalid.args()).containsExactly("public_key");
         assertThat(s.count("SELECT COUNT(*) FROM session_key WHERE public_key = ?", publicKey(pair))).isZero();
+    }
+
+    @Test
+    @DisplayName("SVC-GRT-10 (audit2 N3): adding a project records PROJECT_ADDED with the actor, the project id as subject and the code in the detail, in the transaction of the insert; a refused duplicate leaves no second row")
+    void grt10_aNewProjectIsAudited(Scenario s) {
+        ProjectService projects = s.bean(ProjectService.class);
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String id = "audited-" + suffix;
+        String code = "AUD" + suffix.toUpperCase(Locale.ROOT);
+
+        projects.add(new ProjectCommand(id, code, "Audited"), OWNER);
+
+        assertThat(audit(s, id)).containsExactly("PROJECT_ADDED token:owner code=" + code);
+        Expect.failure(() -> projects.add(new ProjectCommand(id, "OTHER" + code, "Audited"), OWNER), ConflictCode.DUPLICATE_KEY);
+        assertThat(audit(s, id)).hasSize(1);
+        assertThat(s.count("SELECT COUNT(*) FROM project WHERE id = ?", id)).isEqualTo(1);
     }
 }

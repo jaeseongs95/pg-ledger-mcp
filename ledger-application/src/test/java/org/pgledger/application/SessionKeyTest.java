@@ -25,6 +25,7 @@ import org.pgledger.attestation.PublicKeys;
 import org.pgledger.apptest.TestKeyRing;
 import org.pgledger.domain.error.ConflictCode;
 import org.pgledger.domain.error.LedgerException;
+import org.pgledger.domain.error.LookupCode;
 import org.pgledger.domain.error.TrustCode;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationReason;
@@ -195,5 +196,119 @@ class SessionKeyTest {
             assertThat(row.fingerprint()).matches("[0-9a-f]{64}");
             assertThat(row.toString()).doesNotContain("PRIVATE");
         });
+    }
+
+    @Test
+    @DisplayName("SVC-KEY-13 (audit2 S7): the retry advice wraps the transaction advice of SessionKeyService (retry outer, transaction inner), so every attempt has a transaction of its own; three registrations of the same key for the same author at the same moment all succeed with the one row")
+    void key13_retryIsOutsideTheTransaction(Scenario s) {
+        SessionKeyService keys = s.bean(SessionKeyService.class);
+        assertThat(org.springframework.aop.support.AopUtils.isAopProxy(keys)).isTrue();
+        List<String> advice = java.util.Arrays.stream(((org.springframework.aop.framework.Advised) keys).getAdvisors())
+                .map(advisor -> advisor.getAdvice().getClass().getName()).toList();
+        int retry = indexContaining(advice, "Retry");
+        int transaction = indexContaining(advice, "TransactionInterceptor");
+        assertThat(retry).as("the retry advice is on the proxy: %s", advice).isNotNegative();
+        assertThat(transaction).as("the transaction advice is on the proxy: %s", advice).isNotNegative();
+        assertThat(retry).as("an advisor earlier in the list is the outer one: %s", advice).isLessThan(transaction);
+
+        String author = newAuthor();
+        String key = publicKey(TestKeyRing.newPair());
+        List<Callable<Registered>> calls = IntStream.range(0, 3).<Callable<Registered>>mapToObj(i -> () -> keys.register(
+                new RegisterCommand(author, key, "n" + i), TestOwners.OWNER)).toList();
+        List<Parallel.Outcome<Registered>> outcomes = Parallel.all(calls);
+        assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.failure()).as("a conflict is retried, not thrown").isNull());
+        assertThat(outcomes.stream().map(outcome -> outcome.value().id()).distinct()).hasSize(1);
+        assertThat(s.count("SELECT COUNT(*) FROM session_key WHERE author_id = ?", author)).isEqualTo(1);
+    }
+
+    private static int indexContaining(List<String> names, String part) {
+        for (int i = 0; i < names.size(); i++) {
+            if (names.get(i).contains(part)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    @Test
+    @DisplayName("SVC-KEY-14 (audit2 S5): no key is registered for the owner role user:owner, also by replacement: VALIDATION_FAILED path author reason MUST_BE_A_SESSION_AUTHOR; nothing is stored or audited")
+    void key14_theOwnerRoleHasNoKey(Scenario s) {
+        SessionKeyService keys = s.bean(SessionKeyService.class);
+        String key = publicKey(TestKeyRing.newPair());
+        long audited = s.count("SELECT COUNT(*) FROM owner_audit WHERE subject = ?", "user:owner");
+
+        LedgerException failure = Expect.failure(
+                () -> keys.register(new RegisterCommand("user:owner", key, null), TestOwners.OWNER),
+                ValidationCode.VALIDATION_FAILED);
+        assertThat(failure.args()).containsExactly("author");
+        assertThat(Expect.firstIssue(failure).reason()).isEqualTo(ValidationReason.MUST_BE_A_SESSION_AUTHOR);
+        Expect.failure(() -> keys.registerReplacing(new RegisterCommand("user:owner", key, null), TestOwners.OWNER,
+                "0".repeat(64)), ValidationCode.VALIDATION_FAILED);
+
+        assertThat(keys.live("user:owner")).isEmpty();
+        assertThat(s.count("SELECT COUNT(*) FROM owner_audit WHERE subject = ?", "user:owner")).isEqualTo(audited);
+    }
+
+    @Test
+    @DisplayName("SVC-KEY-15 (audit2 N3): revokeConfirmed closes the live key only when the fingerprint is that of the live key (any letter case): the row stays closed, KEY_REVOKED is audited with the actor; another fingerprint is VALIDATION_FAILED path fingerprint MUST_MATCH naming the live one; none or no live key is REQUIRED / NOT_FOUND; liveKeys lists the live keys")
+    void key15_revokeConfirmed(Scenario s) {
+        SessionKeyService keys = s.bean(SessionKeyService.class);
+        String author = newAuthor();
+        KeyPair pair = TestKeyRing.newPair();
+        String fingerprint = PublicKeys.fingerprint(pair.getPublic());
+        keys.register(new RegisterCommand(author, publicKey(pair), null), TestOwners.OWNER);
+        assertThat(keys.liveKeys()).extracting(row -> row.authorId().value()).contains(author);
+
+        LedgerException wrong = Expect.failure(() -> keys.revokeConfirmed(author,
+                PublicKeys.fingerprint(TestKeyRing.newPair().getPublic()), TestOwners.OWNER), ValidationCode.VALIDATION_FAILED);
+        assertThat(wrong.args()).containsExactly("fingerprint");
+        assertThat(Expect.firstIssue(wrong).reason()).isEqualTo(ValidationReason.MUST_MATCH);
+        assertThat(Expect.firstIssue(wrong).reasonArgs()).containsExactly(fingerprint);
+        for (String none : new String[] {null, " "}) {
+            Expect.failure(() -> keys.revokeConfirmed(author, none, TestOwners.OWNER), ValidationCode.VALIDATION_FAILED);
+        }
+        assertThat(keys.live(author)).as("nothing was closed").isPresent();
+
+        keys.revokeConfirmed(author, " " + fingerprint.toUpperCase(java.util.Locale.ROOT) + " ", TestOwners.OWNER);
+
+        assertThat(keys.live(author)).isEmpty();
+        assertThat(keys.history(author)).singleElement().satisfies(row -> assertThat(row.revokedAt()).isNotNull());
+        assertThat(keys.liveKeys()).extracting(row -> row.authorId().value()).doesNotContain(author);
+        assertThat(s.ctx().jdbc().sql("SELECT operation || ' ' || actor || ' ' || detail FROM owner_audit WHERE subject = :a "
+                + "ORDER BY id").param("a", author).query(String.class).list())
+                .containsExactly("KEY_REGISTERED test:owner key=" + fingerprint, "KEY_REVOKED test:owner key=" + fingerprint);
+        Expect.failure(() -> keys.revokeConfirmed(author, fingerprint, TestOwners.OWNER), LookupCode.NOT_FOUND);
+        Expect.failure(() -> keys.revokeConfirmed(newAuthor(), fingerprint, TestOwners.OWNER), LookupCode.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("SVC-KEY-16 (audit2 S1): present reads the bare key or the four lines of the hook command: the canonical key, its fingerprint and the server of a block; a block for another author, with a fingerprint line that does not belong to its key, with a missing line or with a bad key is VALIDATION_FAILED (author / public_key); nothing is stored")
+    void key16_present(Scenario s) {
+        SessionKeyService keys = s.bean(SessionKeyService.class);
+        String author = newAuthor();
+        KeyPair pair = TestKeyRing.newPair();
+        String key = publicKey(pair);
+        String fingerprint = PublicKeys.fingerprint(pair.getPublic());
+        String block = "server: ledger\nauthor: " + author + "\npublic-key: " + key + "\nfingerprint: " + fingerprint + "\n";
+
+        assertThat(keys.present(author, " " + key + "\n")).isEqualTo(new SessionKeyService.PresentedKey(key, fingerprint, null));
+        assertThat(keys.present(author, block)).isEqualTo(new SessionKeyService.PresentedKey(key, fingerprint, "ledger"));
+
+        LedgerException otherAuthor = Expect.failure(() -> keys.present(newAuthor(), block), ValidationCode.VALIDATION_FAILED);
+        assertThat(otherAuthor.args()).containsExactly("author");
+        assertThat(Expect.firstIssue(otherAuthor).reason()).isEqualTo(ValidationReason.KEY_BLOCK_AUTHOR_DIFFERS);
+        assertThat(Expect.firstIssue(otherAuthor).reasonArgs()).containsExactly(author);
+        LedgerException changed = Expect.failure(() -> keys.present(author, block.replace(fingerprint, "0".repeat(64))),
+                ValidationCode.VALIDATION_FAILED);
+        assertThat(Expect.firstIssue(changed).reason()).isEqualTo(ValidationReason.KEY_BLOCK_FINGERPRINT_DIFFERS);
+        LedgerException incomplete = Expect.failure(() -> keys.present(author, "author: " + author + "\npublic-key: " + key),
+                ValidationCode.VALIDATION_FAILED);
+        assertThat(Expect.firstIssue(incomplete).reason()).isEqualTo(ValidationReason.MUST_BE_SESSION_KEY_BLOCK);
+        LedgerException badKey = Expect.failure(() -> keys.present(author, block.replace(key, "AAAA")),
+                ValidationCode.VALIDATION_FAILED);
+        assertThat(Expect.firstIssue(badKey).reason()).isEqualTo(ValidationReason.MUST_BE_ED25519_PUBLIC_KEY);
+        Expect.failure(() -> keys.present(author, null), ValidationCode.VALIDATION_FAILED);
+        Expect.failure(() -> keys.present(author, "not a key"), ValidationCode.VALIDATION_FAILED);
+        assertThat(keys.history(author)).isEmpty();
     }
 }

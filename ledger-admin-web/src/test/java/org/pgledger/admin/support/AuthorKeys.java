@@ -21,6 +21,19 @@ public final class AuthorKeys {
             return fields;
         }
 
+        /** The four lines that the hook command session-key prints for this key (server, author, public-key, fingerprint). */
+        public String block(String server, String author) {
+            return "server: " + server + "\nauthor: " + author + "\npublic-key: " + publicKey + "\nfingerprint: "
+                    + fingerprint + "\n";
+        }
+
+        /** The fields of the issue form with the whole block pasted where the key is asked for. */
+        public MultiValueMap<String, String> pastedBlock(MultiValueMap<String, String> fields, String server,
+                String author) {
+            fields.add("publicKey", block(server, author));
+            return fields;
+        }
+
         /** The fields of the confirmation form: the key, the fingerprint the owner saw, and the comparison box. */
         public MultiValueMap<String, String> confirmed(MultiValueMap<String, String> fields) {
             pasted(fields);

@@ -52,7 +52,7 @@ public final class Scenario {
         this.code = "E2E" + number;
         ctx.clock().set(TestClock.START);
         ProjectService.ProjectCommand project = new ProjectCommand(projectId, code, "Project " + number);
-        ctx.bean(ProjectService.class).add(project);
+        ctx.bean(ProjectService.class).add(project, TestOwners.OWNER);
         // the actors of the catalogue have a registered key (the owner registered it when it granted them), the one
         // without a grant has a key as well: it is refused for the missing grant, not for the missing key
         List.of(AUTHOR, REVIEWER, DEFECT_ONLY, NOGRANT).forEach(ctx::enroll);
@@ -206,7 +206,7 @@ public final class Scenario {
     /** A second project (codes and ids of its own) for cross-project cases. */
     public String otherProject() {
         int number = ctx.nextProjectNumber();
-        bean(ProjectService.class).add(new ProjectCommand("p" + number, "E2E" + number, "Project " + number));
+        bean(ProjectService.class).add(new ProjectCommand("p" + number, "E2E" + number, "Project " + number), TestOwners.OWNER);
         return "p" + number;
     }
 

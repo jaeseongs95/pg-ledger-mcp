@@ -31,7 +31,7 @@ public final class Scenario {
         int number = context.getBean(ProjectNumbers.class).next();
         this.projectId = "p" + number;
         this.code = "E2E" + number;
-        context.getBean(ProjectService.class).add(new ProjectCommand(projectId, code, "Project " + number));
+        context.getBean(ProjectService.class).add(new ProjectCommand(projectId, code, "Project " + number), TestOwners.OWNER);
         grant(AUTHOR, "defect", "task", "fix", "verify");
         grant(REVIEWER, "fix", "verify");
         grant(DEFECT_ONLY, "defect");

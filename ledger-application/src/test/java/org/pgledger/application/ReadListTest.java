@@ -81,7 +81,7 @@ class ReadListTest {
                             s.conditionId(String.format("%04d", i)), null, null)).toList();
             s.bean(BatchService.class).batch(Scenario.AUTHOR, null, conditions);
             IntStream.rangeClosed(1, ROWS).forEach(i -> s.bean(ProjectService.class).add(new ProjectCommand(
-                    "list-" + s.code().toLowerCase() + "-" + i, "L" + s.code() + "X" + i, "list project " + i)));
+                    "list-" + s.code().toLowerCase() + "-" + i, "L" + s.code() + "X" + i, "list project " + i), TestOwners.OWNER));
             IntStream.rangeClosed(1, ROWS).forEach(i -> s.bean(CommonCodeService.class).set(new CodeCommand(
                     "RELATION_KIND", "LST_" + s.code() + "_" + i, "목록 " + i, null, null, null, 500 + i,
                     "INACTIVE"), TestOwners.OWNER));

@@ -84,7 +84,7 @@ public class Seeds {
     public Seeded project() {
         int number = numbers.incrementAndGet();
         Seeded seeded = new Seeded("adm" + number, "ADM" + number);
-        projects.add(new ProjectCommand(seeded.project(), seeded.code(), "Project " + number));
+        projects.add(new ProjectCommand(seeded.project(), seeded.code(), "Project " + number), TestOwners.OWNER);
         grants.grant(new GrantCommand(AUTHOR, seeded.project(), List.of("defect", "task"), null, null), TestOwners.OWNER);
         return seeded;
     }

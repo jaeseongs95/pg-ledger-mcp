@@ -164,15 +164,15 @@ class GrantProjectTest {
     @MethodSource("newProjects")
     @DisplayName("SVC-GRT-05: a project needs a valid id, code and title")
     void grt05_validation(NewProject project, Scenario s) {
-        assertThat(Expect.outcome(() -> s.bean(ProjectService.class).add(project.command())))
+        assertThat(Expect.outcome(() -> s.bean(ProjectService.class).add(project.command(), TestOwners.OWNER)))
                 .isEqualTo(Optional.ofNullable(project.expected()));
         if (project.expected() == null) {
             // the id and the code are required; the violation names the property as the callers know it
-            LedgerException noId = Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand(null, "PRJN", "t")),
+            LedgerException noId = Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand(null, "PRJN", "t"), TestOwners.OWNER),
                     ValidationCode.VALIDATION_FAILED);
             assertThat(noId.args()).containsExactly("id");
             assertThat(Expect.firstIssue(noId).reason()).isEqualTo(ValidationReason.REQUIRED);
-            LedgerException noCode = Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand("prj-n", null, "t")),
+            LedgerException noCode = Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand("prj-n", null, "t"), TestOwners.OWNER),
                     ValidationCode.VALIDATION_FAILED);
             assertThat(noCode.args()).containsExactly("code");
             assertThat(Expect.firstIssue(noCode).reason()).isEqualTo(ValidationReason.REQUIRED);
@@ -191,9 +191,9 @@ class GrantProjectTest {
     @Test
     @DisplayName("SVC-GRT-05: a duplicate id or code")
     void grt05_duplicates(Scenario s) {
-        Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand(s.projectId(), "OTHERCODE", "t")),
+        Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand(s.projectId(), "OTHERCODE", "t"), TestOwners.OWNER),
                 ConflictCode.DUPLICATE_KEY);
-        Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand("another-id", s.code(), "t")),
+        Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand("another-id", s.code(), "t"), TestOwners.OWNER),
                 ConflictCode.DUPLICATE_KEY);
     }
 }

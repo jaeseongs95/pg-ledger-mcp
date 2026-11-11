@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.io.UncheckedIOException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -29,6 +30,7 @@ import org.pgledger.admin.support.AdminTestSettings;
 import org.pgledger.admin.support.Browser;
 import org.pgledger.admin.support.Browser.Form;
 import org.pgledger.database.driver.DriverRegistration;
+import org.pgledger.testing.OwnerOnlyFiles;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.env.YamlPropertySourceLoader;
@@ -81,7 +83,7 @@ class SetupModeTest {
 
     private static Path driverDirectory() {
         try {
-            return Files.createDirectory(DIRECTORY.resolve("drivers"));
+            return OwnerOnlyFiles.restrict(Files.createDirectory(DIRECTORY.resolve("drivers")));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -99,7 +101,7 @@ class SetupModeTest {
     /** A copy of the H2 jar inside the allowed directory: the jar the user would put there. */
     private static Path h2Jar() {
         try {
-            return Files.copy(outsideH2Jar(), DRIVERS.resolve("h2.jar"), StandardCopyOption.REPLACE_EXISTING)
+            return OwnerOnlyFiles.restrict(Files.copy(outsideH2Jar(), DRIVERS.resolve("h2.jar"), StandardCopyOption.REPLACE_EXISTING))
                     .toRealPath();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -150,8 +152,8 @@ class SetupModeTest {
     }
 
     static Stream<Invalid> invalidRegistrations() throws IOException {
-        Path notAJar = Files.writeString(DRIVERS.resolve("not-a-jar.jar"), "this is text, not an archive");
-        Path empty = Files.write(DRIVERS.resolve("empty.jar"), new byte[0]);
+        Path notAJar = OwnerOnlyFiles.write(DRIVERS.resolve("not-a-jar.jar"), "this is text, not an archive".getBytes(StandardCharsets.UTF_8));
+        Path empty = OwnerOnlyFiles.write(DRIVERS.resolve("empty.jar"), new byte[0]);
         String jar = h2Jar().toString();
         return Stream.of(
                 new Invalid("path that does not exist", DRIVERS.resolve("missing.jar").toString(), "org.h2.Driver"),
@@ -173,7 +175,7 @@ class SetupModeTest {
             + "every cause, no path in it (JSON client and browser page), the specific reason only in the server log")
     void adm063_theClientLearnsNothingAboutTheJar(CapturedOutput output) throws Exception {
         Browser owner = Browser.signedIn(mvc);
-        Path notAJar = Files.writeString(DRIVERS.resolve("not-a-jar-63.jar"), "this is text, not an archive");
+        Path notAJar = OwnerOnlyFiles.write(DRIVERS.resolve("not-a-jar-63.jar"), "this is text, not an archive".getBytes(StandardCharsets.UTF_8));
         String inside = h2Jar().toString();
         List<Invalid> refused = List.of(
                 new Invalid("missing", DRIVERS.resolve("missing-63.jar").toString(), "org.h2.Driver"),
@@ -224,7 +226,7 @@ class SetupModeTest {
     @Test
     @DisplayName("ADM-041/DRV-016: a valid registration is stored with the SHA-256 of the jar and the page says it takes effect "
             + "after the restart; the file is what Spring Boot binds to ledger.jdbc.driver")
-    void drv016_validRegistration() throws Exception {
+    void drv016_validRegistration(CapturedOutput output) throws Exception {
         Browser owner = Browser.signedIn(mvc);
         Path jar = h2Jar();
         MultiValueMap<String, String> fields = Form.of("jar", jar.toString(), "className", "org.h2.Driver");
@@ -241,6 +243,8 @@ class SetupModeTest {
         assertThat(bound.className()).isEqualTo("org.h2.Driver");
         assertThat(bound.sha256()).isEqualTo(digest);
         assertThat(registrationText().orElseThrow()).contains("registered-at").containsPattern("registered-at: .*Z");
+        // ADM-072 (audit2 N3): there is no database in setup mode, so no audit row; the registration is logged with the owner
+        assertThat(output.getAll()).contains("driver registered by token:owner").contains("org.h2.Driver").contains(digest);
     }
 
     /** What every product does with the file: Spring Boot loads it as a YAML property source and binds the record. */

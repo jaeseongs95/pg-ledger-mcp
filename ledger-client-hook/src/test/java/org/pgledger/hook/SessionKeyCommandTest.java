@@ -21,6 +21,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.attestation.AttestationToken;
+import org.pgledger.attestation.KeyBlock;
 import org.pgledger.attestation.PublicKeys;
 import tools.jackson.databind.JsonNode;
 
@@ -136,6 +137,21 @@ class SessionKeyCommandTest {
         assertThat(second.stdout()).isEqualTo(first.stdout());
         assertThat(second.err()).isEmpty();
         assertThat(Files.readAllBytes(file)).as("the key file is reused as it is").isEqualTo(bytes);
+    }
+
+    @Test
+    @DisplayName("HK-039 (audit2 S1) the four lines that session-key prints are one block that the registration side reads back: server, author, public key and fingerprint as printed")
+    void thePrintedBlockIsReadBackByTheRegistrationSide(HookJar jar) throws IOException {
+        Run run = jar.run(new byte[0], "session-key", "ledger", AUTHOR);
+        assertThat(run.exit()).isZero();
+        List<String> lines = fourLines(run);
+
+        assertThat(KeyBlock.isBlock(run.out())).isTrue();
+        KeyBlock block = KeyBlock.parse(run.out());
+        assertThat(block.server()).isEqualTo("ledger");
+        assertThat(block.author()).isEqualTo(AUTHOR);
+        assertThat(block.publicKey()).isEqualTo(lines.get(2).substring("public-key: ".length()));
+        assertThat(block.fingerprint()).isEqualTo(lines.get(3).substring("fingerprint: ".length()));
     }
 
     @ParameterizedTest

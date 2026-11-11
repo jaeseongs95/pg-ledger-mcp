@@ -231,4 +231,63 @@ class KeyRegisterDatabaseTest {
         assertThat(database.rows(LIVE_KEYS)).isEmpty();
         assertThat(database.rows(AUDIT)).isEmpty();
     }
+
+    private Outcome revoke(Cli cli, RecordingOutput output, String author, String fingerprint) {
+        return cli.withDatabase(database.dataSource()).asProcessUser(USER)
+                .run(tmp.resolve("secrets"), null, output, "key-revoke", author, "--fingerprint=" + fingerprint);
+    }
+
+    @Test
+    @DisplayName("CLI-035 (audit2 N3) key-revoke with the fingerprint of the live key closes it (the row stays, closed) and the owner audit trail has KEY_REVOKED with the actor cli:<process user>; a second revoke is NO_LIVE_KEY; the author can register a key again")
+    void revokesTheLiveKey(Cli cli) {
+        KeyPair pair = pair();
+        assertThat(register(cli, new RecordingOutput(), AUTHOR, pair).exitCode()).isZero();
+        RecordingOutput output = new RecordingOutput();
+
+        Outcome result = revoke(cli, output, AUTHOR, fingerprint(pair).toUpperCase(Locale.ROOT));
+
+        assertThat(result.exitCode()).isZero();
+        assertThat(database.rows(LIVE_KEYS)).isEmpty();
+        List<Map<String, Object>> closed = database.rows(CLOSED_KEYS);
+        assertThat(closed).hasSize(1);
+        assertThat(closed.getFirst().get("fingerprint")).isEqualTo(fingerprint(pair));
+        List<Map<String, Object>> audit = database.rows(AUDIT);
+        assertThat(audit).hasSize(2);
+        assertThat(audit.get(1).get("actor")).isEqualTo("cli:" + USER);
+        assertThat(audit.get(1).get("operation")).isEqualTo("KEY_REVOKED");
+        assertThat(audit.get(1).get("subject")).isEqualTo(AUTHOR);
+        assertThat((String) audit.get(1).get("detail")).contains(fingerprint(pair));
+        assertThat(output.info()).contains(AUTHOR).contains(fingerprint(pair));
+
+        Outcome again = revoke(cli, new RecordingOutput(), AUTHOR, fingerprint(pair));
+        assertThat(again.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(again.code()).contains(ErrorCode.NO_LIVE_KEY);
+        assertThat(register(cli, new RecordingOutput(), AUTHOR, pair()).exitCode()).isZero();
+    }
+
+    @Test
+    @DisplayName("CLI-035 (audit2 N3) key-revoke with another fingerprint is REVOKE_FINGERPRINT_MISMATCH (exit 1) showing the fingerprint of the live key; the key stays live and nothing is audited")
+    void refusesAnotherFingerprintForTheRevoke(Cli cli) {
+        KeyPair pair = pair();
+        assertThat(register(cli, new RecordingOutput(), AUTHOR, pair).exitCode()).isZero();
+
+        Outcome result = revoke(cli, new RecordingOutput(), AUTHOR, fingerprint(pair()));
+
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.REVOKE_FINGERPRINT_MISMATCH);
+        assertThat(result.refusal().orElseThrow().arguments()).containsExactly(fingerprint(pair));
+        assertThat(database.rows(LIVE_KEYS)).hasSize(1);
+        assertThat(database.rows(AUDIT)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("CLI-036 (audit2 S5) the owner role user:owner has no session key: key-register for it is INVALID_AUTHOR (exit 1) and stores nothing")
+    void refusesTheOwnerRole(Cli cli) {
+        Outcome result = register(cli, new RecordingOutput(), "user:owner", pair());
+
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.INVALID_AUTHOR);
+        assertThat(database.rows(LIVE_KEYS)).isEmpty();
+        assertThat(database.rows(AUDIT)).isEmpty();
+    }
 }
