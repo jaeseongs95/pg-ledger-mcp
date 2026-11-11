@@ -2,11 +2,11 @@ package org.pgledger.mcp.tool;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonRawValue;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Function;
 import org.pgledger.application.read.AttentionService;
 import org.pgledger.application.read.CatalogService;
@@ -24,6 +24,8 @@ import org.pgledger.application.read.StatsService;
  * {@code Z} (the mapper writes {@code Instant} that way).
  */
 public final class ReadOutputs {
+
+    private static final String JSON_NULL = "null";
 
     private ReadOutputs() {
     }
@@ -127,7 +129,8 @@ public final class ReadOutputs {
             @JsonProperty("entity") String entity, @JsonProperty("entity_id") String entityId,
             @JsonProperty("op") String op, @JsonProperty("from_state") String fromState,
             @JsonProperty("to_state") String toState, @JsonProperty("changes") Object changes,
-            @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("before_data") Optional<Object> beforeData, @JsonProperty("reason") String reason,
+            @JsonInclude(JsonInclude.Include.NON_NULL) @JsonRawValue @JsonProperty("before_data") Object beforeData,
+            @JsonProperty("reason") String reason,
             @JsonProperty("evidence_uri") String evidenceUri, @JsonProperty("corrects_id") Long correctsId,
             @JsonProperty("request_id") String requestId, @JsonProperty("legacy_ref") String legacyRef) {
     }
@@ -229,9 +232,20 @@ public final class ReadOutputs {
     public static History history(HistoryService.HistoryView h, boolean includeBefore) {
         return new History(h.id(), h.at(), h.authorId(), h.vendor(), h.login(), h.actorAssurance(), h.entity(),
                 h.entityId(), h.op(), h.fromState(), h.toState(), h.changes(),
-                includeBefore ? Optional.ofNullable(h.beforeData()).<Object>map(BeforeData::of) : null, h.reason(),
-                h.evidenceUri(),
+                beforeData(h, includeBefore), h.reason(), h.evidenceUri(),
                 h.correctsId(), h.requestId(), h.legacyRef());
+    }
+
+    /**
+     * The text that is written as it is for {@code before_data} ({@code @JsonRawValue}): the JSON the row stores
+     * (snake_case keys, written by the ledger mapper), or {@code null} (the JSON null) when it was asked for and the
+     * row has none, or a Java null (the key is left out) when it was not asked for.
+     */
+    private static String beforeData(HistoryService.HistoryView h, boolean includeBefore) {
+        if (!includeBefore) {
+            return null;
+        }
+        return h.beforeData() == null ? JSON_NULL : h.beforeData().text();
     }
 
     public static Hit hit(SearchService.Hit h) {
