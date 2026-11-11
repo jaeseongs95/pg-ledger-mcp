@@ -159,6 +159,12 @@ sealed interface SecretProtection {
          */
         @Override
         public void settle(Path path) throws IOException {
+            // A process with an elevated token (the installer) creates objects that the group Administrators owns, which is
+            // Windows' default for its members; the owner check wants the account of the process, so it takes the ownership
+            // of what it has just created (it may: the creator's entry holds the right to change the owner).
+            if (!Files.getOwner(path, LinkOption.NOFOLLOW_LINKS).equals(owner)) {
+                Files.setOwner(path, owner);
+            }
             try {
                 requireOwnerOnlyAccess(path);
             } catch (FailureException wider) {

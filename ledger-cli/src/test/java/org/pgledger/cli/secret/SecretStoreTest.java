@@ -294,6 +294,9 @@ class SecretStoreTest {
 
         assertOwnerOnlyAcl(directory);
         assertOwnerOnlyAcl(file);
+        UserPrincipal self = new SystemProcessUser().current(FileSystems.getDefault());
+        assertThat(Files.getOwner(directory)).as("the account of the process owns it, not the group Administrators").isEqualTo(self);
+        assertThat(Files.getOwner(file)).isEqualTo(self);
         assertThat(Files.readAllBytes(file)).isEqualTo(value.getBytes(UTF_8));
         assertThat(names(directory)).containsExactly("cloudflare-api-token");
         assertThatCode(() -> store(directory).check(NAME)).doesNotThrowAnyException();

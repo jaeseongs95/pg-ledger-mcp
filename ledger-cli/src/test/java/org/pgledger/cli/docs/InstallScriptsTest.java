@@ -258,8 +258,8 @@ class InstallScriptsTest {
                 found.add(matcher.group());
             }
         }
-        assertThat(found).allSatisfy(exe -> assertThat(exe.equals("java.exe") || exe.equals("sc.exe") || exe.endsWith("%SVC%.exe")
-                || exe.endsWith("%ADMIN%.exe") || exe.endsWith("%%S.exe") || exe.endsWith("%~2")).as(exe).isTrue());
+        assertThat(found).allSatisfy(exe -> assertThat("java.exe".equals(exe) || "sc.exe".equals(exe)
+                || exe.endsWith("%SVC%.exe") || exe.endsWith("%ADMIN%.exe") || exe.endsWith("%%S.exe")).as(exe).isTrue());
         assertThat(String.join("\n", cmdCodeLines())).contains("icacls ", "mkdir ", "copy ", "sc.exe config", "java -version");
         assertThat(text(CMD).toLowerCase(Locale.ROOT)).doesNotContain("cloudflare");
     }
