@@ -221,6 +221,42 @@ class SessionKeyTest {
         assertThat(s.count("SELECT COUNT(*) FROM session_key WHERE author_id = ?", author)).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("SVC-KEY-16 a registration of a key that another registration of the same author made live between its two lookups (the key was not live when it looked at the fingerprint, and is the author's live key when it looks at the author) answers with that row like any repeated registration: no KEY_REPLACEMENT_NOT_CONFIRMED, no second row, no second audit row, nothing closed")
+    void key16_theSameKeyBecomesLiveBetweenTheLookups(Scenario s) {
+        SessionKeyService real = s.bean(SessionKeyService.class);
+        String author = newAuthor();
+        String key = publicKey(TestKeyRing.newPair());
+        java.util.concurrent.atomic.AtomicBoolean raced = new java.util.concurrent.atomic.AtomicBoolean();
+        // The state repository of the service under test: right after the lookup by fingerprint found nothing, the other
+        // registration makes the same key live (the interleaving of SVC-KEY-13, here at a fixed point).
+        org.pgledger.database.repository.SessionKeyStateRepository racing =
+                new org.pgledger.database.repository.SessionKeyStateRepository(s.ctx().jdbc()) {
+                    @Override
+                    public java.util.Optional<SessionPublicKey> findLiveByFingerprint(String fingerprint) {
+                        java.util.Optional<SessionPublicKey> seen = super.findLiveByFingerprint(fingerprint);
+                        if (raced.compareAndSet(false, true)) {
+                            real.register(new RegisterCommand(author, key, "the other registration"), TestOwners.OWNER);
+                        }
+                        return seen;
+                    }
+                };
+        SessionKeyService service = new SessionKeyService(racing,
+                s.bean(org.pgledger.database.repository.SessionKeyRepository.class),
+                s.bean(org.pgledger.database.repository.IdAllocator.class),
+                s.bean(org.pgledger.application.admin.OwnerAuditWriter.class), s.bean(java.time.Clock.class));
+
+        Registered registered = s.ctx().tx(() -> service.register(new RegisterCommand(author, key, "this one"),
+                TestOwners.OWNER));
+
+        assertThat(raced).isTrue();
+        assertThat(s.count("SELECT COUNT(*) FROM session_key WHERE author_id = ?", author)).isEqualTo(1);
+        assertThat(s.count("SELECT COUNT(*) FROM session_key WHERE author_id = ? AND revoked_at IS NULL", author)).isEqualTo(1);
+        assertThat(registered.id()).isEqualTo(s.ctx().jdbc().sql("SELECT id FROM session_key WHERE author_id = ?").param(author)
+                .query(Long.class).single());
+        assertThat(s.count("SELECT COUNT(*) FROM owner_audit WHERE subject = ?", author)).isEqualTo(1);
+    }
+
     private static int indexContaining(List<String> names, String part) {
         for (int i = 0; i < names.size(); i++) {
             if (names.get(i).contains(part)) {
