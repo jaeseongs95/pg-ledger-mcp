@@ -1,8 +1,11 @@
 package org.pgledger.mcp.reflection;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -14,6 +17,7 @@ import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.mcp.tool.PresenceAware;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JavaType;
+import tools.jackson.databind.exc.InvalidTypeIdException;
 import tools.jackson.databind.exc.MismatchedInputException;
 import tools.jackson.databind.exc.PropertyBindingException;
 import tools.jackson.databind.json.JsonMapper;
@@ -61,6 +65,9 @@ import tools.jackson.databind.json.JsonMapper;
  * required, {@code @Choice}), not written per argument.
  */
 public final class ToolBinding {
+
+    /** The reason of an argument that does not read as the type of its parameter and has no better name. */
+    private static final String UNREADABLE = "the value does not fit the input of the tool";
 
     private final String name;
     private final Object bean;
@@ -174,9 +181,32 @@ public final class ToolBinding {
             case MismatchedInputException mismatch when mismatch.getTargetType() != null ->
                 new ValidationIssue(path.toString(), ValidationReason.WRONG_TYPE,
                         List.of(mismatch.getTargetType().getSimpleName()), List.of());
+            case InvalidTypeIdException typeId -> typeIdIssue(path.toString(), typeId);
+            // the text of the JSON library names internal classes: the cause keeps it for the log, the caller
+            // gets a fixed reason
             default -> new ValidationIssue(path.toString(), ValidationReason.INVALID_JSON,
-                    List.of(failure.getOriginalMessage()), List.of());
+                    List.of(UNREADABLE), List.of());
         };
+    }
+
+    /**
+     * The {@code type} key of a variant is missing (REQUIRED) or names no variant (UNKNOWN_VALUE with the names
+     * that exist, read from the {@code @JsonSubTypes} of the base type); the class names of Jackson's text are not
+     * passed on.
+     */
+    private static ValidationIssue typeIdIssue(String path, InvalidTypeIdException failure) {
+        Class<?> base = failure.getBaseType() == null ? null : failure.getBaseType().getRawClass();
+        JsonTypeInfo info = base == null ? null : base.getAnnotation(JsonTypeInfo.class);
+        JsonSubTypes subtypes = base == null ? null : base.getAnnotation(JsonSubTypes.class);
+        if (info == null || subtypes == null) {
+            return new ValidationIssue(path, ValidationReason.INVALID_JSON, List.of(UNREADABLE), List.of());
+        }
+        String at = path + "." + info.property();
+        if (failure.getTypeId() == null) {
+            return new ValidationIssue(at, ValidationReason.REQUIRED, List.of(), List.of());
+        }
+        return new ValidationIssue(at, ValidationReason.UNKNOWN_VALUE, List.of(failure.getTypeId()),
+                Arrays.stream(subtypes.value()).map(JsonSubTypes.Type::name).toList());
     }
 
     private void checkChoice(ChoiceSlot slot, Object[] values, List<ValidationIssue> issues) {

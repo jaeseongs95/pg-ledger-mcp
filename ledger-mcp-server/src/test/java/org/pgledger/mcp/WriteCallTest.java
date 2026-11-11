@@ -126,6 +126,39 @@ class WriteCallTest {
                 "Author_Id", "_hostattestation", "fields.titel");
     }
 
+    /** A batch operation that is wrong in its {@code op} key, and what the issue says about it. */
+    private record BadOp(String name, Map<String, Object> op, String reason, List<String> allowed) {
+
+        @Override
+        public String toString() {
+            return name;
+        }
+    }
+
+    static Stream<BadOp> badOps() {
+        List<String> ops = List.of("save", "transition", "record_fix", "record_case", "link", "correct");
+        return Stream.of(
+                new BadOp("unknown op", Map.of("op", "drop"), "unknown value drop", ops),
+                new BadOp("no op", Map.of("entity", "defect"), "is required", List.of()));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("badOps")
+    @DisplayName("MCW-027: a batch operation with an unknown or missing op names the key and the allowed ops, and "
+            + "no internal class name is in the result")
+    void aBadOpNamesNoInternalClass(BadOp bad, McpSession session) {
+        Args call = Args.of().with("ops", List.of(bad.op())).with("_hostAttestation", Scenario.AUTHOR);
+
+        CallToolResult result = session.call("ledger_batch", call);
+        ToolError error = session.error(result);
+
+        assertThat(result.isError()).isTrue();
+        assertThat(error.code()).isEqualTo("VALIDATION_FAILED");
+        assertThat(error.issues()).containsExactly(new ToolError.Issue("ops[0].op", bad.reason(), bad.allowed()));
+        String everything = result.content() + " " + result.structuredContent();
+        assertThat(everything).doesNotContain("org.pgledger").doesNotContain("BatchOp");
+    }
+
     @Test
     @DisplayName("MCW-006: an empty _hostAttestation is AUTHOR_ID_FORMAT")
     void anEmptyAttestationIsAMalformedAuthorId(McpSession session, Scenario scenario) {
