@@ -60,7 +60,7 @@ public final class McpTestServer implements AutoCloseable {
         Context context = tomcat.addContext("", baseDirectory.toString());
         org.apache.catalina.Wrapper wrapper = Tomcat.addServlet(context, "mcp", transport);
         wrapper.setAsyncSupported(true);
-        context.addServletMappingDecoded("/*", "mcp");
+        wrapper.addMapping("/*");
         addFilter(context, bearerFilter(bearer));
         try {
             tomcat.start();
