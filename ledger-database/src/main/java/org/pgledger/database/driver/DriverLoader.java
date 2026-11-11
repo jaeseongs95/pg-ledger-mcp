@@ -1,17 +1,22 @@
 package org.pgledger.database.driver;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.channels.Channels;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.OpenOption;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermissions;
-import java.nio.file.attribute.UserPrincipal;
 import java.sql.Driver;
 import java.time.Instant;
 import java.util.List;
@@ -30,7 +35,9 @@ import org.slf4j.LoggerFactory;
  * the registered jar (path, owner, permissions, digest, archive), loads the named class in an isolated class loader,
  * and creates the driver. The user supplies the jar; nothing of any DBMS is on the product's class path.
  *
- * <p>The jar is read once into memory. The digest is taken of exactly those bytes, the bytes are written to a private
+ * <p>The jar is opened once, the file that was opened and its directory are checked ({@link FileTrust}: owner, and nobody
+ * but the owner and the administrative accounts may write, by POSIX permissions or by ACL), and it is read once into
+ * memory from that open channel. The digest is taken of exactly those bytes, the bytes are written to a private
  * copy (a temporary file; on a file system with POSIX permissions it is created with {@code rw-------} through
  * {@link PosixFilePermissions#asFileAttribute}, elsewhere with the default of {@link Files#createTempFile}, which the
  * documentation says may be more restrictive than {@code File.createTempFile} but does not fix), and the class loader
@@ -39,7 +46,7 @@ import org.slf4j.LoggerFactory;
  * runs. The copy is deleted when the {@link RegisteredDriver} is closed (and, as a fallback, when the JVM ends). A
  * {@link URLClassLoader} opens an URL, not a byte array, so the copy is the file it opens.
  *
- * <p>Standard API used: {@link Files#readAllBytes}, {@link Files#createTempFile(String, String,
+ * <p>Standard API used: {@link Files#newByteChannel(Path, Set, java.nio.file.attribute.FileAttribute[])}, {@link Channels#newInputStream} (https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/channels/Channels.html), {@link LinkOption#NOFOLLOW_LINKS} (https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/LinkOption.html), {@link Files#createTempFile(String, String,
  * java.nio.file.attribute.FileAttribute[])} and {@link Files#getOwner} (https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/Files.html),
  * {@link PosixFilePermissions} (https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/attribute/PosixFilePermissions.html),
  * {@link java.nio.file.FileSystem#supportedFileAttributeViews()} (https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/FileSystem.html)
@@ -57,6 +64,10 @@ public final class DriverLoader {
     private static final String PLACEHOLDER_START = "${";
 
     private static final String POSIX = "posix";
+
+    /** The one open of the jar: read only, a link is not followed. */
+    private static final Set<OpenOption> READ_WITHOUT_FOLLOWING_LINKS =
+            Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
 
     private DriverLoader() {
     }
@@ -101,16 +112,16 @@ public final class DriverLoader {
     }
 
     /**
-     * The one way a jar is opened: path checks, read the bytes once, attributes, digest (against
-     * {@code expectedDigest} when it is given), private copy, load. Whatever fails after the copy was made removes it.
+     * The one way a jar is opened: path checks, a private copy made first (its owner is the process user), the jar opened
+     * once and checked and read ({@link #readTrusted}), digest (against {@code expectedDigest} when it is given), load.
+     * Whatever fails after the copy was made removes it.
      */
     private static Opened open(Path jar, String className, String expectedDigest) {
         requireUsablePath(jar);
-        byte[] bytes = readOnce(jar);
         Path copy = createPrivateCopy();
         boolean handedOver = false;
         try {
-            requireTrustedFile(jar, copy);
+            byte[] bytes = readTrusted(jar, copy);
             Sha256 actual = Sha256.ofBytes(bytes);
             if (expectedDigest != null && !Objects.equals(actual.hex(), expectedDigest)) {
                 throw invalid("digest mismatch for " + jar + ": registered " + expectedDigest + " but the file is "
@@ -149,9 +160,43 @@ public final class DriverLoader {
         }
     }
 
-    private static byte[] readOnce(Path jar) {
-        try {
-            return Files.readAllBytes(jar);
+    /**
+     * Opens the jar once, without following a link, checks the file that was opened and the directory it is in
+     * ({@link FileTrust}: owner, and nobody but the owner and the administrative accounts may write), and reads the bytes
+     * from that open channel ({@link Files#newByteChannel(Path, Set, java.nio.file.attribute.FileAttribute[])},
+     * {@link Channels#newInputStream}). There is no second open of the path, so a file that is swapped for another after
+     * the check is not the one that is read.
+     *
+     * <p>The JDK gives the attributes of a path and not of an open channel, so the checks read them by path right after the
+     * open, before a byte is read, and again after the read: the file must still be the same one (the file key where the
+     * file system has one, the size and the modification time), or the jar is refused as changed while it was read. A
+     * process that could replace the file in that short time can already write to the directory, which is refused unless
+     * it belongs to trusted accounts alone. Only the directory the jar is in is checked, not the ones above it: the
+     * registration confines the jar to the configured driver directory, which is where the owner puts the jars.
+     *
+     * @param privateCopy the empty private copy: its owner is the process user
+     */
+    private static byte[] readTrusted(Path jar, Path privateCopy) {
+        try (SeekableByteChannel channel = Files.newByteChannel(jar, READ_WITHOUT_FOLLOWING_LINKS)) {
+            BasicFileAttributes opened = Files.readAttributes(jar, BasicFileAttributes.class,
+                    LinkOption.NOFOLLOW_LINKS);
+            if (!opened.isRegularFile()) {
+                throw invalid("the jar is not a regular file (a link is not followed): " + jar);
+            }
+            FileTrust trust = new FileTrust(jar.getFileSystem(), Files.getOwner(privateCopy));
+            trust.require(jar, "the jar");
+            trust.require(jar.getParent(), "the directory of the jar");
+            byte[] bytes;
+            try (InputStream in = Channels.newInputStream(channel)) {
+                bytes = in.readAllBytes();
+            }
+            BasicFileAttributes after = Files.readAttributes(jar, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            boolean same = Objects.equals(opened.fileKey(), after.fileKey()) && opened.size() == after.size()
+                    && bytes.length == after.size() && Objects.equals(opened.lastModifiedTime(), after.lastModifiedTime());
+            if (!same) {
+                throw invalid("the jar changed while it was read: " + jar);
+            }
+            return bytes;
         } catch (IOException e) {
             throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID, List.of("cannot read " + jar), e);
         }
@@ -185,34 +230,6 @@ public final class DriverLoader {
         } catch (IOException e) {
             throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID,
                     List.of("cannot write the private copy of the jar"), e);
-        }
-    }
-
-    /**
-     * The code of the jar runs inside the process. On a POSIX file system others must not be able to replace it
-     * (neither the group nor others may write it), and its owner is the process user or the owner of the directory
-     * it is in (an installer, for example root, owns both). The process user is the owner of the private copy that the
-     * process just created: no system property is read for it.
-     */
-    private static void requireTrustedFile(Path jar, Path privateCopy) {
-        if (!jar.getFileSystem().supportedFileAttributeViews().contains(POSIX)) {
-            return;
-        }
-        try {
-            Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(jar);
-            if (permissions.contains(PosixFilePermission.GROUP_WRITE)
-                    || permissions.contains(PosixFilePermission.OTHERS_WRITE)) {
-                throw invalid("the jar is writable by its group or by others: " + jar);
-            }
-            UserPrincipal owner = Files.getOwner(jar);
-            UserPrincipal processUser = Files.getOwner(privateCopy);
-            if (!owner.equals(processUser) && !owner.equals(Files.getOwner(jar.getParent()))) {
-                throw invalid("the jar is owned by " + owner.getName() + ", who is neither the process user nor the "
-                        + "owner of its directory: " + jar);
-            }
-        } catch (IOException e) {
-            throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID,
-                    List.of("cannot read the owner and the permissions of " + jar), e);
         }
     }
 
