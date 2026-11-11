@@ -1,10 +1,12 @@
 package org.pgledger.hook;
 
 import java.time.Clock;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.pgledger.attestation.ArgumentsDigest;
 import org.pgledger.attestation.AttestationClaims;
 import org.pgledger.hook.keys.SessionKey;
 import org.pgledger.hook.keys.SessionKeyException;
@@ -18,12 +20,15 @@ import tools.jackson.databind.node.ObjectNode;
  * model's arguments, unless the arguments are not an object, already contain the reserved key, the host id is missing
  * or malformed, or the {@code request_id} is not a text. The value is the text of an
  * {@link org.pgledger.attestation.AttestationToken}, signed with the private key of the author
- * {@code <vendor>:<host id>}, for the canonical tool name {@code ledger_<operation>}, the request id of the call and
- * the time of the injected clock. The request id is the argument {@code request_id}; if the model gave none (absent,
- * JSON null or blank) the hook generates a random UUID and puts it into the arguments as {@code request_id}. whoami has
- * no request id: its claim is empty and no {@code request_id} is added. Nothing else is changed.
+ * {@code <vendor>:<host id>} for the MCP server of the call, for the canonical tool name {@code ledger_<operation>},
+ * the request id of the call, the digest of the arguments the hook hands the host (RFC 8785 canonical form, SHA-256:
+ * {@link ArgumentsDigest}; the request id is already in them, the attestation is not) and the time of the injected
+ * clock. The request id is the argument {@code request_id}; if the model gave none (absent, JSON null or blank) the
+ * hook generates a random UUID and puts it into the arguments as {@code request_id}. whoami has no request id: its
+ * claim is empty and no {@code request_id} is added. Nothing else is changed.
  *
- * <p>The key pair of an author is created in the key folder by the first call of that author.
+ * <p>The key pair of an author for a server is created in the key folder by the first call of that author for that
+ * server.
  */
 record LedgerHook(HostDialect dialect, JsonCodec codec, Clock clock, SessionKeyStore keys) {
 
@@ -81,22 +86,31 @@ record LedgerHook(HostDialect dialect, JsonCodec codec, Clock clock, SessionKeyS
                 return new Verdict.Denied(Refusal.REQUEST_ID_INVALID);
             }
         }
+        // what the host hands the server, without the attestation: the signature covers exactly this (F1/F3)
+        ObjectNode stamped = arguments.deepCopy();
+        if (generatedRequestId != null) {
+            stamped.put(REQUEST_ID_KEY, generatedRequestId);
+        }
+        String argumentsDigest;
+        try {
+            argumentsDigest = ArgumentsDigest.of((Map<?, ?>) codec.plain(stamped));
+        } catch (IllegalArgumentException | JacksonException notSignable) {
+            // for example 1e999: no double, so no canonical form; nothing is signed and no key is created
+            LOG.log(Level.FINE, "the tool arguments cannot be put into the canonical form", notSignable);
+            return new Verdict.Denied(Refusal.ARGUMENTS_NOT_SIGNABLE);
+        }
         String author = dialect.vendor().attest(id.get());
         SessionKey key;
         try {
-            key = keys.load(author);
+            key = keys.load(call.server(), author);
         } catch (SessionKeyException unusable) {
             // the denial names no path and no key; the reason is in the cause (fine level only)
             LOG.log(Level.FINE, "the session key of the author cannot be used", unusable);
             return new Verdict.Denied(Refusal.SESSION_KEY_UNAVAILABLE);
         }
-        AttestationClaims claims = new AttestationClaims(
-                author, call.tool().canonicalName(), requestId, clock.instant().getEpochSecond());
+        AttestationClaims claims = new AttestationClaims(author, call.tool().canonicalName(), requestId,
+                argumentsDigest, clock.instant().getEpochSecond());
         String attestation = key.sign(claims).text();
-        ObjectNode stamped = arguments.deepCopy();
-        if (generatedRequestId != null) {
-            stamped.put(REQUEST_ID_KEY, generatedRequestId);
-        }
         stamped.put(RESERVED_KEY, attestation);
         return new Verdict.Stamped(stamped, attestation, generatedRequestId);
     }

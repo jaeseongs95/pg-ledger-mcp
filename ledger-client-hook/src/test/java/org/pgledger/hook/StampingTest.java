@@ -62,7 +62,7 @@ class StampingTest {
 
     /** A text in the form of a token (six parts, the format prefix); it is a forgery attempt like any other value. */
     private static final String TOKEN_LOOKALIKE =
-            "pgla1.Y2xhdWRlOnBhcmVudA.bGVkZ2VyX3NhdmU.cmVxLTE.1794387600.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+            "pgla2.Y2xhdWRlOnBhcmVudA.bGVkZ2VyX3NhdmU.cmVxLTE.1794387600.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
     /** Reserved values: every JSON type, the value the hook would write itself, a token-like text and another id. */
     static Stream<Arguments> reservedValues() {
@@ -81,7 +81,7 @@ class StampingTest {
         Run run = fixture.runClean(host, host.event(host.toolName(op), input));
         assertThat(run.document()).isEqualTo(host.denied(Refusal.RESERVED_FIELD));
         assertThat(run.out()).contains("reserved").doesNotContain("updatedInput").doesNotContain("overwrite")
-                .doesNotContain("pgla1");
+                .doesNotContain("pgla2");
         assertThat(fixture.keyDirectory()).as("no key folder, so no key was created").doesNotExist();
     }
 

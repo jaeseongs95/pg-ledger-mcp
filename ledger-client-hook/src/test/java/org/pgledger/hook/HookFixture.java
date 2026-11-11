@@ -47,7 +47,7 @@ final class HookFixture {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ByteArrayOutputStream err = new ByteArrayOutputStream();
         // a new store and a new command for every run: like a new process, nothing is kept between two runs
-        int exit = new HookCli(codec, clock, new SessionKeyStore(keyDirectory))
+        int exit = new HookCli(codec, clock, TestStores.open(keyDirectory))
                 .run(args, new ByteArrayInputStream(stdin), out, err);
         return new Run(exit, out.toByteArray(), err.toByteArray());
     }
@@ -70,11 +70,15 @@ final class HookFixture {
     }
 
     Attestations.Stamp stamp(HostScenario host, String hostId, String op, JsonNode sent, Run run) {
-        return stampCarrier(host.author(hostId), op, sent, host.stampedPart(run));
+        return stampCarrier(host.server(), host.author(hostId), op, sent, host.stampedPart(run));
     }
 
-    /** Checks the attestation inside {@code carrier}: the stamped arguments of a call whose own arguments were {@code sent}. */
-    Attestations.Stamp stampCarrier(String author, String op, JsonNode sent, JsonNode carrier) {
-        return Attestations.verify(keyDirectory, Attestations.Window.at(clock.instant()), author, op, sent, carrier);
+    /**
+     * Checks the attestation inside {@code carrier}: the stamped arguments of a call to the MCP server {@code server}
+     * whose own arguments were {@code sent}.
+     */
+    Attestations.Stamp stampCarrier(String server, String author, String op, JsonNode sent, JsonNode carrier) {
+        return Attestations.verify(keyDirectory, Attestations.Window.at(clock.instant()), server, author, op, sent,
+                carrier);
     }
 }

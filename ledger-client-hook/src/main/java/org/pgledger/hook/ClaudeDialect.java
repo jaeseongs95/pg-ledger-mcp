@@ -1,16 +1,15 @@
 package org.pgledger.hook;
 
-import java.util.regex.Pattern;
 import tools.jackson.core.JacksonException;
 
 /**
- * Claude Code PreToolUse (https://code.claude.com/docs/en/hooks#pretooluse). The host conversation id is
+ * Claude Code PreToolUse (https://code.claude.com/docs/en/hooks#pretooluse). The tool name is
+ * {@code mcp__<server>__<tool>}; only the shapes of {@link McpToolName} are signed, for the server in the name. The host conversation id is
  * {@code session_id}; {@code agent_id} is intentionally not used. A stamped call answers with {@code updatedInput}
  * and no permission decision, so the host's own permission policy still decides; exit 2 blocks the call.
  */
 record ClaudeDialect(JsonCodec codec) implements HostDialect {
 
-    private static final Pattern LEDGER_WRITE_TOOL = Pattern.compile("^mcp__.*ledger_" + WriteTool.alternation() + "$");
     private static final String EVENT_NAME = "PreToolUse";
 
     @Override
@@ -20,7 +19,7 @@ record ClaudeDialect(JsonCodec codec) implements HostDialect {
 
     @Override
     public Intake read(byte[] stdin) throws JacksonException {
-        return Intake.ofFlatEvent(codec.readEvent(stdin, FlatEvent.class), LEDGER_WRITE_TOOL);
+        return Intake.ofFlatEvent(codec.readEvent(stdin, FlatEvent.class), McpToolName::ofDoubleUnderscore);
     }
 
     @Override

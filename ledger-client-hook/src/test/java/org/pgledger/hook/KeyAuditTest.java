@@ -26,6 +26,10 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import java.security.PublicKey;
+import org.pgledger.attestation.AttestationException;
+import org.pgledger.attestation.AttestationToken;
+import org.pgledger.attestation.PublicKeys;
 import org.pgledger.hook.keys.SessionKeyException;
 import org.pgledger.hook.keys.SessionKeyStore;
 import tools.jackson.databind.JsonNode;
@@ -38,6 +42,7 @@ import tools.jackson.databind.JsonNode;
 @ExtendWith(HookExtension.class)
 class KeyAuditTest {
 
+    private static final String SERVER = "ledger";
     private static final String AUTHOR = "claude:audit-session";
     private static final JsonNode EMPTY = Json.of("{}");
     /** The well-known SID of the group Everyone; a SID text is understood by the lookup whatever the language of the system. */
@@ -83,6 +88,69 @@ class KeyAuditTest {
         assertThat(run.out()).startsWith("server: ledger\nauthor: " + AUTHOR + "\npublic-key: ");
     }
 
+    @Test
+    @DisplayName("HK-033 the key of an author is kept per server: two servers, two key files and keys, and a signature made for one server never verifies under the key of the other")
+    void keysAreKeptPerServer(HookFixture fixture) throws IOException {
+        HostScenario claude = new ClaudeHost();
+        JsonNode input = Json.of("{\"marker\":\"two servers\"}");
+        String author = claude.author(HookFixture.HOST_ID);
+        Run first = fixture.runClean(claude, claude.event("mcp__ledger__ledger_save", input));
+        Run second = fixture.runClean(claude, claude.event("mcp__ledger-test__ledger-test_ledger_save", input));
+        Attestations.Stamp onLedger = fixture.stampCarrier("ledger", author, "save", input, claude.stampedPart(first));
+        Attestations.Stamp onTest = fixture.stampCarrier("ledger-test", author, "save", input, claude.stampedPart(second));
+
+        PublicKey ledgerKey = Attestations.publicKey(fixture.keyDirectory(), "ledger", author);
+        PublicKey testKey = Attestations.publicKey(fixture.keyDirectory(), "ledger-test", author);
+        assertThat(PublicKeys.encode(ledgerKey)).isNotEqualTo(PublicKeys.encode(testKey));
+        assertThatThrownBy(() -> AttestationToken.parse(onLedger.token()).verify(testKey))
+                .isInstanceOf(AttestationException.class);
+        assertThatThrownBy(() -> AttestationToken.parse(onTest.token()).verify(ledgerKey))
+                .isInstanceOf(AttestationException.class);
+        try (Stream<Path> files = Files.list(fixture.keyDirectory())) {
+            assertThat(files.map(path -> path.getFileName().toString()).toList()).containsExactlyInAnyOrder(
+                    Attestations.keyFileName("ledger", author), Attestations.keyFileName("ledger-test", author));
+        }
+    }
+
+    @Test
+    @DisplayName("HK-034 a key file that holds another server's key (a copied file) is refused as SERVER_MISMATCH: nothing is signed and the file is not changed")
+    void aCopiedKeyFileIsRefused(HookFixture fixture) throws IOException {
+        HostScenario claude = new ClaudeHost();
+        String author = claude.author(HookFixture.HOST_ID);
+        fixture.runClean(claude, claude.event("mcp__ledger__ledger_save", EMPTY));
+        Path copy = fixture.keyDirectory().resolve(Attestations.keyFileName("other", author));
+        Files.copy(fixture.keyDirectory().resolve(Attestations.keyFileName("ledger", author)), copy,
+                java.nio.file.StandardCopyOption.COPY_ATTRIBUTES);
+        byte[] before = Files.readAllBytes(copy);
+
+        Run run = fixture.runClean(claude, claude.event("mcp__other__ledger_save", EMPTY));
+        assertThat(run.document()).isEqualTo(claude.denied(Refusal.SESSION_KEY_UNAVAILABLE));
+        assertThat(Files.readAllBytes(copy)).isEqualTo(before);
+        assertThatThrownBy(() -> TestStores.load(TestStores.open(fixture.keyDirectory()), "other", author))
+                .isInstanceOfSatisfying(SessionKeyException.class,
+                        failure -> assertThat(failure.reason()).isEqualTo(SessionKeyException.Reason.SERVER_MISMATCH));
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"{\"n\":12345678901234567890}",
+            "{\"d\":0.10,\"e\":1e2,\"z\":-0,\"big\":1E+30}", "{\"a\":[1,2.50,{\"b\":null}],\"s\":\"한글\",\"t\":\"a\\u0000\\n\"}"})
+    @DisplayName("HK-038 the token signs the digest of the arguments the hook returns (numbers, null, nesting, escapes), recomputed with the shared class")
+    void theDigestCoversTheArgumentsAsReturned(String json, HookFixture fixture) {
+        HostScenario claude = new ClaudeHost();
+        JsonNode input = Json.of(json);
+        Run run = fixture.runClean(claude, claude.event(claude.toolName("save"), input));
+        fixture.stamp(claude, "save", input, run);
+    }
+
+    @Test
+    @DisplayName("HK-038 a number that has no double (1e999) cannot be signed: denied ARGUMENTS_NOT_SIGNABLE, no key is created")
+    void aNumberBeyondTheRangeOfADoubleIsDenied(HookFixture fixture) {
+        HostScenario claude = new ClaudeHost();
+        Run run = fixture.runClean(claude, claude.event(claude.toolName("save"), Json.of("{\"n\":1e999}")));
+        assertThat(run.document()).isEqualTo(claude.denied(Refusal.ARGUMENTS_NOT_SIGNABLE));
+        assertThat(fixture.keyDirectory()).doesNotExist();
+    }
+
     // ---- HK-035 ----
 
     @Test
@@ -90,7 +158,7 @@ class KeyAuditTest {
     void createdWithOwnerOnlyAcl(@TempDir Path temp) throws IOException {
         Assumptions.assumeTrue(acl(), "NOT_RUN: the default file system has no ACL attribute view");
         Path directory = temp.resolve("keys");
-        TestStores.load(TestStores.open(directory), AUTHOR);
+        TestStores.load(TestStores.open(directory), SERVER, AUTHOR);
         List<Path> created;
         try (Stream<Path> files = Files.list(directory)) {
             created = files.toList();
@@ -113,7 +181,7 @@ class KeyAuditTest {
         Assumptions.assumeTrue(acl(), "NOT_RUN: the default file system has no ACL attribute view");
         Path directory = temp.resolve("keys");
         SessionKeyStore store = TestStores.open(directory);
-        TestStores.load(store, AUTHOR);
+        TestStores.load(store, SERVER, AUTHOR);
         Path file;
         try (Stream<Path> files = Files.list(directory)) {
             file = files.findFirst().orElseThrow();
@@ -127,7 +195,7 @@ class KeyAuditTest {
         view.setAcl(widened);
         byte[] before = Files.readAllBytes(file);
 
-        assertThatThrownBy(() -> TestStores.load(TestStores.open(directory), AUTHOR))
+        assertThatThrownBy(() -> TestStores.load(TestStores.open(directory), SERVER, AUTHOR))
                 .isInstanceOfSatisfying(SessionKeyException.class,
                         failure -> assertThat(failure.reason()).isEqualTo(SessionKeyException.Reason.TOO_OPEN));
         assertThat(Files.readAllBytes(file)).isEqualTo(before);
@@ -150,8 +218,8 @@ class KeyAuditTest {
         String name = relative.replace("audit-keys", "audit-keys-" + UUID.randomUUID());
         Path created = Path.of(name).toAbsolutePath().normalize();
         try {
-            SessionKeyStore store = SessionKeyStore.at(name, List.of());
-            assertThatThrownBy(() -> store.load(AUTHOR)).isInstanceOfSatisfying(SessionKeyException.class,
+            SessionKeyStore store = TestStores.at(name, List.of());
+            assertThatThrownBy(() -> store.load(SERVER, AUTHOR)).isInstanceOfSatisfying(SessionKeyException.class,
                     failure -> assertThat(failure.reason()).isEqualTo(SessionKeyException.Reason.FOLDER_UNAVAILABLE));
             assertThat(created).doesNotExist();
         } finally {

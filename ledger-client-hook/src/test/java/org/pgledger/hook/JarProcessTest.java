@@ -145,17 +145,20 @@ class JarProcessTest {
                 Arguments.argumentSet("two", List.of("claude", "codex")),
                 Arguments.argumentSet("CODEX", List.of("CODEX")),
                 Arguments.argumentSet("leading space", List.of(" codex")),
-                Arguments.argumentSet("session-key without author", List.of("session-key")),
-                Arguments.argumentSet("session-key with two authors", List.of("session-key", "claude:a", "claude:b")),
+                Arguments.argumentSet("session-key without operands", List.of("session-key")),
+                Arguments.argumentSet("session-key with an author only", List.of("session-key", "claude:a")),
+                Arguments.argumentSet("session-key with three operands",
+                        List.of("session-key", "ledger", "claude:a", "claude:b")),
                 Arguments.argumentSet("client with an author", List.of("claude", "claude:abc")),
-                Arguments.argumentSet("Session-Key", List.of("Session-Key", "claude:abc")));
+                Arguments.argumentSet("Session-Key", List.of("Session-Key", "ledger", "claude:abc")));
     }
 
-    static final String USAGE = "usage: java -jar ledger-client-hook.jar <claude|codex|antigravity> | session-key <author>";
+    static final String USAGE =
+            "usage: java -jar ledger-client-hook.jar <claude|codex|antigravity> | session-key <server> <author>";
 
     @ParameterizedTest
     @MethodSource("invalidArguments")
-    @DisplayName("HK-020 the argument must be exactly claude, codex or antigravity (or session-key with one author): anything else exits 2 with the usage on stderr and nothing on stdout")
+    @DisplayName("HK-020 the argument must be exactly claude, codex or antigravity (or session-key with a server and an author): anything else exits 2 with the usage on stderr and nothing on stdout")
     void argumentIsAnEnum(List<String> arguments, HookJar jar, HookFixture fixture) throws IOException {
         CodexHost codex = new CodexHost();
         byte[] stdin = codex.event(codex.toolName("save"), Json.of("{}"));

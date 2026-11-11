@@ -1,16 +1,15 @@
 package org.pgledger.hook;
 
-import java.util.regex.Pattern;
 import tools.jackson.core.JacksonException;
 
 /**
- * Codex PreToolUse. The host conversation id is {@code session_id} (Codex also gives sub-agents the parent id).
+ * Codex PreToolUse. The tool name is {@code mcp__<server>__<tool>}; only the shapes of {@link McpToolName} are signed,
+ * for the server in the name. The host conversation id is {@code session_id} (Codex also gives sub-agents the parent id).
  * A stamped call answers {@code allow} with {@code updatedInput}; a refusal answers {@code deny}. Malformed
  * input is denied explicitly with exit 0 (a failing hook process would not be a reliable block).
  */
 record CodexDialect(JsonCodec codec) implements HostDialect {
 
-    private static final Pattern LEDGER_WRITE_TOOL = Pattern.compile("^mcp__.+_ledger_" + WriteTool.alternation() + "$");
     private static final String EVENT_NAME = "PreToolUse";
 
     @Override
@@ -20,7 +19,7 @@ record CodexDialect(JsonCodec codec) implements HostDialect {
 
     @Override
     public Intake read(byte[] stdin) throws JacksonException {
-        return Intake.ofFlatEvent(codec.readEvent(stdin, FlatEvent.class), LEDGER_WRITE_TOOL);
+        return Intake.ofFlatEvent(codec.readEvent(stdin, FlatEvent.class), McpToolName::ofDoubleUnderscore);
     }
 
     @Override

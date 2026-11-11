@@ -21,6 +21,9 @@ interface HostScenario {
     /** The host's name for {@code ledger_<operation>}. */
     String toolName(String operation);
 
+    /** The MCP server that {@link #toolName} names: the audience of the signature and the part of the key's identity. */
+    String server();
+
     /**
      * A host event for the tool. {@code arguments} is a JSON tree, a record, a map or {@link Json#raw raw JSON};
      * a Java null {@code hostId} leaves the id key out.

@@ -7,12 +7,19 @@ Agents read and write through MCP tools. They never get a database login of thei
 
 - **Role logins, not per-agent accounts.** There are three logins: `ledger_author`, `ledger_reviewer` and `ledger_reader`.
   Each MCP tool is bound to the login it needs, and the caller never chooses one.
-- **The host hook signs every write and whoami.** Reserved `_hostAttestation` is a signed token (`pgla1.<author>.<tool>.<request id>.<issued at>.<signature>`)
+- **The host hook signs every write and whoami.** Reserved `_hostAttestation` is a signed token
+  (`pgla2.<author>.<tool>.<request id>.<arguments digest>.<issued at>.<signature>`; `pgla1` tokens are refused)
   for the author `<vendor>:<session-id>`, for example `claude:1f2e3d4c` or `codex:9a8b7c6d`. Models must omit this field.
-  The hook keeps one Ed25519 key pair per author in an owner-only folder (`LEDGER_HOOK_KEY_DIR`, default `~/.pg-ledger-mcp/session-keys`);
-  `java -jar ledger-client-hook.jar session-key <author>` prints the public key and its fingerprint. The owner registers the key for the
-  author (`ledger-cli key-register <author> <public-key> <fingerprint>`, after comparing the fingerprint); the server verifies the
-  signature, the tool, the request id and the time (default window 5 minutes) before it looks at any grant. A bare `<vendor>:<session-id>` is refused.
+  The signature covers the exact arguments of the call (SHA-256 of their RFC 8785 canonical form, without `_hostAttestation`;
+  a batch: every operation, its content, its order and its request id), so a captured token cannot carry other content.
+  The hook keeps one Ed25519 key pair per MCP server name of the host and author in an owner-only folder (an absolute path:
+  `LEDGER_HOOK_KEY_DIR`, default `~/.pg-ledger-mcp/session-keys`; POSIX mode or, on Windows, an ACL that grants the owner alone);
+  it signs only `mcp__<server>__ledger_<op>` (or `mcp__<server>__<server>_ledger_<op>`) with a known operation, so a signature made
+  for one server (the test server, a look-alike server) never verifies on another.
+  `java -jar ledger-client-hook.jar session-key <server> <author>` prints the public key and its fingerprint. The owner registers each
+  server's key separately (`ledger-cli key-register <author> <public-key> <fingerprint>` on that server, after comparing the fingerprint);
+  the server verifies the signature (a missing key and a wrong signature are the same refusal, `ATTESTATION_SIGNATURE_INVALID`), the tool,
+  the request id, the arguments and the time (default window 5 minutes) before it looks at any grant. A bare `<vendor>:<session-id>` is refused.
   Existing project/scope grants still apply. The ledger owner is `user:owner`. Legacy model `author_id` is ignored by the server.
   Limit: another process of the same OS user can read the key file; separate OS accounts are needed for isolation inside one user.
 - **Writes need a live grant.** The owner grants an author a scope on a project with `bin/ledger-admin grant`.

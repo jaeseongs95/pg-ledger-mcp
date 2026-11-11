@@ -53,13 +53,16 @@ class ManifestTest {
         return entry(client).path("hooks").get(0);
     }
 
-    /** Host tool names in every naming variant of that host. */
+    /**
+     * Host tool names in every naming variant of that host that the hook signs for (HK-032): the server segment, and
+     * the same segment as the prefix of a gateway.
+     */
     private static Stream<String> names(Client client, String op) {
         return switch (client) {
             case CLAUDE, CODEX -> SERVERS.stream().flatMap(server -> Stream.of(
-                    "mcp__" + server + "__ledger_" + op, "mcp__" + server + "__app_ledger_ledger_" + op));
-            case ANTIGRAVITY -> Stream.of("mcp:ledger_" + op, "mcp:test:ledger_" + op, "mcp:test/ledger_" + op,
-                    "mcp:test_ledger_" + op, "mcp:t0001sink_isolated-01:app_ledger_ledger_" + op);
+                    "mcp__" + server + "__ledger_" + op, "mcp__" + server + "__" + server + "_ledger_" + op));
+            case ANTIGRAVITY -> Stream.of("mcp:test:ledger_" + op, "mcp:test/ledger_" + op, "mcp:test_ledger_" + op,
+                    "mcp:ledger_ledger_" + op, "mcp:t0001sink_isolated-01:t0001sink_isolated-01_ledger_" + op);
         };
     }
 
@@ -68,14 +71,16 @@ class ManifestTest {
         return Stream.of(Client.values()).flatMap(client -> Stream.of(
                         Hosts.WRITE_OPS.stream().flatMap(op -> names(client, op)).map(name -> Map.entry(name, true)),
                         READ_OPS.stream().flatMap(op -> names(client, op)).map(name -> Map.entry(name, false)),
-                        Stream.of("Bash", "mcp__other__read", "ledger_save").map(name -> Map.entry(name, false)))
+                        Stream.of("Bash", "mcp__other__read", "ledger_save", "mcp__ledger_save", "mcp:ledger_save",
+                                "mcp__ledger__ledger_save_extra", "xmcp__ledger__ledger_save")
+                                .map(name -> Map.entry(name, false)))
                 .flatMap(cases -> cases)
                 .map(c -> Arguments.argumentSet(client + " " + c.getKey(), client, c.getKey(), c.getValue())));
     }
 
     @ParameterizedTest
     @MethodSource("matcherCases")
-    @DisplayName("HK-010 the matcher matches each write tool in every naming variant and none of the read tools or other tools")
+    @DisplayName("HK-010 the matcher matches each write tool in every naming variant that the hook signs for (the structural shape server + [prefix] + ledger_<op>) and none of the read tools, names without a server or other tools")
     void matcherSelectsTheWriteTools(Client client, String name, boolean selected) throws IOException {
         Pattern matcher = Pattern.compile(entry(client).path("matcher").stringValue());
         assertThat(matcher.matcher(name).find()).isEqualTo(selected);

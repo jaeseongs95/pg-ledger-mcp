@@ -91,6 +91,15 @@ public final class JsonCodec {
         return mapper.readTree(json);
     }
 
+    /**
+     * The tree as the plain Java model of JSON that {@link org.pgledger.attestation.ArgumentsDigest} reads: maps in
+     * the order of the document, lists, texts, numbers (big integers and {@code BigDecimal} as the codec reads them),
+     * booleans and {@code null}.
+     */
+    Object plain(JsonNode node) throws JacksonException {
+        return mapper.treeToValue(node, Object.class);
+    }
+
     /** UTF-8 bytes of the compact JSON text, independent of the JVM default charset. */
     byte[] write(Object value) throws JacksonException {
         return mapper.writeValueAsBytes(value);

@@ -18,32 +18,40 @@ import tools.jackson.databind.JsonNode;
 @ExtendWith(HookExtension.class)
 class SigningTest {
 
-    /** The naming of ledger_<op> in each host; {@code %s} is the operation. */
-    private static final Map<Client, List<String>> NAMINGS = Map.of(
-            Client.CLAUDE, List.of("mcp__ledger__ledger_%s", "mcp__srv__ledger_%s", "mcp__codex_apps__app_ledger_ledger_%s"),
-            Client.CODEX, List.of("mcp__test__ledger_%s", "mcp__srv__ledger_%s", "mcp__codex_apps__app_ledger_ledger_%s"),
-            Client.ANTIGRAVITY, List.of("mcp:ledger_%s", "mcp:test:ledger_%s", "mcp:test/ledger_%s", "mcp:test_ledger_%s"));
+    /** One naming of ledger_<op> in a host: {@code %s} is the operation, the server is the audience the hook signs for. */
+    private record Naming(String template, String server) {}
 
-    /** (host, the host's tool name, operation) for every naming of every host and all ten write tools. */
+    private static final Map<Client, List<Naming>> NAMINGS = Map.of(
+            Client.CLAUDE, List.of(new Naming("mcp__ledger__ledger_%s", "ledger"), new Naming("mcp__srv__ledger_%s", "srv"),
+                    new Naming("mcp__ledger__ledger_ledger_%s", "ledger"), new Naming("mcp__srv-1__srv-1_ledger_%s", "srv-1")),
+            Client.CODEX, List.of(new Naming("mcp__test__ledger_%s", "test"), new Naming("mcp__srv__ledger_%s", "srv"),
+                    new Naming("mcp__test__test_ledger_%s", "test")),
+            Client.ANTIGRAVITY, List.of(new Naming("mcp:test:ledger_%s", "test"), new Naming("mcp:test/ledger_%s", "test"),
+                    new Naming("mcp:test_ledger_%s", "test"), new Naming("mcp:ledger_ledger_%s", "ledger"),
+                    new Naming("mcp:test:test_ledger_%s", "test")));
+
+    /** (host, the host's tool name, its server, operation) for every naming of every host and all ten write tools. */
     static Stream<Arguments> namings() {
-        return Hosts.ALL.stream().flatMap(host -> NAMINGS.get(host.client()).stream().flatMap(template ->
-                Hosts.WRITE_OPS.stream().map(op ->
-                        Arguments.argumentSet(host + " " + template.formatted(op), host, template.formatted(op), op))));
+        return Hosts.ALL.stream().flatMap(host -> NAMINGS.get(host.client()).stream().flatMap(naming ->
+                Hosts.WRITE_OPS.stream().map(op -> Arguments.argumentSet(host + " " + naming.template().formatted(op),
+                        host, naming.template().formatted(op), naming.server(), op))));
     }
 
     @ParameterizedTest
     @MethodSource("namings")
-    @DisplayName("HK-022 the tool claim is the canonical ledger_<op> whatever naming the host used (mcp__<server>__ledger_<op>, codex_apps app_ledger_ledger_<op>, mcp:<server>:ledger_<op> ...)")
-    void toolClaimIsTheCanonicalName(HostScenario host, String hostToolName, String op, HookFixture fixture) {
+    @DisplayName("HK-022 the tool claim is the canonical ledger_<op> whatever naming HK-032 accepted (mcp__<server>__[<server>_]ledger_<op>, mcp:<server>:ledger_<op> ...), signed with the key of that server")
+    void toolClaimIsTheCanonicalName(HostScenario host, String hostToolName, String server, String op,
+            HookFixture fixture) {
         JsonNode input = Json.tree(Map.of("marker", "naming"));
         Run run = fixture.runClean(host, host.event(hostToolName, input));
-        Attestations.Stamp stamp = fixture.stamp(host, op, input, run);
+        Attestations.Stamp stamp = fixture.stampCarrier(server, host.author(HookFixture.HOST_ID), op, input,
+                host.stampedPart(run));
         assertThat(stamp.claims().tool()).isEqualTo("ledger_" + op);
         assertThat(run.document()).isEqualTo(host.allowed(input, stamp.token(), stamp.addedRequestId()));
     }
 
-    /** The ToolName of an Antigravity {@code call_mcp_tool} envelope: plain and with the connector prefix. */
-    private static final List<String> WRAPPER_TOOL_NAMES = List.of("ledger_%s", "app_ledger_ledger_%s", "srv_ledger_%s");
+    /** The ToolName of an Antigravity {@code call_mcp_tool} envelope with the ServerName {@code srv}: plain and with the server prefix. */
+    private static final List<String> WRAPPER_TOOL_NAMES = List.of("ledger_%s", "srv_ledger_%s");
 
     static Stream<Arguments> wrapperNamings() {
         return WRAPPER_TOOL_NAMES.stream().flatMap(template -> Hosts.WRITE_OPS.stream()
@@ -57,7 +65,7 @@ class SigningTest {
         AntigravityHost agy = AntigravityHost.INSTANCE;
         JsonNode input = Json.tree(Map.of("marker", "wrapper"));
         Run run = fixture.runClean(agy, agy.wrapperEvent(new Envelope("srv", toolName, input, null)));
-        Attestations.Stamp stamp = fixture.stampCarrier(agy.author(HookFixture.HOST_ID), op, input, agy.echoed(run));
+        Attestations.Stamp stamp = fixture.stampCarrier("srv", agy.author(HookFixture.HOST_ID), op, input, agy.echoed(run));
         assertThat(stamp.claims().tool()).isEqualTo("ledger_" + op);
     }
 
@@ -126,7 +134,7 @@ class SigningTest {
         JsonNode input = Json.of("{\"note\":\"x\",\"request_id\":" + requestIdJson + "}");
         Run run = fixture.runClean(host, host.event(host.toolName("save"), input));
         assertThat(run.document()).isEqualTo(host.denied(Refusal.REQUEST_ID_INVALID));
-        assertThat(run.out()).doesNotContain("updatedInput").doesNotContain("overwrite").doesNotContain("pgla1");
+        assertThat(run.out()).doesNotContain("updatedInput").doesNotContain("overwrite").doesNotContain("pgla2");
         assertThat(fixture.keyDirectory()).as("no key folder, so no key was created").doesNotExist();
     }
 

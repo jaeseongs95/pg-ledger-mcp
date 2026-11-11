@@ -12,14 +12,21 @@ import org.pgledger.attestation.PublicKeys;
  */
 public final class SessionKey {
 
+    private final String server;
     private final String author;
     private final PrivateKey privateKey;
     private final PublicKey publicKey;
 
-    SessionKey(String author, PrivateKey privateKey, PublicKey publicKey) {
+    SessionKey(String server, String author, PrivateKey privateKey, PublicKey publicKey) {
+        this.server = server;
         this.author = author;
         this.privateKey = privateKey;
         this.publicKey = publicKey;
+    }
+
+    /** The MCP server (as the host names it) the key is for. */
+    public String server() {
+        return server;
     }
 
     public String author() {
@@ -32,7 +39,7 @@ public final class SessionKey {
 
     /** Public key text and fingerprint for the owner. */
     public KeyInfo info() {
-        return new KeyInfo(author, PublicKeys.encode(publicKey), PublicKeys.fingerprint(publicKey));
+        return new KeyInfo(server, author, PublicKeys.encode(publicKey), PublicKeys.fingerprint(publicKey));
     }
 
     /** Signs the claims with the private key of the author. */
@@ -42,6 +49,6 @@ public final class SessionKey {
 
     @Override
     public String toString() {
-        return "SessionKey[author=" + author + "]";
+        return "SessionKey[server=" + server + ", author=" + author + "]";
     }
 }

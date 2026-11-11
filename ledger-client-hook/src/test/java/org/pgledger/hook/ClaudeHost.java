@@ -22,6 +22,11 @@ final class ClaudeHost extends FlatHost {
     }
 
     @Override
+    public String server() {
+        return "ledger";
+    }
+
+    @Override
     public Optional<JsonNode> allowed(JsonNode sent, String token, String addedRequestId) {
         return answer(new Specific(EVENT_NAME, null, null, Json.stamped(sent, token, addedRequestId)));
     }

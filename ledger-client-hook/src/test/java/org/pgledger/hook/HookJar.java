@@ -99,7 +99,7 @@ final class HookJar {
      * the start and the end of that process, and verified with the public key in the key folder.
      */
     Attestations.Stamp stamp(HostScenario host, String op, JsonNode sent, Run run) {
-        return Attestations.verify(keyDirectory, new Attestations.Window(startedAt, finishedAt + 1),
+        return Attestations.verify(keyDirectory, new Attestations.Window(startedAt, finishedAt + 1), host.server(),
                 host.author(HookFixture.HOST_ID), op, sent, host.stampedPart(run));
     }
 }

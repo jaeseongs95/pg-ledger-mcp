@@ -45,18 +45,27 @@ class ToolSelectionTest {
         assertThat(run.document()).isEqualTo(host.untouched());
     }
 
+    static Stream<Arguments> antigravityNames() {
+        return Stream.of(
+                Arguments.of("mcp:test:ledger_save", "test"), Arguments.of("mcp:test/ledger_save", "test"),
+                Arguments.of("mcp:test_ledger_save", "test"), Arguments.of("mcp:ledger_ledger_save", "ledger"),
+                Arguments.of("mcp:test:test_ledger_save", "test"), Arguments.of("mcp:my.server/ledger_save", "my.server"));
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {"mcp:ledger_save", "mcp:test:ledger_save", "mcp:test/ledger_save", "mcp:test_ledger_save"})
-    @DisplayName("HK-011 Antigravity MCP name candidates mcp:ledger_save, mcp:test:ledger_save, mcp:test/ledger_save, mcp:test_ledger_save are all stamped")
-    void antigravityNameCandidatesAreStamped(String name, HookFixture fixture) {
+    @MethodSource("antigravityNames")
+    @DisplayName("HK-011 Antigravity MCP names mcp:<server><:|/|_>[<server>_]ledger_save are stamped, for the server in the name")
+    void antigravityNameCandidatesAreStamped(String name, String server, HookFixture fixture) {
         Run run = fixture.runClean(AGY, AGY.event(name, EMPTY));
-        Attestations.Stamp stamp = fixture.stamp(AGY, "save", EMPTY, run);
+        Attestations.Stamp stamp = fixture.stampCarrier(server, AGY.author(HookFixture.HOST_ID), "save", EMPTY,
+                AGY.stampedPart(run));
         assertThat(run.document()).isEqualTo(AGY.allowed(EMPTY, stamp.token(), stamp.addedRequestId()));
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"mcp:xledger_save", "mcp:test:ledger_get", "ledger_save"})
-    @DisplayName("HK-011 Antigravity names that are no ledger write tool are not touched")
+    @ValueSource(strings = {"mcp:xledger_save", "mcp:test:ledger_get", "ledger_save", "mcp:ledger_save",
+            "mcp:test:other_ledger_save", "mcp:a b:ledger_save", "mcp::ledger_save"})
+    @DisplayName("HK-011 Antigravity names that are no ledger write tool, name no server, or have a prefix other than the server are not touched")
     void antigravityOtherNamesAreNotTouched(String name, HookFixture fixture) {
         Run run = fixture.runClean(AGY, AGY.event(name, EMPTY));
         assertThat(run.document()).isEqualTo(AGY.untouched());
@@ -66,34 +75,48 @@ class ToolSelectionTest {
         return Hosts.WRITE_OPS.stream();
     }
 
-    private static String codexNamespace(String op) {
+    /** The gateway form of Codex: the tool name carries the name of its upstream, which is the server segment. */
+    private static String codexGateway(String op) {
+        return "mcp__test__test_ledger_" + op;
+    }
+
+    /** CHANGED by attest-fix (F2): the Codex Apps namespace has a prefix (app_ledger) that is not the server (codex_apps). */
+    private static String codexAppsNamespace(String op) {
         return "mcp__codex_apps__app_ledger_ledger_" + op;
     }
 
     @ParameterizedTest
     @MethodSource("writeOps")
-    @DisplayName("HK-013 Codex namespace mcp__codex_apps__app_ledger_ledger_<op>: all ten are stamped")
-    void codexNamespaceIsStamped(String op, HookFixture fixture) {
+    @DisplayName("HK-013 Codex gateway name mcp__test__test_ledger_<op> (prefix = server segment): all ten are stamped")
+    void codexGatewayIsStamped(String op, HookFixture fixture) {
         JsonNode input = Json.tree(Map.of("marker", "namespace"));
-        Run run = fixture.runClean(CODEX, CODEX.event(codexNamespace(op), input));
+        Run run = fixture.runClean(CODEX, CODEX.event(codexGateway(op), input));
         Attestations.Stamp stamp = fixture.stamp(CODEX, op, input, run);
         assertThat(run.document()).isEqualTo(CODEX.allowed(input, stamp.token(), stamp.addedRequestId()));
     }
 
     @ParameterizedTest
     @MethodSource("writeOps")
-    @DisplayName("HK-013 Codex namespace: a reserved key is denied for all ten")
-    void codexNamespaceDeniesReservedKey(String op, HookFixture fixture) {
+    @DisplayName("HK-013 Codex gateway name: a reserved key is denied for all ten")
+    void codexGatewayDeniesReservedKey(String op, HookFixture fixture) {
         JsonNode input = Json.tree(Map.of(Json.RESERVED_KEY, Json.of("null")));
-        Run run = fixture.runClean(CODEX, CODEX.event(codexNamespace(op), input));
+        Run run = fixture.runClean(CODEX, CODEX.event(codexGateway(op), input));
         assertThat(run.document()).isEqualTo(CODEX.denied(Refusal.RESERVED_FIELD));
     }
 
     @ParameterizedTest
+    @MethodSource("writeOps")
+    @DisplayName("HK-013 (changed) the Codex Apps namespace mcp__codex_apps__app_ledger_ledger_<op> is not signed for: its prefix is not the server segment")
+    void codexAppsNamespaceIsNotSigned(String op, HookFixture fixture) {
+        Run run = fixture.runClean(CODEX, CODEX.event(codexAppsNamespace(op), EMPTY));
+        assertThat(run.document()).isEqualTo(CODEX.untouched());
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"get", "history", "search", "defects"})
-    @DisplayName("HK-013 Codex namespace: read tool names are not handled")
-    void codexNamespaceLeavesReadToolsAlone(String op, HookFixture fixture) {
-        Run run = fixture.runClean(CODEX, CODEX.event(codexNamespace(op), EMPTY));
+    @DisplayName("HK-013 Codex gateway name: read tool names are not handled")
+    void codexGatewayLeavesReadToolsAlone(String op, HookFixture fixture) {
+        Run run = fixture.runClean(CODEX, CODEX.event(codexGateway(op), EMPTY));
         assertThat(run.document()).isEqualTo(CODEX.untouched());
     }
 
@@ -116,8 +139,8 @@ class ToolSelectionTest {
     @MethodSource("writeOps")
     @DisplayName("HK-012 call_mcp_tool with Arguments as an object: only Arguments is overwritten, still an object, envelope untouched")
     void wrapperObjectArguments(String op, HookFixture fixture) {
-        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("app_ledger_ledger_" + op, INPUT)));
-        Attestations.Stamp stamp = fixture.stampCarrier(AGY.author(ID), op, INPUT, AGY.echoed(run));
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("t0001sink_ledger_" + op, INPUT)));
+        Attestations.Stamp stamp = fixture.stampCarrier("t0001sink", AGY.author(ID), op, INPUT, AGY.echoed(run));
         assertThat(run.document()).isEqualTo(AGY.allowedWrapped(Json.stamped(INPUT, stamp.token(), stamp.addedRequestId())));
     }
 
@@ -125,10 +148,10 @@ class ToolSelectionTest {
     @MethodSource("writeOps")
     @DisplayName("HK-012 call_mcp_tool with Arguments as JSON text: only Arguments is overwritten, still JSON text, envelope untouched")
     void wrapperTextArguments(String op, HookFixture fixture) {
-        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("app_ledger_ledger_" + op, Json.MAPPER.writeValueAsString(INPUT))));
+        Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("t0001sink_ledger_" + op, Json.MAPPER.writeValueAsString(INPUT))));
         JsonNode text = AGY.echoed(run);
         assertThat(text.isString()).as("Arguments stays JSON text").isTrue();
-        Attestations.Stamp stamp = fixture.stampCarrier(AGY.author(ID), op, INPUT, Json.of(text.stringValue()));
+        Attestations.Stamp stamp = fixture.stampCarrier("t0001sink", AGY.author(ID), op, INPUT, Json.of(text.stringValue()));
         assertThat(run.document()).isEqualTo(AGY.allowedWrapped(
                 Json.MAPPER.writeValueAsString(Json.stamped(INPUT, stamp.token(), stamp.addedRequestId()))));
     }
@@ -226,7 +249,7 @@ class ToolSelectionTest {
     void wrapperUnknownFieldsSurvive(HookFixture fixture) {
         JsonNode input = Json.tree(new UnknownFields(new Unknown(List.of(1, 2, Map.of("b", Json.of("null")))), "한글"));
         Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("ledger_batch", input)));
-        Attestations.Stamp stamp = fixture.stampCarrier(AGY.author(ID), "batch", input, AGY.echoed(run));
+        Attestations.Stamp stamp = fixture.stampCarrier("t0001sink", AGY.author(ID), "batch", input, AGY.echoed(run));
         assertThat(run.document()).isEqualTo(AGY.allowedWrapped(Json.stamped(input, stamp.token(), stamp.addedRequestId())));
     }
 }

@@ -42,6 +42,11 @@ final class AntigravityHost implements HostScenario {
     }
 
     @Override
+    public String server() {
+        return "test";
+    }
+
+    @Override
     public byte[] event(String toolName, Object arguments, JsonNode hostId) {
         return Json.bytes(new Event(new Call(toolName, arguments), hostId, "child-9999"));
     }

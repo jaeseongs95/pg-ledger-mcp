@@ -2,8 +2,6 @@ package org.pgledger.hook;
 
 import java.util.Arrays;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -39,24 +37,15 @@ public enum WriteTool {
     }
 
     /**
-     * Regex alternation of all operations as ONE capturing group, for the tool name patterns of the dialects: a
-     * pattern that is built with it has no other capturing group, so {@link #find} reads the operation from group 1.
+     * Regex alternation of all operations as ONE capturing group, for the tool name patterns of {@link McpToolName}:
+     * the operation is read from that group and checked again with {@link #ofOperation}.
      */
     static String alternation() {
         return Arrays.stream(values()).map(WriteTool::operation).collect(Collectors.joining("|", "(", ")"));
     }
 
-    /**
-     * The write tool a host tool name stands for, whatever naming the host uses around {@code ledger_<operation>}.
-     *
-     * @param pattern a dialect pattern built with {@link #alternation()}
-     */
-    static Optional<WriteTool> find(Pattern pattern, String hostToolName) {
-        Matcher matcher = pattern.matcher(hostToolName);
-        if (!matcher.find()) {
-            return Optional.empty();
-        }
-        String found = matcher.group(1);
+    /** The write tool of the operation name (exactly one of the ten), if it is one. */
+    static Optional<WriteTool> ofOperation(String found) {
         return Arrays.stream(values()).filter(tool -> tool.operation.equals(found)).findFirst();
     }
 }

@@ -71,14 +71,15 @@ class SessionKeyCommandTest {
         byte[] stdin = host.event(host.toolName("save"), Json.of("{}"));
         Run run = jar.run(stdin, host.client().argument());
         assertThat(run.exit()).isZero();
-        Path file = jar.keyDirectory().resolve(Attestations.keyFileName(host.author(HookFixture.HOST_ID)));
+        Path file = jar.keyDirectory().resolve(Attestations.keyFileName(host.server(), host.author(HookFixture.HOST_ID)));
         assertThat(file).isRegularFile();
 
         Path elsewhere = workspace.root().resolve("elsewhere");
         Run other = jar.start(HookJar.JAVA, List.of(), Map.of(HookJar.KEY_DIR_VARIABLE, elsewhere.toString()), stdin,
                 host.client().argument()).run();
         assertThat(other.exit()).isZero();
-        assertThat(elsewhere.resolve(Attestations.keyFileName(host.author(HookFixture.HOST_ID)))).isRegularFile();
+        assertThat(elsewhere.resolve(Attestations.keyFileName(host.server(), host.author(HookFixture.HOST_ID))))
+                .isRegularFile();
         try (Stream<Path> files = Files.list(jar.keyDirectory())) {
             assertThat(files.toList()).as("the first folder got no second key").containsExactly(file);
         }
@@ -94,13 +95,13 @@ class SessionKeyCommandTest {
         }
     }
 
-    /** The three lines of a successful answer; fails if stdout has any other shape. */
-    private static List<String> threeLines(Run run) {
+    /** The four lines of a successful answer (server, author, public key, fingerprint); fails if stdout has any other shape. */
+    private static List<String> fourLines(Run run) {
         assertThat(run.out()).endsWith("\n");
         String[] parts = run.out().split("\n", -1);
-        assertThat(parts).as("three lines and the end of the last one").hasSize(4);
-        assertThat(parts[3]).isEmpty();
-        return List.of(parts[0], parts[1], parts[2]);
+        assertThat(parts).as("four lines and the end of the last one").hasSize(5);
+        assertThat(parts[4]).isEmpty();
+        return List.of(parts[0], parts[1], parts[2], parts[3]);
     }
 
     private static String privateKeyText(Path file) throws IOException {
@@ -109,27 +110,28 @@ class SessionKeyCommandTest {
     }
 
     @Test
-    @DisplayName("HK-029 session-key prints author, public-key and fingerprint (SHA-256 of the key's DER) as three lines, exit 0, empty stderr; creates the key once, a second run prints the same")
+    @DisplayName("HK-029 session-key <server> <author> prints server, author, public-key and fingerprint (SHA-256 of the key's DER) as four lines, exit 0, empty stderr; creates the key once, a second run prints the same")
     void printsThePublicKey(HookJar jar) throws IOException {
-        Run first = jar.run(new byte[0], "session-key", AUTHOR);
+        Run first = jar.run(new byte[0], "session-key", "ledger", AUTHOR);
         assertThat(first.err()).as("stderr").isEmpty();
         assertThat(first.exit()).isZero();
-        List<String> lines = threeLines(first);
-        assertThat(lines.get(0)).isEqualTo("author: " + AUTHOR);
-        assertThat(lines.get(1)).startsWith("public-key: ");
-        assertThat(lines.get(2)).startsWith("fingerprint: ");
-        String publicKey = lines.get(1).substring("public-key: ".length());
+        List<String> lines = fourLines(first);
+        assertThat(lines.get(0)).isEqualTo("server: ledger");
+        assertThat(lines.get(1)).isEqualTo("author: " + AUTHOR);
+        assertThat(lines.get(2)).startsWith("public-key: ");
+        assertThat(lines.get(3)).startsWith("fingerprint: ");
+        String publicKey = lines.get(2).substring("public-key: ".length());
         PublicKey decoded = PublicKeys.decode(publicKey);
-        assertThat(lines.get(2).substring("fingerprint: ".length()))
+        assertThat(lines.get(3).substring("fingerprint: ".length()))
                 .isEqualTo(sha256Hex(Base64.getDecoder().decode(publicKey))).isEqualTo(PublicKeys.fingerprint(decoded));
 
-        Path file = jar.keyDirectory().resolve(Attestations.keyFileName(AUTHOR));
+        Path file = jar.keyDirectory().resolve(Attestations.keyFileName("ledger", AUTHOR));
         assertThat(Files.readAllLines(file)).contains("public-key=" + publicKey);
         byte[] bytes = Files.readAllBytes(file);
         String privateKey = privateKeyText(file);
         assertThat(first.out()).doesNotContain(privateKey);
 
-        Run second = jar.run(new byte[0], "session-key", AUTHOR);
+        Run second = jar.run(new byte[0], "session-key", "ledger", AUTHOR);
         assertThat(second.exit()).isZero();
         assertThat(second.stdout()).isEqualTo(first.stdout());
         assertThat(second.err()).isEmpty();
@@ -141,9 +143,9 @@ class SessionKeyCommandTest {
     @DisplayName("HK-029 the key that session-key prints is the key that signs: a token of a stamping run for that author verifies with the printed public key")
     void printedKeyVerifiesTheStamps(HostScenario host, HookFixture fixture) {
         String author = host.author(HookFixture.HOST_ID);
-        Run command = fixture.run(new String[] {HookCli.SESSION_KEY_COMMAND, author}, new byte[0]);
+        Run command = fixture.run(new String[] {HookCli.SESSION_KEY_COMMAND, host.server(), author}, new byte[0]);
         assertThat(command.exit()).isZero();
-        PublicKey printed = PublicKeys.decode(threeLines(command).get(1).substring("public-key: ".length()));
+        PublicKey printed = PublicKeys.decode(fourLines(command).get(2).substring("public-key: ".length()));
         JsonNode input = Json.of("{}");
         Run run = fixture.runClean(host, host.event(host.toolName("save"), input));
         Attestations.Stamp stamp = fixture.stamp(host, "save", input, run);
@@ -162,7 +164,7 @@ class SessionKeyCommandTest {
     @MethodSource("invalidAuthors")
     @DisplayName("HK-029 an invalid author (claude, user:someone, empty, 129-character session, space ...) exits 2: nothing on stdout, one line on stderr, no key created")
     void refusesAnInvalidAuthor(String author, HookJar jar, HookFixture fixture) throws IOException {
-        String[] args = {"session-key", author};
+        String[] args = {"session-key", "ledger", author};
         Run process = jar.run(new byte[0], args);
         Run inProcess = fixture.run(args, new byte[0]);
         assertThat(List.of(process, inProcess)).allSatisfy(run -> {
@@ -177,17 +179,53 @@ class SessionKeyCommandTest {
     @ValueSource(strings = {"user:owner", "gemini:x", "a:b", "vendor-1:A._-9", "codex:parent-1234_ab.cd"})
     @DisplayName("HK-029 a valid author is accepted: the vendor a-z 0-9 - (starting with a letter) and the literal user:owner")
     void acceptsAValidAuthor(String author, HookFixture fixture) {
-        Run run = fixture.run(new String[] {"session-key", author}, new byte[0]);
+        Run run = fixture.run(new String[] {"session-key", "ledger", author}, new byte[0]);
         assertThat(run.err()).isEmpty();
         assertThat(run.exit()).isZero();
-        assertThat(threeLines(run).get(0)).isEqualTo("author: " + author);
+        assertThat(fourLines(run).get(1)).isEqualTo("author: " + author);
+    }
+
+    static Stream<Arguments> invalidServers() {
+        return Stream.of("", "a b", "a/b", "x".repeat(101), "ledger\n", "한글", "a:b", " ledger")
+                .map(server -> Arguments.argumentSet("[" + server.length() + "] " + server.strip(), server));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidServers")
+    @DisplayName("HK-029 an invalid server (empty, space, slash, newline, 101 characters ...) exits 2: nothing on stdout, one line on stderr, no key created")
+    void refusesAnInvalidServer(String server, HookJar jar, HookFixture fixture) throws IOException {
+        String[] args = {"session-key", server, AUTHOR};
+        Run process = jar.run(new byte[0], args);
+        Run inProcess = fixture.run(args, new byte[0]);
+        assertThat(List.of(process, inProcess)).allSatisfy(run -> {
+            assertThat(run.exit()).isEqualTo(2);
+            assertThat(run.stdout()).isEmpty();
+            assertThat(run.err()).matches("[^\\n]+\\n").contains("server");
+        });
+        assertThat(jar.keyDirectory()).as("no key folder, so no key was created").doesNotExist();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"keys", "./keys", "../keys", "~/keys", "keys/.."})
+    @DisplayName("HK-036 session-key with a relative key folder exits 2 with FOLDER_UNAVAILABLE and creates nothing")
+    void refusesARelativeKeyFolder(String relative, HookJar jar) throws IOException {
+        Run run = jar.start(HookJar.JAVA, List.of(), Map.of(HookJar.KEY_DIR_VARIABLE, relative), new byte[0],
+                "session-key", "ledger", AUTHOR).run();
+        assertThat(run.exit()).isEqualTo(2);
+        assertThat(run.stdout()).isEmpty();
+        assertThat(run.err()).contains("[FOLDER_UNAVAILABLE]");
+        for (Path cwd : jar.workingDirectories()) {
+            try (Stream<Path> created = Files.list(cwd)) {
+                assertThat(created.toList()).as("nothing is created in the working directory").isEmpty();
+            }
+        }
     }
 
     @Test
     @DisplayName("HK-029 a key folder that is a plain file: nothing on stdout, one line on stderr without key material, exit 2")
     void failsWhenTheKeyFolderIsAFile(HookFixture fixture) throws IOException {
         Files.writeString(fixture.keyDirectory(), "not a folder");
-        Run run = fixture.run(new String[] {"session-key", AUTHOR}, new byte[0]);
+        Run run = fixture.run(new String[] {"session-key", "ledger", AUTHOR}, new byte[0]);
         assertThat(run.exit()).isEqualTo(2);
         assertThat(run.stdout()).isEmpty();
         assertThat(run.err()).matches("[^\\n]+\\n").contains("session key").contains("[FOLDER_UNAVAILABLE]");

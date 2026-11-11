@@ -4,14 +4,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Pattern;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 
 /**
  * Antigravity PreToolUse. The host conversation id is {@code conversationId}. MCP calls arrive either directly
- * (tool name {@code mcp:...}, arguments in {@code toolCall.args}) or wrapped in {@code call_mcp_tool}, whose
- * {@code args} carry {@code ServerName}, {@code ToolName} and {@code Arguments} (an object or a JSON object text).
+ * (tool name {@code mcp:<server><sep>...}, arguments in {@code toolCall.args}) or wrapped in {@code call_mcp_tool},
+ * whose {@code args} carry {@code ServerName}, {@code ToolName} and {@code Arguments} (an object or a JSON object
+ * text). The server is the audience of the signature: only the shapes of {@link McpToolName} are signed, for the
+ * server in the name or in {@code ServerName}.
  * {@code overwrite} is merged into the host's tool args, so a direct call overwrites only {@code _hostAttestation}
  * (and {@code request_id} when the hook had to generate one) and a wrapped call overwrites only {@code Arguments},
  * in its original form. Only {@code allow} is used: no
@@ -23,8 +24,6 @@ record AntigravityDialect(JsonCodec codec) implements HostDialect {
     private static final Logger LOG = Logger.getLogger(AntigravityDialect.class.getName());
     private static final String WRAPPER_TOOL = "call_mcp_tool";
     private static final String DIRECT_PREFIX = "mcp:";
-    /** The ledger tool name ends the host tool name after a start, ':', '/' or '_'. */
-    private static final Pattern LEDGER_WRITE_TOOL = Pattern.compile("(?:^|[:/_])ledger_" + WriteTool.alternation() + "$");
 
     @Override
     public Vendor vendor() {
@@ -43,9 +42,10 @@ record AntigravityDialect(JsonCodec codec) implements HostDialect {
             return readWrapped(args, event.conversationId());
         }
         if (toolName.startsWith(DIRECT_PREFIX)) {
-            Optional<WriteTool> tool = WriteTool.find(LEDGER_WRITE_TOOL, toolName);
-            if (tool.isPresent()) {
-                return new Intake.Attest(args, event.conversationId(), Intake.ArgumentForm.DIRECT, tool.get());
+            Optional<McpToolName> called = McpToolName.ofAntigravityDirect(toolName);
+            if (called.isPresent()) {
+                return new Intake.Attest(args, event.conversationId(), Intake.ArgumentForm.DIRECT,
+                        called.get().tool(), called.get().server());
             }
         }
         return new Intake.Skip();
@@ -57,23 +57,22 @@ record AntigravityDialect(JsonCodec codec) implements HostDialect {
             return new Intake.Skip();
         }
         WrapperCall wrapper = bound.get();
-        if (wrapper.serverName() == null || wrapper.serverName().isEmpty() || wrapper.toolName() == null) {
-            return new Intake.Skip();
-        }
-        Optional<WriteTool> tool = WriteTool.find(LEDGER_WRITE_TOOL, wrapper.toolName());
-        if (tool.isEmpty()) {
+        Optional<McpToolName> called = McpToolName.ofEnvelope(wrapper.serverName(), wrapper.toolName());
+        if (called.isEmpty()) {
             return new Intake.Skip();
         }
         if (wrapper.hostAttestation() != null) {
             return new Intake.Refuse(Refusal.RESERVED_FIELD);
         }
+        WriteTool tool = called.get().tool();
+        String server = called.get().server();
         JsonNode arguments = wrapper.arguments();
         if (arguments == null || !arguments.isString()) {
-            return new Intake.Attest(arguments, hostId, Intake.ArgumentForm.EMBEDDED_OBJECT, tool.get());
+            return new Intake.Attest(arguments, hostId, Intake.ArgumentForm.EMBEDDED_OBJECT, tool, server);
         }
         try {
             return new Intake.Attest(codec.read(arguments.stringValue().getBytes(StandardCharsets.UTF_8)), hostId,
-                    Intake.ArgumentForm.EMBEDDED_TEXT, tool.get());
+                    Intake.ArgumentForm.EMBEDDED_TEXT, tool, server);
         } catch (JacksonException notJson) {
             LOG.log(Level.FINE, "the Arguments text is not JSON", notJson);
             return new Intake.Refuse(Refusal.ARGUMENTS_NOT_JSON_OBJECT);

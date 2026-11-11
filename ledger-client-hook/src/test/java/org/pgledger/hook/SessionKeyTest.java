@@ -28,8 +28,9 @@ class SessionKeyTest {
     private static final String OTHER_ID = "other-session";
     private static final String PRIVATE_PREFIX = "private-key=";
 
-    private static Path keyFile(Path keyDirectory, String author) {
-        return keyDirectory.resolve(Attestations.keyFileName(author));
+    /** The key file of the author of the host id (or another author) for the server of the host's tool names. */
+    private static Path keyFile(Path keyDirectory, HostScenario host, String author) {
+        return keyDirectory.resolve(Attestations.keyFileName(host.server(), author));
     }
 
     /** Every file and folder below the root, relative to it. */
@@ -60,26 +61,28 @@ class SessionKeyTest {
         fixture.runClean(host, host.event(host.toolName("save"), EMPTY));
         String author = host.author(HookFixture.HOST_ID);
         assertThat(snapshot(root)).containsExactlyInAnyOrder(
-                Path.of("work"), Path.of("keys"), Path.of("keys", Attestations.keyFileName(author)));
-        List<String> lines = Files.readAllLines(keyFile(fixture.keyDirectory(), author));
-        assertThat(lines).hasSize(3);
-        assertThat(lines.get(0)).isEqualTo("author=" + author);
-        assertThat(lines.get(1)).startsWith(PRIVATE_PREFIX);
-        assertThat(lines.get(2)).startsWith("public-key=");
+                Path.of("work"), Path.of("keys"), Path.of("keys", Attestations.keyFileName(host.server(), author)));
+        List<String> lines = Files.readAllLines(keyFile(fixture.keyDirectory(), host, author));
+        assertThat(lines).hasSize(4);
+        assertThat(lines.get(0)).isEqualTo("server=" + host.server());
+        assertThat(lines.get(1)).isEqualTo("author=" + author);
+        assertThat(lines.get(2)).startsWith(PRIVATE_PREFIX);
+        assertThat(lines.get(3)).startsWith("public-key=");
     }
 
     @ParameterizedTest
     @MethodSource("org.pgledger.hook.Hosts#all")
     @DisplayName("HK-024 the second call (a new command each time) reuses the key: same file bytes, same public key, both tokens verify")
     void secondCallReusesTheKey(HostScenario host, HookFixture fixture) throws IOException {
-        Path file = keyFile(fixture.keyDirectory(), host.author(HookFixture.HOST_ID));
+        Path file = keyFile(fixture.keyDirectory(), host, host.author(HookFixture.HOST_ID));
         Run first = fixture.runClean(host, host.event(host.toolName("save"), EMPTY));
         byte[] bytes = Files.readAllBytes(file);
-        String publicKey = PublicKeys.encode(Attestations.publicKey(fixture.keyDirectory(), host.author(HookFixture.HOST_ID)));
+        String publicKey = PublicKeys.encode(Attestations.publicKey(fixture.keyDirectory(), host.server(),
+                host.author(HookFixture.HOST_ID)));
         Run second = fixture.runClean(host, host.event(host.toolName("save"), EMPTY));
         assertThat(Files.readAllBytes(file)).isEqualTo(bytes);
-        assertThat(PublicKeys.encode(Attestations.publicKey(fixture.keyDirectory(), host.author(HookFixture.HOST_ID))))
-                .isEqualTo(publicKey);
+        assertThat(PublicKeys.encode(Attestations.publicKey(fixture.keyDirectory(), host.server(),
+                host.author(HookFixture.HOST_ID)))).isEqualTo(publicKey);
         assertThat(snapshot(fixture.keyDirectory())).hasSize(1);
         fixture.stamp(host, "save", EMPTY, first);
         fixture.stamp(host, "save", EMPTY, second);
@@ -92,10 +95,12 @@ class SessionKeyTest {
         fixture.runClean(host, host.event(host.toolName("save"), EMPTY));
         fixture.runClean(host, host.event(host.toolName("save"), EMPTY, Json.text(OTHER_ID)));
         assertThat(snapshot(fixture.keyDirectory())).containsExactlyInAnyOrder(
-                Path.of(Attestations.keyFileName(host.author(HookFixture.HOST_ID))),
-                Path.of(Attestations.keyFileName(host.author(OTHER_ID))));
-        String first = PublicKeys.encode(Attestations.publicKey(fixture.keyDirectory(), host.author(HookFixture.HOST_ID)));
-        String second = PublicKeys.encode(Attestations.publicKey(fixture.keyDirectory(), host.author(OTHER_ID)));
+                Path.of(Attestations.keyFileName(host.server(), host.author(HookFixture.HOST_ID))),
+                Path.of(Attestations.keyFileName(host.server(), host.author(OTHER_ID))));
+        String first = PublicKeys.encode(Attestations.publicKey(fixture.keyDirectory(), host.server(),
+                host.author(HookFixture.HOST_ID)));
+        String second = PublicKeys.encode(Attestations.publicKey(fixture.keyDirectory(), host.server(),
+                host.author(OTHER_ID)));
         assertThat(first).isNotEqualTo(second);
     }
 
@@ -105,14 +110,14 @@ class SessionKeyTest {
     void processesShareTheKey(HostScenario host, HookJar jar, TestWorkspace workspace) throws IOException {
         byte[] stdin = host.event(host.toolName("save"), EMPTY);
         Run first = jar.run(stdin, host.client().argument());
-        Path file = keyFile(jar.keyDirectory(), host.author(HookFixture.HOST_ID));
+        Path file = keyFile(jar.keyDirectory(), host, host.author(HookFixture.HOST_ID));
         byte[] bytes = Files.readAllBytes(file);
         jar.stamp(host, "save", EMPTY, first);
         Run second = jar.run(stdin, host.client().argument());
         jar.stamp(host, "save", EMPTY, second);
         assertThat(Files.readAllBytes(file)).isEqualTo(bytes);
         List<Path> outside = snapshot(workspace.root()).stream().filter(path -> !path.startsWith("work")).toList();
-        assertThat(outside).containsExactlyInAnyOrder(Path.of("keys"), Path.of("keys", Attestations.keyFileName(host.author(HookFixture.HOST_ID))));
+        assertThat(outside).containsExactlyInAnyOrder(Path.of("keys"), Path.of("keys", Attestations.keyFileName(host.server(), host.author(HookFixture.HOST_ID))));
         for (Path cwd : jar.workingDirectories()) {
             assertThat(snapshot(cwd)).as("working directory of a process").isEmpty();
         }
@@ -126,7 +131,7 @@ class SessionKeyTest {
     void createdWithOwnerOnlyModes(HostScenario host, HookFixture fixture) throws IOException {
         Assumptions.assumeTrue(posix(), "NOT_RUN: the default file system has no POSIX attribute view");
         fixture.runClean(host, host.event(host.toolName("save"), EMPTY));
-        Path file = keyFile(fixture.keyDirectory(), host.author(HookFixture.HOST_ID));
+        Path file = keyFile(fixture.keyDirectory(), host, host.author(HookFixture.HOST_ID));
         assertThat(Files.getPosixFilePermissions(fixture.keyDirectory())).isEqualTo(PosixFilePermissions.fromString("rwx------"));
         assertThat(Files.getPosixFilePermissions(file)).isEqualTo(PosixFilePermissions.fromString("rw-------"));
     }
@@ -147,7 +152,7 @@ class SessionKeyTest {
         Assumptions.assumeTrue(posix(), "NOT_RUN: the default file system has no POSIX attribute view");
         fixture.runClean(host, host.event(host.toolName("save"), EMPTY));
         String author = host.author(HookFixture.HOST_ID);
-        Path file = keyFile(fixture.keyDirectory(), author);
+        Path file = keyFile(fixture.keyDirectory(), host, author);
         Path widened = folder ? fixture.keyDirectory() : file;
         Set<PosixFilePermission> wide = PosixFilePermissions.fromString(mode);
         Files.setPosixFilePermissions(widened, wide);
@@ -157,10 +162,10 @@ class SessionKeyTest {
         Run run = fixture.runClean(host, host.event(host.toolName("save"), EMPTY));
 
         assertThat(run.document()).isEqualTo(host.denied(Refusal.SESSION_KEY_UNAVAILABLE));
-        assertThat(run.out()).doesNotContain("pgla1").doesNotContain(privateKey);
+        assertThat(run.out()).doesNotContain("pgla2").doesNotContain(privateKey);
         assertThat(Files.getPosixFilePermissions(widened)).as("the mode is not repaired").isEqualTo(wide);
         assertThat(Files.readAllBytes(file)).as("the key file is not touched").isEqualTo(before);
-        Run command = fixture.run(new String[] {HookCli.SESSION_KEY_COMMAND, author}, new byte[0]);
+        Run command = fixture.run(new String[] {HookCli.SESSION_KEY_COMMAND, host.server(), author}, new byte[0]);
         assertThat(command.exit()).isEqualTo(2);
         assertThat(command.stdout()).isEmpty();
         assertThat(command.err()).contains("[TOO_OPEN]").doesNotContain(privateKey);
@@ -176,12 +181,15 @@ class SessionKeyTest {
     enum Corruption {
         GARBAGE((own, foreign, otherAuthor) -> "this is not a key file\n"),
         EMPTY_FILE((own, foreign, otherAuthor) -> ""),
-        NOT_BASE64((own, foreign, otherAuthor) -> String.join("\n", own.get(0), "private-key=@@@@", own.get(2)) + "\n"),
-        TRUNCATED((own, foreign, otherAuthor) -> String.join("\n", own.get(0), own.get(1)) + "\n"),
+        NOT_BASE64((own, foreign, otherAuthor) ->
+                String.join("\n", own.get(0), own.get(1), "private-key=@@@@", own.get(3)) + "\n"),
+        TRUNCATED((own, foreign, otherAuthor) -> String.join("\n", own.get(0), own.get(1), own.get(2)) + "\n"),
         AUTHOR_LINE_OF_ANOTHER_AUTHOR((own, foreign, otherAuthor) ->
-                String.join("\n", "author=" + otherAuthor, own.get(1), own.get(2)) + "\n"),
+                String.join("\n", own.get(0), "author=" + otherAuthor, own.get(2), own.get(3)) + "\n"),
+        SERVER_LINE_OF_ANOTHER_SERVER((own, foreign, otherAuthor) ->
+                String.join("\n", "server=another-server", own.get(1), own.get(2), own.get(3)) + "\n"),
         PRIVATE_KEY_OF_ANOTHER_PAIR((own, foreign, otherAuthor) ->
-                String.join("\n", own.get(0), foreign.get(1), own.get(2)) + "\n");
+                String.join("\n", own.get(0), own.get(1), foreign.get(2), own.get(3)) + "\n");
 
         private final Rewrite rewrite;
 
@@ -205,8 +213,8 @@ class SessionKeyTest {
         fixture.runClean(host, host.event(host.toolName("save"), EMPTY));
         fixture.runClean(host, host.event(host.toolName("save"), EMPTY, Json.text(OTHER_ID)));
         String author = host.author(HookFixture.HOST_ID);
-        Path file = keyFile(fixture.keyDirectory(), author);
-        Path foreignFile = keyFile(fixture.keyDirectory(), host.author(OTHER_ID));
+        Path file = keyFile(fixture.keyDirectory(), host, author);
+        Path foreignFile = keyFile(fixture.keyDirectory(), host, host.author(OTHER_ID));
         List<String> own = Files.readAllLines(file);
         List<String> foreign = Files.readAllLines(foreignFile);
         String ownPrivateKey = privateKeyText(file);
@@ -217,9 +225,9 @@ class SessionKeyTest {
         Run run = fixture.runClean(host, host.event(host.toolName("save"), EMPTY));
 
         assertThat(run.document()).isEqualTo(host.denied(Refusal.SESSION_KEY_UNAVAILABLE));
-        assertThat(run.out()).doesNotContain("pgla1").doesNotContain(ownPrivateKey).doesNotContain(foreignPrivateKey);
+        assertThat(run.out()).doesNotContain("pgla2").doesNotContain(ownPrivateKey).doesNotContain(foreignPrivateKey);
         assertThat(Files.readAllBytes(file)).as("the key file is neither repaired nor replaced").isEqualTo(before);
-        Run command = fixture.run(new String[] {HookCli.SESSION_KEY_COMMAND, author}, new byte[0]);
+        Run command = fixture.run(new String[] {HookCli.SESSION_KEY_COMMAND, host.server(), author}, new byte[0]);
         assertThat(command.exit()).isEqualTo(2);
         assertThat(command.stdout()).isEmpty();
         assertThat(command.err()).doesNotContain(ownPrivateKey).doesNotContain(foreignPrivateKey);
@@ -243,7 +251,7 @@ class SessionKeyTest {
     void privateKeyNeverLeavesTheKeyFolder(HostScenario host, HookFixture fixture, HookJar jar) throws IOException {
         byte[] stdin = host.event(host.toolName("save"), EMPTY);
         Run inProcess = fixture.runClean(host, stdin);
-        String privateKey = privateKeyText(keyFile(fixture.keyDirectory(), host.author(HookFixture.HOST_ID)));
+        String privateKey = privateKeyText(keyFile(fixture.keyDirectory(), host, host.author(HookFixture.HOST_ID)));
         Run process = jar.run(stdin, host.client().argument());
         for (Run run : List.of(inProcess, process)) {
             assertThat(run.out()).doesNotContain(privateKey);

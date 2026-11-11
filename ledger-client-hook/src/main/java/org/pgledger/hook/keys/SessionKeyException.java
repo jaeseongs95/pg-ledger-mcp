@@ -10,11 +10,11 @@ public final class SessionKeyException extends RuntimeException {
 
     /** Which check failed. */
     public enum Reason {
-        /** The author text is empty or holds a line break (the key file keeps it on its own line). */
+        /** The server or author text is empty or holds a line break (the key file keeps each on its own line). */
         AUTHOR_INVALID,
-        /** The key folder is not configured, is not a usable path or is not a directory. */
+        /** The key folder is not configured, is not a usable absolute path or is not a directory. */
         FOLDER_UNAVAILABLE,
-        /** Group or others have access to the folder or the key file (POSIX); it is refused, never repaired. */
+        /** Someone other than the owner has access to the folder or the key file (POSIX mode, ACL); it is refused, never repaired. */
         TOO_OPEN,
         /** The key file is a link, a directory or another special file. */
         NOT_A_REGULAR_FILE,
@@ -22,6 +22,12 @@ public final class SessionKeyException extends RuntimeException {
         CORRUPT,
         /** The key file belongs to another author. */
         AUTHOR_MISMATCH,
+        /** The key file belongs to another MCP server (it was copied from the key of another server). */
+        SERVER_MISMATCH,
+        /** The folder or the key file is owned by someone other than the current user. */
+        WRONG_OWNER,
+        /** The current user is not known (no account name was given) where the file system has owners. */
+        OWNER_UNKNOWN,
         /** The private and the public key of the file are not a pair. */
         KEY_MISMATCH,
         /** Reading or creating the folder or the file failed. */

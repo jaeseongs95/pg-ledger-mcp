@@ -18,8 +18,10 @@ import org.pgledger.hook.keys.SessionKeyStore;
  * <ul>
  *   <li>{@code <client>} on the command line, host JSON on {@code in}, host JSON on {@code out}: the attestation of a
  *       ledger write call (the author's session key signs it);</li>
- *   <li>{@code session-key <author>}: loads or creates the session key of the author and prints its public key and
- *       fingerprint (three lines on {@code out}) for the owner, who registers it in the ledger.</li>
+ *   <li>{@code session-key <server> <author>}: loads or creates the session key of the author for the MCP server (as the
+ *       host names it in the tool name, for example {@code ledger} for {@code mcp__ledger__ledger_save}) and prints the
+ *       server, the author, the public key and the fingerprint (four lines on {@code out}) for the owner, who registers
+ *       the key on that server. A key is kept per server: the owner registers each server's key separately.</li>
  * </ul>
  * Streams, the clock and the key store are passed in, so the only place that touches the process is {@link Main}.
  * Every outcome, a failed read of stdin included, is a {@link Response}; the one complete {@code switch} in
@@ -34,7 +36,9 @@ public final class HookCli {
     private static final int EXIT_OK = 0;
     private static final int EXIT_BLOCK_OR_USAGE = 2;
     private static final String USAGE = "usage: java -jar ledger-client-hook.jar <" + Client.choices() + "> | "
-            + SESSION_KEY_COMMAND + " <author>";
+            + SESSION_KEY_COMMAND + " <server> <author>";
+    private static final String SERVER_INVALID = "ledger: the server must be the MCP server name of the host "
+            + "(1 to 100 characters of A-Z a-z 0-9 . _ -)";
     private static final String AUTHOR_INVALID = "ledger: the author must be <vendor>:<session id> "
             + "(vendor a-z 0-9 -, starting with a letter; session id 1 to 128 characters of A-Z a-z 0-9 . _ -)";
 
@@ -63,8 +67,8 @@ public final class HookCli {
     }
 
     private Response answer(String[] args, InputStream in) {
-        if (args.length == 2 && SESSION_KEY_COMMAND.equals(args[0])) {
-            return sessionKey(args[1]);
+        if (args.length == 3 && SESSION_KEY_COMMAND.equals(args[0])) {
+            return sessionKey(args[1], args[2]);
         }
         Optional<Client> client = args.length == 1 ? Client.fromArgument(args[0]) : Optional.empty();
         if (client.isEmpty()) {
@@ -78,15 +82,18 @@ public final class HookCli {
         }
     }
 
-    /** The public half of the key of the author: three lines, nothing of the private key. */
-    private Response sessionKey(String author) {
+    /** The public half of the key of the author for the server: four lines, nothing of the private key. */
+    private Response sessionKey(String server, String author) {
+        if (!McpToolName.isServerName(server)) {
+            return new Response.Failure(SERVER_INVALID);
+        }
         if (!AuthorName.isValid(author)) {
             return new Response.Failure(AUTHOR_INVALID);
         }
         try {
-            KeyInfo info = keys.load(author).info();
-            return new Response.Lines(List.of(
-                    "author: " + info.author(), "public-key: " + info.publicKey(), "fingerprint: " + info.fingerprint()));
+            KeyInfo info = keys.load(server, author).info();
+            return new Response.Lines(List.of("server: " + info.server(), "author: " + info.author(),
+                    "public-key: " + info.publicKey(), "fingerprint: " + info.fingerprint()));
         } catch (SessionKeyException unusable) {
             LOG.log(Level.FINE, "the session key of the author cannot be used", unusable);
             return new Response.Failure(Refusal.SESSION_KEY_UNAVAILABLE.message() + " [" + unusable.reason() + "]");
