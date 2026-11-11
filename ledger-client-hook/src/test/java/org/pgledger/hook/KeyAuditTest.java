@@ -164,12 +164,13 @@ class KeyAuditTest {
             created = files.toList();
         }
         assertThat(created).hasSize(1);
+        UserPrincipal current = FileSystems.getDefault().getUserPrincipalLookupService()
+                .lookupPrincipalByName(TestStores.USER);
         for (Path path : List.of(directory, created.getFirst())) {
-            UserPrincipal owner = Files.getOwner(path);
             List<AclEntry> entries = Files.getFileAttributeView(path, AclFileAttributeView.class).getAcl();
             assertThat(entries).as("ACL of %s", path.getFileName()).isNotEmpty().allSatisfy(entry -> {
                 assertThat(entry.type()).isEqualTo(AclEntryType.ALLOW);
-                assertThat(entry.principal()).isEqualTo(owner);
+                assertThat(entry.principal()).isEqualTo(current);
             });
         }
     }
