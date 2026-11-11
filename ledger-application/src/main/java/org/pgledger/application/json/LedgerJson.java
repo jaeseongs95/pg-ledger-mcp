@@ -19,15 +19,19 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public final class LedgerJson {
 
-    private final JsonMapper mapper = JsonMapper.builder()
-            .propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
-            .build();
+    private final JsonMapper mapper;
 
     /** For input from callers: a key that no record knows is refused. */
-    private final JsonMapper strict = JsonMapper.builder()
-            .propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
-            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .build();
+    private final JsonMapper strict;
+
+    /**
+     * Derives the two mappers of the ledger from the {@code JsonMapper} bean of Spring Boot: the stored form is
+     * snake_case whatever the application configures for its own responses.
+     */
+    public LedgerJson(JsonMapper boot) {
+        this.mapper = boot.rebuild().propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE).build();
+        this.strict = mapper.rebuild().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
+    }
 
     public JsonDocument write(Object value) {
         try {

@@ -21,10 +21,9 @@ import org.pgledger.domain.value.ProjectId;
 import org.pgledger.domain.value.Tokens;
 import org.pgledger.domain.value.UtcInstant;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.resilience.annotation.Retryable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 /**
  * Session grants, used by the admin web and the CLI (never by the MCP tools). A grant is a row per scope; granting
@@ -43,8 +42,6 @@ public class GrantService {
     public record RevokeCommand(String author, String project, String scope) {
     }
 
-    private static final int ATTEMPTS = 3;
-
     private final GrantStateRepository state;
     private final SessionGrantRepository grants;
     private final ProjectRepository projects;
@@ -60,7 +57,12 @@ public class GrantService {
         this.clock = clock;
     }
 
-    /** Issues the grants and returns the id of each, one per scope in the order given. */
+    /**
+     * Issues the grants and returns the id of each, one per scope in the order given. Another grant of the same key
+     * that commits first makes the insert a duplicate key; the whole call is then retried in a new transaction (the
+     * retry is the outer advice, the transaction the inner one), which closes that grant first.
+     */
+    @Retryable(includes = DuplicateKeyException.class, maxRetries = 3, delay = 10)
     public List<Long> grant(GrantCommand command) {
         AuthorId author = author(command.author());
         ProjectId project = ProjectId.of(command.project());
@@ -85,24 +87,10 @@ public class GrantService {
 
     private long issue(AuthorId author, ProjectId project, Scope scope, Instant now, Instant expiresAt,
             String note) {
-        TransactionStatus transaction = TransactionAspectSupport.currentTransactionStatus();
-        for (int attempt = 1;; attempt++) {
-            Object savepoint = transaction.createSavepoint();
-            try {
-                closeLive(author, project, scope, now);
-                long id = ids.next(Counter.SESSION_GRANT);
-                grants.insert(SessionGrant.issue(id, author, project, scope, AuthorId.OWNER, now, expiresAt, note));
-                transaction.releaseSavepoint(savepoint);
-                return id;
-            } catch (DuplicateKeyException other) {
-                // another grant of the same key committed first: close it too and try again
-                transaction.rollbackToSavepoint(savepoint);
-                transaction.releaseSavepoint(savepoint);
-                if (attempt == ATTEMPTS) {
-                    throw other;
-                }
-            }
-        }
+        closeLive(author, project, scope, now);
+        long id = ids.next(Counter.SESSION_GRANT);
+        grants.insert(SessionGrant.issue(id, author, project, scope, AuthorId.OWNER, now, expiresAt, note));
+        return id;
     }
 
     private void closeLive(AuthorId author, ProjectId project, Scope scope, Instant now) {

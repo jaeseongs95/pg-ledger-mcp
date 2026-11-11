@@ -16,6 +16,8 @@ import org.pgledger.domain.rule.ConditionState;
 import org.pgledger.domain.rule.DefectStatus;
 import org.pgledger.domain.rule.TaskState;
 import org.pgledger.domain.value.ProjectId;
+import org.pgledger.domain.value.Token;
+import org.pgledger.domain.value.Tokens;
 import org.pgledger.database.repository.ProjectRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +31,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(readOnly = true)
 public class StatsService {
+
+    /** The time buckets a call may ask for. */
+    public enum Bucket implements Token {
+        DAY;
+
+        @Override
+        public String token() {
+            return "day";
+        }
+    }
 
     /** The project (absent for all) and the bucket (absent, or {@code day}). */
     public record StatsQuery(String project, String bucket) {
@@ -67,13 +79,8 @@ public class StatsService {
         if (project != null && !projects.existsById(project)) {
             throw new LookupException(LookupCode.NOT_FOUND, List.of("project", project.value()));
         }
-        boolean daily = false;
-        if (q.bucket() != null && !q.bucket().isBlank()) {
-            if (!q.bucket().equals("day")) {
-                throw ValidationException.invalid("bucket", "unknown value " + q.bucket(), List.of("day"));
-            }
-            daily = true;
-        }
+        boolean daily = q.bucket() != null && !q.bucket().isBlank()
+                && Tokens.parse("bucket", q.bucket(), Bucket.values()) == Bucket.DAY;
         Map<String, Long> byStatus = filled(stats.defectsByStatus(project),
                 List.of(DefectStatus.values()).stream().map(Enum::name).toList());
         Map<String, Long> bySeverity = filled(stats.defectsBySeverity(project),

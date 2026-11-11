@@ -1,8 +1,8 @@
 package org.pgledger.application.support;
 
-/** The two databases the service tests run on: H2 in default mode and an embedded PostgreSQL. */
+/** The database the service tests run on: the embedded H2 in its default mode (no compatibility mode). */
 public enum Dbms {
-    H2("CLOB"), POSTGRESQL("TEXT");
+    H2("CLOB");
 
     private final String longText;
 

@@ -155,8 +155,9 @@ public class DetailService {
         Task t = tasks.findById(id).orElseThrow(() -> new LookupException(LookupCode.NOT_FOUND,
                 List.of("task", rawId)));
         String completedBy = historyRows.findByEntityAndEntityIdOrderById(HistoryEntity.TASK, rawId).reversed()
-                .stream().filter(h -> h.op() == HistoryOp.TRANSITION && "REPORTED_DONE".equals(h.toState())
-                        && !TaskState.VERIFIED.name().equals(h.fromState())).findFirst()
+                .stream().filter(h -> h.op() == HistoryOp.TRANSITION
+                        && TaskState.valueOf(h.toState()) == TaskState.REPORTED_DONE
+                        && TaskState.valueOf(h.fromState()) != TaskState.VERIFIED).findFirst()
                 .map(h -> h.authorId().value()).orElse(null);
         return new TaskDetail(rawId, t.projectId().value(), t.title(), t.purpose(), t.successCondition(),
                 t.originRef(), t.originQuote(), t.state().name(), t.ownerActorId() == null ? null

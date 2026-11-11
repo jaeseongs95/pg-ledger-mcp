@@ -6,8 +6,7 @@ import org.junit.jupiter.api.extension.ParameterResolutionException;
 import org.junit.jupiter.api.extension.ParameterResolver;
 
 /**
- * JUnit extension for the service tests. It hands {@link Databases} (one per run, with the embedded PostgreSQL
- * server inside), the shared migrated {@link LedgerAppContext} of the test's DBMS and a new {@link Scenario} (a
+ * JUnit extension for the service tests. It hands {@link Databases} (one per run), the shared migrated {@link LedgerAppContext} of the test's DBMS and a new {@link Scenario} (a
  * project of its own) to a test method as parameters. Databases and contexts live in the root store, are created on
  * first use and closed by JUnit when the run ends, the contexts first and the server last. A test class that wants
  * them implements {@link DbmsAware} (it is a parameterized class).

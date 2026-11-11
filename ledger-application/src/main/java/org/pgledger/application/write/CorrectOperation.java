@@ -13,7 +13,10 @@ import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.model.HistoryEntry;
 import org.pgledger.domain.model.ReceiptOperation;
+import org.pgledger.domain.rule.ConditionState;
+import org.pgledger.domain.rule.DefectStatus;
 import org.pgledger.domain.rule.HistoryOp;
+import org.pgledger.domain.rule.TaskState;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.value.CanonicalPayload;
 import org.pgledger.domain.value.ConditionId;
@@ -30,7 +33,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class CorrectOperation extends WriteOperation<CorrectCommand, CorrectResult> {
 
-    private static final Set<String> VERIFICATION_STATES = Set.of("VERIFIED", "MET", "NOT_MET");
+    /** The names of the verification states of the three kinds (a history row keeps states as text). */
+    private static final Set<String> VERIFICATION_STATES = Set.copyOf(List.of(DefectStatus.VERIFIED.name(),
+            TaskState.VERIFIED.name(), ConditionState.MET.name(), ConditionState.NOT_MET.name()));
 
     private final Rows rows;
     private final HistoryRepository historyRows;
