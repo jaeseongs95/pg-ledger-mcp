@@ -7,6 +7,8 @@ import java.util.function.Consumer;
 import javax.sql.DataSource;
 import org.pgledger.application.support.LedgerAppContext;
 import org.pgledger.application.support.TestApplication;
+import org.pgledger.database.repository.LegacySourceRepository;
+import org.pgledger.testing.legacy.LegacyLedger;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.ApplicationContext;
 
@@ -45,6 +47,19 @@ public final class LedgerTestRunners {
     public static void withoutCategories(Consumer<LedgerAppContext> test) {
         run(application(LedgerTestSettings.newUrl(), LedgerTestSettings.session("UTC"))
                 .withUserConfiguration(LedgerTestInfrastructure.class), test);
+    }
+
+    /**
+     * A fresh installation (a new, migrated database, no categories: the state the import needs) whose legacy source is
+     * read through {@code source} (the read-only account of a {@code LegacyLedger}, or a wrapper of it). The extra
+     * configurations replace beans of the context (a test that injects a failure into the write side of the import).
+     */
+    public static void importing(DataSource source, Consumer<LedgerAppContext> test, Class<?>... configurations) {
+        run(application(LedgerTestSettings.newUrl(), LedgerTestSettings.session("UTC"))
+                .withUserConfiguration(LedgerTestInfrastructure.class)
+                .withUserConfiguration(configurations)
+                .withBean(LegacySourceRepository.class,
+                        () -> new LegacySourceRepository(source, LegacyLedger.SCHEMA)), test);
     }
 
     /** One more application on the database and the clock of {@code running} (a restart of the server). */

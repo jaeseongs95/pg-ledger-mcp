@@ -11,6 +11,8 @@ dependencies {
     implementation("tools.jackson.core:jackson-databind")
 
     testImplementation(testFixtures(project(":ledger-domain")))
+    // The builder of the legacy ledger on H2 (the table shapes of the old schema and the data of the old installer), MIG-024.
+    testImplementation(testFixtures(project(":ledger-database")))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: not in the Boot BOM, see gradle/libs.versions.toml
     testImplementation(libs.archunit)
