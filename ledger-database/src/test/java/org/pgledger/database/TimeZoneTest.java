@@ -18,10 +18,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.Parameter;
-import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.database.repository.Counter;
 import org.pgledger.database.repository.DefectCaseRepository;
@@ -37,7 +34,6 @@ import org.pgledger.database.schema.LedgerSchemaGuardConfiguration;
 import org.pgledger.database.schema.SchemaMigrationException;
 import org.pgledger.database.schema.UtcSessionCheck;
 import org.pgledger.database.support.Databases;
-import org.pgledger.database.support.Dbms;
 import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.RecordingDataSource.Binding;
@@ -66,15 +62,10 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /** REPO-029, REPO-030, SVC-TZ-01, SVC-TZ-02, SCH-019: every time value is UTC whatever the zones around it say. */
-@ParameterizedClass
-@EnumSource(Dbms.class)
 @ExtendWith(LedgerDatabaseExtension.class)
 class TimeZoneTest {
 
     private static final Instant I = Instant.parse("2026-11-05T10:00:00.123456Z");
-
-    @Parameter
-    Dbms dbms;
 
     private static <T> T inJvmZone(String zone, java.util.function.Supplier<T> work) {
         TimeZone saved = TimeZone.getDefault();
@@ -105,7 +96,7 @@ class TimeZoneTest {
     void repo029_svcTz02_theStoredValueIsUtcAndReadsBackEqualInOtherJvmAndSessionZones(String zone, Databases databases) {
         List<Instant> instants = List.of(I, Instant.parse("2026-03-08T07:30:00Z"),
                 Instant.parse("2026-11-01T06:30:00Z"));
-        try (LedgerTestContext ctx = LedgerTestContext.create(databases, dbms, zone)) {
+        try (LedgerTestContext ctx = LedgerTestContext.create(databases, zone)) {
             List<Stored> stored = inJvmZone(zone, () -> {
                 Seed seed = new Seed(ctx);
                 Project project = seed.project();
@@ -123,14 +114,14 @@ class TimeZoneTest {
 
     @Test
     void svcTz01_aSessionThatIsNotUtcStopsTheApplicationAndUtcStartsIt(Databases databases) {
-        try (LedgerTestContext seoul = LedgerTestContext.create(databases, dbms, "Asia/Seoul")) {
+        try (LedgerTestContext seoul = LedgerTestContext.create(databases, "Asia/Seoul")) {
             UtcSessionCheck check = new UtcSessionCheck(seoul.pool(), Clock.systemUTC(), null);
             assertThatThrownBy(check::verify).isInstanceOf(SchemaMigrationException.class)
                     .hasMessageContaining("database session time zone is not UTC").hasMessageNotContaining("jdbc:");
             assertThatThrownBy(() -> startWithGuard(seoul)).isInstanceOf(BeanCreationException.class)
                     .hasStackTraceContaining("database session time zone is not UTC");
         }
-        try (LedgerTestContext utc = LedgerTestContext.create(databases, dbms, "UTC")) {
+        try (LedgerTestContext utc = LedgerTestContext.create(databases, "UTC")) {
             new UtcSessionCheck(utc.pool(), Clock.systemUTC(), null).verify();
             startWithGuard(utc).close();
         }
@@ -152,7 +143,7 @@ class TimeZoneTest {
     @Test
     void sch019_everyTimestampColumnIsWrittenThroughTheSingleUtcConversion(Databases databases) {
         String zone = "Asia/Seoul";
-        try (LedgerTestContext ctx = LedgerTestContext.create(databases, dbms, zone)) {
+        try (LedgerTestContext ctx = LedgerTestContext.create(databases, zone)) {
             inJvmZone(zone, () -> {
                 writeAllTimestampColumns(ctx);
                 return null;

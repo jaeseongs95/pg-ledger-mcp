@@ -2,8 +2,6 @@ package org.pgledger.database.driver;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import java.sql.Connection;
-import java.sql.SQLException;
 import org.pgledger.database.repository.SchemaHistoryRepository;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
@@ -39,9 +37,9 @@ public final class DriverDataSources {
     }
 
     private static String foldedSchema(SimpleDriverDataSource simple, String schema) {
-        try (Connection connection = simple.getConnection()) {
-            return SchemaHistoryRepository.fold(connection.getMetaData(), schema);
-        } catch (SQLException e) {
+        try {
+            return SchemaHistoryRepository.inspect(simple, metaData -> SchemaHistoryRepository.fold(metaData, schema));
+        } catch (RuntimeException e) {
             throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID,
                     List.of("cannot connect with the registered driver: " + e.getMessage()), e);
         }

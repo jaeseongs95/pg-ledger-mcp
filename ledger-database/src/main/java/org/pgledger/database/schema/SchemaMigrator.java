@@ -1,8 +1,6 @@
 package org.pgledger.database.schema;
 
 import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -16,8 +14,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.support.ResourcePatternResolver;
-import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.init.DatabasePopulatorUtils;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Applies the ANSI schema files {@code V{n}__*.sql} in order with Spring's {@link ResourceDatabasePopulator} and
@@ -57,21 +60,27 @@ public class SchemaMigrator {
     public List<Integer> migrate() {
         List<MigrationFile> files = MigrationFile.load(resolver, properties.location());
         MigrationFile.requireContiguous(files);
-        try (Connection connection = dataSource.getConnection()) {
-            SchemaHistoryRepository.useSchema(connection, properties.name(), true);
-            SchemaHistoryRepository history = new SchemaHistoryRepository(connection);
+        try {
+            if (properties.name() != null) {
+                SchemaHistoryRepository.createSchemaIfMissing(dataSource, properties.name());
+            }
+            DataSource scoped = SchemaDataSource.of(dataSource, properties.name());
+            SchemaHistoryRepository history = new SchemaHistoryRepository(scoped);
+            // The transaction manager belongs to the schema scoped data source: Spring shares a connection per
+            // DataSource object, and the populator and the history row must run on the same one.
+            TransactionTemplate transaction = new TransactionTemplate(new DataSourceTransactionManager(scoped));
             ensureTable(history);
             List<Integer> applied = new ArrayList<>();
             for (MigrationFile file : files) {
                 List<Row> rows = history.rows();
                 requireKnownVersions(rows, files);
-                if (!settle(history, file, rows) && apply(connection, history, file)) {
+                if (!settle(history, file, rows) && apply(scoped, transaction, history, file)) {
                     applied.add(file.version());
                 }
             }
             LOG.info("schema migration finished: applied={} total={}", applied, files.size());
             return applied;
-        } catch (SQLException e) {
+        } catch (CannotGetJdbcConnectionException e) {
             throw new SchemaMigrationException("cannot reach the database for the schema migration", e);
         }
     }
@@ -136,39 +145,31 @@ public class SchemaMigrator {
         }
     }
 
-    /** Runs one file and its history row in one transaction; true when applied by this call. */
-    private boolean apply(Connection connection, SchemaHistoryRepository history, MigrationFile file) {
+    /**
+     * Runs one file and its SUCCESS row in one transaction; true when applied by this call. A failure rolls the
+     * transaction back; the FAILED row is written afterwards, outside it.
+     */
+    private boolean apply(DataSource scoped, TransactionTemplate transaction, SchemaHistoryRepository history,
+            MigrationFile file) {
         String sql = file.text().replace(PLACEHOLDER, properties.longTextType());
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator(false, false, "UTF-8",
                 new ByteArrayResource(sql.getBytes(StandardCharsets.UTF_8)));
         List<Row> before = history.rows().stream().filter(r -> r.version() == file.version()).toList();
         try {
-            connection.setAutoCommit(false);
-            populator.populate(connection);
-            history.append(new Row(file.version(), file.fileName(), file.digest(), nextTime(before),
-                    Outcome.SUCCESS));
-            connection.commit();
+            transaction.executeWithoutResult(status -> {
+                DatabasePopulatorUtils.execute(populator, scoped);
+                history.append(new Row(file.version(), file.fileName(), file.digest(), nextTime(before),
+                        Outcome.SUCCESS));
+            });
             LOG.info("applied V{} {}", file.version(), file.fileName());
             return true;
-        } catch (SQLException | DataAccessException e) {
-            return failed(connection, history, file, before, e);
-        } finally {
-            try {
-                connection.setAutoCommit(true);
-            } catch (SQLException e) {
-                LOG.warn("cannot restore auto-commit after V{}", file.version(), e);
-            }
+        } catch (DataAccessException | TransactionException e) {
+            return failed(history, file, before, e);
         }
     }
 
-    private boolean failed(Connection connection, SchemaHistoryRepository history, MigrationFile file,
-            List<Row> before, Exception cause) {
-        try {
-            connection.rollback();
-            connection.setAutoCommit(true);
-        } catch (SQLException e) {
-            cause.addSuppressed(e);
-        }
+    private boolean failed(SchemaHistoryRepository history, MigrationFile file, List<Row> before,
+            RuntimeException cause) {
         if (appliedByAnotherProcess(history, file, before)) {
             LOG.info("V{} was applied by another migration process", file.version());
             return false;

@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import java.util.Comparator;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -18,7 +17,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.database.support.DatabaseTest;
-import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.repository.DefectFixRepository;
 import org.pgledger.database.repository.DefectQueryRepository;
 import org.pgledger.database.repository.DefectQueryRepository.Filter;
@@ -33,7 +31,6 @@ import org.pgledger.database.repository.KeywordMatch;
 import org.pgledger.database.repository.MergeChainRepository;
 import org.pgledger.database.repository.StatsRepository;
 import org.pgledger.database.repository.StatsRepository.AttentionItem;
-import org.pgledger.database.support.Dbms;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Seed;
 import org.pgledger.domain.model.Defect;
@@ -48,22 +45,14 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /** REPO-025 .. REPO-028, REPO-034, REPO-036: row limits, keyset pages, search, day ranges, counts, merge chains. */
 @DatabaseTest
-class QueryRepositoryTest implements DbmsAware {
+class QueryRepositoryTest {
 
     private static final java.util.regex.Pattern ROW_LIMIT_KEYWORD = java.util.regex.Pattern.compile(
             "\\b(LIMIT|FETCH|TOP|ROWNUM|OFFSET)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
 
-    @Parameter
-    Dbms dbms;
-
     private LedgerTestContext ctx;
     private Seed seed;
     private DefectQueryRepository queries;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
 
     @BeforeEach
     void setUp(LedgerTestContext context) {

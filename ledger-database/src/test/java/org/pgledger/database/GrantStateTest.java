@@ -11,7 +11,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.database.repository.Counter;
@@ -19,8 +18,6 @@ import org.pgledger.database.repository.GrantStateRepository;
 import org.pgledger.database.repository.IdAllocator;
 import org.pgledger.database.repository.SessionGrantRepository;
 import org.pgledger.database.support.DatabaseTest;
-import org.pgledger.database.support.Dbms;
-import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Parallel;
 import org.pgledger.database.support.Seed;
@@ -34,24 +31,16 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** REPO-015, REPO-016, REPO-020 and the grant part of SVC-TZ-03. */
 @DatabaseTest
-class GrantStateTest implements DbmsAware {
+class GrantStateTest {
 
     private static final Instant NOW = Instant.parse("2026-11-05T12:00:00Z");
     private static final Instant GRANTED = Instant.parse("2026-11-01T00:00:00Z");
-
-    @Parameter
-    Dbms dbms;
 
     private LedgerTestContext ctx;
     private Seed seed;
     private GrantStateRepository grants;
     private SessionGrantRepository store;
     private IdAllocator ids;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
 
     @BeforeEach
     void setUp(LedgerTestContext context) {

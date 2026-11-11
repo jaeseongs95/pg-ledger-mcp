@@ -11,7 +11,9 @@ import org.pgledger.domain.error.TrustException;
  */
 public record AuthorId(String value) implements ActorId {
 
-    public static final AuthorId OWNER = new AuthorId("user:owner");
+    private static final String OWNER_VALUE = "user:owner";
+
+    public static final AuthorId OWNER = new AuthorId(OWNER_VALUE);
 
     private static final Pattern SESSION_FORMAT = Pattern.compile("[a-z][a-z0-9-]{0,31}:[A-Za-z0-9._-]{1,128}");
 
@@ -30,7 +32,7 @@ public record AuthorId(String value) implements ActorId {
 
     /** True for {@code user:owner} and for session authors; {@code user:} is reserved for the owner. */
     public static boolean matches(String value) {
-        return value != null && (value.equals("user:owner")
+        return value != null && (OWNER_VALUE.equals(value)
                 || (SESSION_FORMAT.matcher(value).matches() && !value.startsWith("user:")));
     }
 }

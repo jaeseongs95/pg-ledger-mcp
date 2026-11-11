@@ -154,6 +154,8 @@ class JarProcessTest {
     @Test
     @DisplayName("HK-021 on a JDK older than 25 the JVM refuses the jar with UnsupportedClassVersionError (needs LEDGER_HOOK_LEGACY_JAVA)")
     void olderJdkFailsClearly(HookJar jar) throws IOException {
+        // The path of a JDK older than 25 is a property of the build machine, not of the product: the test reads it
+        // from the environment of the machine and is skipped (NOT_RUN) where there is none.
         String legacy = System.getenv("LEDGER_HOOK_LEGACY_JAVA");
         Assumptions.assumeTrue(legacy != null && !legacy.isBlank(),
                 "NOT_RUN: no JDK older than 25 on this host (set LEDGER_HOOK_LEGACY_JAVA to its java executable)");

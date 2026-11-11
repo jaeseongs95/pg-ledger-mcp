@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.pgledger.database.repository.ConditionRepository;
 import org.pgledger.database.repository.DefectCaseRepository;
 import org.pgledger.database.repository.DefectFixRepository;
@@ -21,8 +20,6 @@ import org.pgledger.database.repository.ReceiptRepository;
 import org.pgledger.database.repository.SessionGrantRepository;
 import org.pgledger.database.repository.TaskRepository;
 import org.pgledger.database.support.DatabaseTest;
-import org.pgledger.database.support.Dbms;
-import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Seed;
 import org.pgledger.domain.model.Condition;
@@ -56,18 +53,10 @@ import org.springframework.dao.OptimisticLockingFailureException;
 
 /** REPO-006 .. REPO-008 and the round trip of every aggregate through the real schema. */
 @DatabaseTest
-class AggregateRepositoryTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
+class AggregateRepositoryTest {
 
     private LedgerTestContext ctx;
     private Seed seed;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
 
     @BeforeEach
     void setUp(LedgerTestContext context) {

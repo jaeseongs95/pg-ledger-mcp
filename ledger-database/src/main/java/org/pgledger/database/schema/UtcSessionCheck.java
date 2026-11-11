@@ -1,18 +1,16 @@
 package org.pgledger.database.schema;
 
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import javax.sql.DataSource;
-import org.pgledger.database.repository.SchemaHistoryRepository;
 import org.pgledger.database.repository.SessionClockRepository;
 import org.pgledger.database.time.UtcTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 
 /**
  * Startup guard: the JVM and the database session must run in UTC. The database check compares the ANSI
@@ -66,11 +64,11 @@ public class UtcSessionCheck {
     }
 
     private LocalDateTime readSessionClock() {
-        try (Connection connection = dataSource.getConnection()) {
-            SchemaHistoryRepository.useSchema(connection, schemaName, false);
-            return new SessionClockRepository(connection).sessionTimestamp().orElseThrow(
-                    () -> new SchemaMigrationException("the session clock cannot be read: schema_history is empty"));
-        } catch (SQLException e) {
+        try {
+            return new SessionClockRepository(SchemaDataSource.of(dataSource, schemaName)).sessionTimestamp()
+                    .orElseThrow(() -> new SchemaMigrationException(
+                            "the session clock cannot be read: schema_history is empty"));
+        } catch (CannotGetJdbcConnectionException e) {
             throw new SchemaMigrationException("cannot read the database session clock", e);
         }
     }

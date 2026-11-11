@@ -8,7 +8,6 @@ import java.sql.SQLException;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.database.repository.ConditionRepository;
@@ -17,8 +16,6 @@ import org.pgledger.database.repository.DefectFixRepository;
 import org.pgledger.database.repository.IdAllocator;
 import org.pgledger.database.repository.LinkRepository;
 import org.pgledger.database.support.DatabaseTest;
-import org.pgledger.database.support.Dbms;
-import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Seed;
 import org.pgledger.domain.model.Condition;
@@ -41,20 +38,12 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /** REPO-021, REPO-022: normalised link keys, unique keys, checks and foreign keys. */
 @DatabaseTest
-class ConstraintTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
+class ConstraintTest {
 
     private LedgerTestContext ctx;
     private Seed seed;
     private LinkRepository links;
     private JdbcClient jdbc;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
 
     @BeforeEach
     void setUp(LedgerTestContext context) {

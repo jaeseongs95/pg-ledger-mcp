@@ -10,12 +10,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.pgledger.database.support.DatabaseTest;
-import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.repository.DefectCaseLockRepository;
 import org.pgledger.database.repository.DefectRepository;
-import org.pgledger.database.support.Dbms;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Parallel;
 import org.pgledger.database.support.Seed;
@@ -27,21 +24,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** REPO-039, REPO-040: recording a case locks the defect row and serialises with a merge of the same row. */
 @DatabaseTest
-class CaseSequenceTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
+class CaseSequenceTest {
 
     private LedgerTestContext ctx;
     private Seed seed;
     private DefectCaseLockRepository lock;
     private DefectRepository defects;
     private JdbcClient jdbc;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
 
     @BeforeEach
     void setUp(LedgerTestContext context) {

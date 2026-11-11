@@ -9,19 +9,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
+import javax.sql.DataSource;
 import org.pgledger.database.time.UtcTime;
 import org.pgledger.domain.value.Sha256;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import org.springframework.jdbc.support.DatabaseMetaDataCallback;
+import org.springframework.jdbc.support.JdbcUtils;
+import org.springframework.jdbc.support.MetaDataAccessException;
 
 /**
- * The migration bookkeeping on one connection: the schema, the table {@code schema_history} (one row per attempt,
- * never updated or deleted) and its rows. Not a Spring bean: the migrator and the startup guard hand it the
- * connection they work on, so the schema chosen on that connection applies to every statement.
+ * The migration bookkeeping on a {@link DataSource}: the table {@code schema_history} (one row per attempt, never
+ * updated or deleted) and its rows. Not a Spring bean: the migrator and the startup guard hand it the data source
+ * they work on, which already applies the schema chosen for the run (see {@code SchemaDataSource}). Statements run
+ * through {@link JdbcClient}, so inside a Spring transaction they share its connection.
  */
 public final class SchemaHistoryRepository {
-
-    private static final Pattern SIMPLE_NAME = Pattern.compile("[a-z][a-z0-9_]{0,29}");
 
     /** Result of one attempt to apply a version. */
     public enum Outcome {
@@ -32,35 +34,15 @@ public final class SchemaHistoryRepository {
     public record Row(int version, String fileName, Sha256 sha256, Instant appliedAt, Outcome outcome) {
     }
 
+    private static final Pattern SIMPLE_NAME = Pattern.compile("[a-z][a-z0-9_]{0,29}");
     private static final String TABLE = "schema_history";
 
-    private final Connection connection;
+    private final DataSource dataSource;
     private final JdbcClient jdbc;
 
-    public SchemaHistoryRepository(Connection connection) {
-        this.connection = connection;
-        this.jdbc = JdbcClient.create(new SingleConnectionDataSource(connection, true));
-    }
-
-    /**
-     * Makes {@code schema} the schema of the connection (JDBC {@code setSchema}), creating it first when asked
-     * and missing. A blank name keeps the default schema of the account.
-     */
-    public static void useSchema(Connection connection, String schema, boolean create) {
-        if (schema == null) {
-            return;
-        }
-        try {
-            String folded = fold(connection.getMetaData(), schema);
-            if (create && !schemaExists(connection.getMetaData(), folded)) {
-                try (var statement = connection.createStatement()) {
-                    statement.execute("CREATE SCHEMA " + requireSimpleName(schema));
-                }
-            }
-            connection.setSchema(folded);
-        } catch (SQLException e) {
-            throw new IllegalStateException("cannot use schema " + schema, e);
-        }
+    public SchemaHistoryRepository(DataSource dataSource) {
+        this.dataSource = dataSource;
+        this.jdbc = JdbcClient.create(dataSource);
     }
 
     /** The name as the DBMS stores an unquoted identifier (JDBC metadata tells the folding). */
@@ -71,36 +53,45 @@ public final class SchemaHistoryRepository {
         return metaData.storesLowerCaseIdentifiers() ? name.toLowerCase(Locale.ROOT) : name;
     }
 
-    private static boolean schemaExists(DatabaseMetaData metaData, String foldedName) throws SQLException {
-        try (ResultSet rs = metaData.getSchemas()) {
-            while (rs.next()) {
-                if (foldedName.equalsIgnoreCase(rs.getString("TABLE_SCHEM"))) {
-                    return true;
-                }
-            }
+    /** Reads the database metadata through Spring's {@link JdbcUtils}, which gets and releases the connection. */
+    public static <T> T inspect(DataSource dataSource, DatabaseMetaDataCallback<T> callback) {
+        try {
+            return JdbcUtils.extractDatabaseMetaData(dataSource, callback);
+        } catch (MetaDataAccessException e) {
+            throw new IllegalStateException("cannot inspect the database", e);
         }
-        return false;
     }
 
-    private static String requireSimpleName(String name) {
-        if (!SIMPLE_NAME.matcher(name).matches()) {
+    /** Creates the schema when it is missing (the schema name is an identifier, so it cannot be a bind value). */
+    public static void createSchemaIfMissing(DataSource dataSource, String schema) {
+        if (!SIMPLE_NAME.matcher(schema).matches()) {
             throw new IllegalArgumentException("schema name must be lower case letters, digits and _ (max 30): "
-                    + name);
+                    + schema);
         }
-        return name;
+        boolean exists = inspect(dataSource, metaData -> {
+            String folded = fold(metaData, schema);
+            try (ResultSet rs = metaData.getSchemas()) {
+                while (rs.next()) {
+                    if (folded.equalsIgnoreCase(rs.getString("TABLE_SCHEM"))) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        });
+        if (!exists) {
+            JdbcClient.create(dataSource).sql("CREATE SCHEMA " + schema).update();
+        }
     }
 
     public boolean tableExists() {
-        try {
-            DatabaseMetaData metaData = connection.getMetaData();
-            String schema = connection.getSchema();
-            try (ResultSet rs = metaData.getTables(connection.getCatalog(), schema, fold(metaData, TABLE),
-                    new String[] {"TABLE"})) {
+        return inspect(dataSource, metaData -> {
+            Connection connection = metaData.getConnection();
+            try (ResultSet rs = metaData.getTables(connection.getCatalog(), connection.getSchema(),
+                    fold(metaData, TABLE), new String[] {"TABLE"})) {
                 return rs.next();
             }
-        } catch (SQLException e) {
-            throw new IllegalStateException("cannot inspect the database", e);
-        }
+        });
     }
 
     public void createTable() {

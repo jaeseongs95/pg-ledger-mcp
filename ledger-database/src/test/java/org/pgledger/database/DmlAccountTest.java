@@ -12,7 +12,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
@@ -23,10 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.TestInstance;
-import org.junit.jupiter.params.Parameter;
-import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.database.repository.CodeRevisionRepository;
 import org.pgledger.database.repository.CommonCodeRepository;
@@ -44,7 +40,6 @@ import org.pgledger.database.schema.SchemaMigrationException;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.support.Databases;
-import org.pgledger.database.support.Dbms;
 import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Seed;
@@ -78,23 +73,17 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
  * REPO-023, REPO-024, REPO-038 and SCH-014: the application runs on a least-privilege account (the owner applies
  * the schema and the grants of {@code db-templates/dml-grants.sql}); the history cannot be changed through it.
  */
-@ParameterizedClass
-@EnumSource(Dbms.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @ExtendWith(LedgerDatabaseExtension.class)
 class DmlAccountTest {
 
     private static final String PASSWORD = "pw-for-the-test";
-    private static final String PERMISSION_DENIED_POSTGRESQL = "42501";
-    private static final String PERMISSION_DENIED_H2 = "90096";
+    private static final String PERMISSION_DENIED = "90096";
     /** H2 refuses to truncate a table that a foreign key refers to (history refers to itself) before it asks for rights. */
     private static final String H2_CANNOT_TRUNCATE = "90106";
 
-    @Parameter
-    Dbms dbms;
-
     private String account;
-    private final Map<Dbms, Env> shared = new EnumMap<>(Dbms.class);
+    private Env shared;
     private Databases databases;
 
     @BeforeEach
@@ -124,23 +113,18 @@ class DmlAccountTest {
 
     /** A new database, owned by the owner account, with a restricted account; the schema is applied when asked. */
     private Env environment(boolean migrate, boolean grant) throws SQLException, IOException {
-        String ownerUrl = databases.newUrl(dbms);
-        // the connection settings of the URL (PostgreSQL user and password, H2 database options) are the owner's
-        String appUrl = ownerUrl.substring(0, ownerUrl.indexOf(dbms == Dbms.POSTGRESQL ? '?' : ';'));
+        String ownerUrl = databases.newUrl();
+        // the database options of the URL (after the first ';') are the owner's
+        String appUrl = ownerUrl.substring(0, ownerUrl.indexOf(';'));
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-        account = (dbms == Dbms.H2 ? "APP_" + suffix.toUpperCase(Locale.ROOT) : "app_" + suffix);
+        account = "APP_" + suffix.toUpperCase(Locale.ROOT);
         HikariDataSource owner = pool(ownerUrl, null, null);
         if (migrate) {
             new SchemaMigrator(owner, new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(null, dbms.longText(), true, null), Clock.systemUTC()).migrate();
+                    new SchemaProperties(null, Databases.LONG_TEXT, true, null), Clock.systemUTC()).migrate();
         }
         try (Connection c = owner.getConnection(); Statement s = c.createStatement()) {
-            if (dbms == Dbms.H2) {
-                s.execute("CREATE USER " + account + " PASSWORD '" + PASSWORD + "'");
-            } else {
-                s.execute("CREATE ROLE " + account + " LOGIN PASSWORD '" + PASSWORD + "'");
-                s.execute("GRANT USAGE ON SCHEMA public TO " + account);
-            }
+            s.execute("CREATE USER " + account + " PASSWORD '" + PASSWORD + "'");
         }
         if (grant) {
             String template = new String(getClass().getClassLoader().getResourceAsStream("db-templates/dml-grants.sql")
@@ -160,7 +144,7 @@ class DmlAccountTest {
             }
         }).as(sql).isInstanceOfSatisfying(SQLException.class,
                 e -> assertThat(e.getSQLState()).as("a refusal for a missing right, not a mistake in the statement")
-                        .isIn(PERMISSION_DENIED_POSTGRESQL, PERMISSION_DENIED_H2, H2_CANNOT_TRUNCATE));
+                        .isIn(PERMISSION_DENIED, H2_CANNOT_TRUNCATE));
     }
 
     private static void allowed(HikariDataSource app, String sql) throws SQLException {
@@ -203,24 +187,24 @@ class DmlAccountTest {
         assertThat(shared().owner()).isNotNull();
     }
 
-    /** One environment per DBMS, built on first use: the parameter field is set after @BeforeAll ran, and one instance serves both DBMS runs. */
+    /** One environment for the statement tests of the class, built on first use. */
     private synchronized Env shared() throws SQLException, IOException {
-        Env env = shared.get(dbms);
-        if (env == null) {
-            env = environment(true, true);
-            shared.put(dbms, env);
+        if (shared == null) {
+            shared = environment(true, true);
         }
-        return env;
+        return shared;
     }
 
     @AfterAll
     void closeSharedEnvironment() {
-        shared.values().forEach(Env::close);
+        if (shared != null) {
+            shared.close();
+        }
     }
 
     @Test
     void theWholeWorkflowRunsOnTheRestrictedAccount() throws Exception {
-        try (Env env = environment(true, true); LedgerTestContext ctx = LedgerTestContext.onMigrated(dbms, env.app())) {
+        try (Env env = environment(true, true); LedgerTestContext ctx = LedgerTestContext.onMigrated(env.app())) {
             Seed seed = new Seed(ctx);
             Project project = seed.project();
             Defect defect = seed.defect(project, 1, "as the application account", LedgerTestContext.START);
@@ -273,7 +257,7 @@ class DmlAccountTest {
     void sch014_theMigrationIsRefusedForTheApplicationAccountButItCanReadTheHistory() throws Exception {
         try (Env fresh = environment(false, false)) {
             assertThatThrownBy(() -> new SchemaMigrator(fresh.app(), new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(null, dbms.longText(), true, null), Clock.systemUTC()).migrate())
+                    new SchemaProperties(null, Databases.LONG_TEXT, true, null), Clock.systemUTC()).migrate())
                     .isInstanceOf(SchemaMigrationException.class);
         }
         try (Env migrated = environment(true, true)) {

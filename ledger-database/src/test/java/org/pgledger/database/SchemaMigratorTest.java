@@ -24,10 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.params.Parameter;
-import org.junit.jupiter.params.ParameterizedClass;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.database.repository.SchemaHistoryRepository;
@@ -39,7 +36,6 @@ import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.schema.SchemaVerifier;
 import org.pgledger.database.support.Databases;
-import org.pgledger.database.support.Dbms;
 import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.database.support.Parallel;
 import org.pgledger.database.support.TestClock;
@@ -51,9 +47,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/** SCH-001 .. SCH-011, SCH-015, SCH-020, SCH-021: the schema runner on H2 and PostgreSQL. */
-@ParameterizedClass
-@EnumSource(Dbms.class)
+/** SCH-001 .. SCH-011, SCH-015, SCH-020, SCH-021: the schema runner on H2. */
 @ExtendWith(LedgerDatabaseExtension.class)
 class SchemaMigratorTest {
 
@@ -68,9 +62,6 @@ class SchemaMigratorTest {
     private static final String BROKEN_THREE = "CREATE TABLE t_half (id INTEGER NOT NULL);\n"
             + "INSERT INTO no_such_table (id) VALUES (1);\n";
 
-    @Parameter
-    Dbms dbms;
-
     @TempDir
     Path temp;
 
@@ -82,7 +73,7 @@ class SchemaMigratorTest {
     @BeforeEach
     void setUp(Databases fresh) {
         databases = fresh;
-        pool = databases.newDataSource(dbms);
+        pool = databases.newDataSource();
     }
 
     @AfterEach
@@ -104,7 +95,8 @@ class SchemaMigratorTest {
     }
 
     private SchemaProperties props(Path dir, String schema) {
-        return new SchemaProperties(dir.toUri().toString(), dbms.longText(), true, schema, Duration.ofMillis(200));
+        return new SchemaProperties(dir.toUri().toString(), Databases.LONG_TEXT, true, schema,
+                Duration.ofMillis(200));
     }
 
     private SchemaMigrator migrator(Path dir) {
@@ -116,11 +108,7 @@ class SchemaMigratorTest {
     }
 
     private List<Row> history() {
-        try (Connection c = pool.getConnection()) {
-            return new SchemaHistoryRepository(c).rows();
-        } catch (SQLException e) {
-            throw new IllegalStateException(e);
-        }
+        return new SchemaHistoryRepository(pool).rows();
     }
 
     private boolean tableExists(String name) {
@@ -151,7 +139,7 @@ class SchemaMigratorTest {
     @Test
     void sch001_aFreshDatabaseGetsEveryRealFileInOrderWithItsDigest() {
         SchemaMigrator real = new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(),
-                new SchemaProperties(null, dbms.longText(), true, null), clock);
+                new SchemaProperties(null, Databases.LONG_TEXT, true, null), clock);
         assertThat(real.migrate()).containsExactly(1, 2, 3);
         assertThat(history()).isEqualTo(List.of(
                 success(1, "V1__core_tables.sql", resource("db/V1__core_tables.sql"), T0),
@@ -199,8 +187,9 @@ class SchemaMigratorTest {
         assertThat(history()).isEqualTo(List.of(success(1, "V1__one.sql", ONE, T0), success(2, "V2__two.sql", TWO, T0),
                 failed(3, "V3__three.sql", BROKEN_THREE, T0)));
         assertThat(tableExists("t_four")).as("V4 waits for V3").isFalse();
-        // a transactional DDL rolls the whole file back; otherwise the statements that ran stay
-        assertThat(tableExists("t_half")).isEqualTo(!dbms.transactionalDdl());
+        // H2 commits every DDL statement at once, so the statement that ran before the failure stays (a DBMS with
+        // transactional DDL rolls the whole file back: checked at the test server stage)
+        assertThat(tableExists("t_half")).isTrue();
         assertThatThrownBy(() -> verifier(broken).verify()).hasMessageContaining("FAILED");
         // a second try without a fix appends a second failed row, one microsecond later
         assertThatThrownBy(() -> migrator(broken).migrate()).isInstanceOf(SchemaMigrationException.class);
@@ -226,12 +215,10 @@ class SchemaMigratorTest {
     }
 
     @Test
-    void sch006_aLateFileBelowAnAppliedVersionIsRefused() throws SQLException {
+    void sch006_aLateFileBelowAnAppliedVersionIsRefused() {
         Path all = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO, "V3__three.sql", THREE));
         migrator(files(Map.of("V1__one.sql", ONE))).migrate();
-        try (Connection c = pool.getConnection()) {
-            new SchemaHistoryRepository(c).append(success(3, "V3__three.sql", THREE, T0));
-        }
+        new SchemaHistoryRepository(pool).append(success(3, "V3__three.sql", THREE, T0));
         assertThatThrownBy(() -> migrator(all).migrate()).isInstanceOf(SchemaMigrationException.class)
                 .hasMessageContaining("out of order");
     }
@@ -256,7 +243,7 @@ class SchemaMigratorTest {
     }
 
     private List<String> twoMigrationsAtOnce() {
-        SchemaProperties real = new SchemaProperties(null, dbms.longText(), true, null);
+        SchemaProperties real = new SchemaProperties(null, Databases.LONG_TEXT, true, null);
         Callable<String> migrate = () -> {
             try {
                 new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(), real, clock).migrate();
@@ -316,7 +303,7 @@ class SchemaMigratorTest {
     private ConfigurableApplicationContext startApplication(Path dir) {
         return new SpringApplicationBuilder(LedgerSchemaGuardConfiguration.class).web(WebApplicationType.NONE)
                 .properties("spring.main.banner-mode=off", "logging.level.root=WARN",
-                        "ledger.schema.location=" + dir.toUri(), "ledger.schema.long-text-type=" + dbms.longText(),
+                        "ledger.schema.location=" + dir.toUri(), "ledger.schema.long-text-type=" + Databases.LONG_TEXT,
                         "ledger.schema.require-utc=false")
                 .initializers(context -> {
                     context.getBeanFactory().registerSingleton("dataSource", pool);
@@ -343,7 +330,7 @@ class SchemaMigratorTest {
     @Test
     void sch010_aDatabaseThatWasNeverMigratedIsRefused() {
         Path two = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO));
-        try (HikariDataSource empty = databases.newDataSource(dbms)) {
+        try (HikariDataSource empty = databases.newDataSource()) {
             assertThatThrownBy(() -> new SchemaVerifier(empty, new PathMatchingResourcePatternResolver(),
                     props(two, null)).verify()).hasMessageContaining("no schema history");
         }
@@ -366,7 +353,7 @@ class SchemaMigratorTest {
                     + "CONSTRAINT pk_legacy_defect PRIMARY KEY (id))");
             s.execute("INSERT INTO ledger.defect (id, title) VALUES ('OLD-D-1', 'old')");
         }
-        SchemaProperties named = new SchemaProperties(null, dbms.longText(), true, "pgledger");
+        SchemaProperties named = new SchemaProperties(null, Databases.LONG_TEXT, true, "pgledger");
         new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(), named, clock).migrate();
         new SchemaVerifier(pool, new PathMatchingResourcePatternResolver(), named).verify();
         JdbcClient jdbc = JdbcClient.create(pool);
