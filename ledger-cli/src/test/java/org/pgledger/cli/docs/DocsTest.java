@@ -48,8 +48,11 @@ class DocsTest {
     private static final String INSTALL_SCRIPT = "deploy/install.sh";
     /** The options the script reads itself: the patterns {@code --name=*)} of its option loop (derived from the script). */
     private static final Pattern SCRIPT_OPTION = Pattern.compile("--([a-z][a-z-]*)=\\*\\)");
-    private static final List<String> INSTALL_NOTE_TERMS = List.of("deploy/install.sh", "render-deploy", "token-generate",
-            "pg-ledger-admin", "mcp-grants.sql", "admin-grants.sql");
+    private static final List<String> INSTALL_NOTE_TERMS = List.of("deploy/install.sh", "deploy\\install.cmd", "render-deploy",
+            "token-generate", "dml-grants.sql", "ledger.secrets.home");
+    /** Limitations the 2.0.0 note listed before the installers existed; they are untrue now (DOC-032). */
+    private static final List<String> OLD_LIMITATIONS = List.of("An installer is not part of this release",
+            "use one database account", "설치기는 이번 릴리스에 포함되지 않으며", "데이터베이스 계정 하나를 씁니다");
     private static final List<String> REQUIRED_KEYS = List.of("ledger.mcp.token", "ledger.admin.token",
             "ledger.admin.agent-token", "ledger.admin.driver-directory", "ledger.admin.oidc.owners",
             "ledger.admin.lockout.global-delay", "ledger.jdbc.url", "ledger.schema.name");
@@ -354,17 +357,18 @@ class DocsTest {
 
     @ParameterizedTest
     @MethodSource("installNoteCases")
-    @DisplayName("DOC-032 each part of the 2.0.0 note names the installer, its two commands, the second service and the two grant profiles")
+    @DisplayName("DOC-032 each part of the 2.0.0 note names the two installers, their Java commands, the grant template and the settings home")
     void noteNamesTheInstaller(Language language, String term) {
         assertThat(note().part(language.partHeading()).text()).contains(term);
     }
 
     @ParameterizedTest
     @EnumSource(Language.class)
-    @DisplayName("DOC-032 the retired single grant template and the one-account limitation are not in the 2.0.0 note or the READMEs")
-    void noteAndReadmesDoNotKeepTheOldAccountModel(Language language) {
-        assertThat(note().part(language.partHeading()).text()).doesNotContain("dml-grants.sql");
-        assertThat(language.readme().text()).doesNotContain("dml-grants.sql");
+    @DisplayName("DOC-032 the limitations that no installer exists and that the servers share one database account by default are gone from the 2.0.0 note")
+    void noteDoesNotKeepTheOldLimitations(Language language) {
+        String part = note().part(language.partHeading()).text();
+
+        assertThat(OLD_LIMITATIONS).allSatisfy(sentence -> assertThat(part).doesNotContain(sentence));
     }
 
     // ---- what the text must say, derived from the code ----
