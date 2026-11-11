@@ -28,6 +28,7 @@ import org.pgledger.domain.error.TrustCode;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.SessionPublicKey;
+import org.pgledger.domain.value.OwnerIdentity;
 
 /** SVC-KEY-01 .. SVC-KEY-08: the owner binds public keys to authors (admin web and CLI, never a tool). */
 @LedgerServiceTest
@@ -74,14 +75,15 @@ class SessionKeyTest {
     }
 
     @Test
-    @DisplayName("SVC-KEY-03: a new key replaces the live one by closing it; the closed row stays, the old key no longer verifies and the new one does")
+    @DisplayName("SVC-KEY-03: a confirmed replacement (registerReplacing naming the live fingerprint) closes the live key; the closed row stays, the old key no longer verifies and the new one does")
     void key03_replace(Scenario s) {
         SessionKeyService keys = s.bean(SessionKeyService.class);
         String author = s.actorWith("defect");
         KeyPair replacement = TestKeyRing.newPair();
         long old = keys.live(author).orElseThrow().id();
         s.ctx().clock().set(s.ctx().clock().instant().plusSeconds(60));
-        Registered registered = keys.register(new RegisterCommand(author, publicKey(replacement), "rotated"));
+        Registered registered = keys.registerReplacing(new RegisterCommand(author, publicKey(replacement), "rotated"),
+                OwnerIdentity.SYSTEM, keys.live(author).orElseThrow().fingerprint());
         assertThat(registered.id()).isNotEqualTo(old);
         List<SessionPublicKey> history = keys.history(author);
         assertThat(history).extracting(SessionPublicKey::id).containsExactly(old, registered.id());
@@ -160,16 +162,20 @@ class SessionKeyTest {
     }
 
     @Test
-    @DisplayName("SVC-KEY-07: two registrations of one author at the same time leave exactly one live key and keep both rows")
+    @DisplayName("SVC-KEY-07: two registrations of one author with different keys at the same time leave exactly one live key; the other is refused KEY_REPLACEMENT_NOT_CONFIRMED")
     void key07_parallelRegistration(Scenario s) {
         SessionKeyService keys = s.bean(SessionKeyService.class);
         String author = newAuthor();
         List<Callable<Object>> calls = IntStream.range(0, 2).<Callable<Object>>mapToObj(i -> () -> keys.register(
                 new RegisterCommand(author, publicKey(TestKeyRing.newPair()), "n" + i))).toList();
-        assertThat(Parallel.all(calls)).allSatisfy(o -> assertThat(o.failure()).isNull());
+        List<Parallel.Outcome<Object>> outcomes = Parallel.all(calls);
+        assertThat(outcomes.stream().filter(Parallel.Outcome::succeeded)).hasSize(1);
+        assertThat(outcomes.stream().filter(o -> !o.succeeded())).singleElement().satisfies(o -> assertThat(o.failure())
+                .isInstanceOfSatisfying(LedgerException.class, failure -> assertThat(failure.code())
+                        .isEqualTo(ConflictCode.KEY_REPLACEMENT_NOT_CONFIRMED)));
         assertThat(s.count("SELECT COUNT(*) FROM session_key WHERE author_id = ? AND revoked_at IS NULL", author))
                 .isEqualTo(1);
-        assertThat(s.count("SELECT COUNT(*) FROM session_key WHERE author_id = ?", author)).isEqualTo(2);
+        assertThat(s.count("SELECT COUNT(*) FROM session_key WHERE author_id = ?", author)).isEqualTo(1);
     }
 
     @Test

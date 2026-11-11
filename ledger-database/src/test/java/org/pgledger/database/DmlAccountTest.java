@@ -160,13 +160,19 @@ class DmlAccountTest {
         return Stream.of("INSERT INTO history (id, at, author_id, login, actor_assurance, entity, entity_id, op, "
                 + "changes, reason, request_id) VALUES (1, TIMESTAMP '2026-11-05 10:00:00', 'claude:a', "
                 + "'ledger_author', 'DECLARED', 'DEFECT', 'X', 'CREATE', '{}', 'a reason of length', "
-                + "'11111111-1111-1111-1111-111111111111')", "SELECT COUNT(*) FROM schema_history");
+                + "'11111111-1111-1111-1111-111111111111')",
+                "INSERT INTO owner_audit (id, at, actor, operation, subject) VALUES (1, TIMESTAMP '2026-11-05 10:00:00', "
+                        + "'token:owner', 'GRANT_ISSUED', 'claude:a|p')", "SELECT COUNT(*) FROM owner_audit",
+                "SELECT COUNT(*) FROM schema_history");
     }
 
     static Stream<String> statementsTheApplicationAccountMustNotRun() {
         return Stream.of(
                 "UPDATE history SET reason = 'changed by the application'",
                 "UPDATE history SET before_data = NULL",
+                "UPDATE owner_audit SET actor = 'someone else'",
+                "DELETE FROM owner_audit",
+                "TRUNCATE TABLE owner_audit",
                 "DELETE FROM history",
                 "TRUNCATE TABLE history",
                 "UPDATE schema_history SET outcome = 'FAILED'",
@@ -252,7 +258,7 @@ class DmlAccountTest {
             });
             assertThat(ctx.bean(CommonCodeRepository.class).find(CodeGroup.DEFECT_CATEGORY, code.code()))
                     .hasValueSatisfying(c -> assertThat(c.state()).isEqualTo(CodeState.INACTIVE));
-            assertThat(List.of(Counter.values())).hasSize(5);
+            assertThat(List.of(Counter.values())).hasSize(6);
         }
     }
 
