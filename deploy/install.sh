@@ -1,32 +1,36 @@
 #!/bin/sh
-# deploy/install.sh: the installer of pg-ledger-mcp 2.x. It is the one shell script of the product, and it is thin on purpose:
-# it does only the operating system steps that Java should not do (check java, create the service users, set owners and modes,
-# copy the jars, enable the units, reload nginx). Everything else is `java -jar ledger-cli.jar <command>`: render-deploy
-# (units, settings, nginx site), secret-set, token-generate, driver-register and migrate (schema and ANSI GRANTs).
+# deploy/install.sh: the installer of pg-ledger-mcp 2.x for a Linux host (a Linux server). It is thin on purpose: it does only
+# the operating system steps that Java should not do (check java, create the service user, set owners and modes, copy the
+# jars, enable the units, reload nginx). Everything else is `java -jar ledger-cli.jar <command>`: render-deploy (units,
+# settings, nginx site), secret-set, token-generate, driver-register and migrate (schema and ANSI GRANTs).
 # Documentation it follows: Spring Boot, "Installing Spring Boot Applications" (a systemd unit in /etc/systemd/system,
 # `systemctl enable`): https://docs.spring.io/spring-boot/how-to/deployment/installing.html ; systemd.exec(5) (User=, the
 # sandboxing options of the rendered units); nginx proxy_module `proxy_set_header` (the rendered site).
+# One service user (pg-ledger-mcp, not root) runs the MCP server and the admin web: the secrets are readable by it alone, so
+# the accounts the agents run as cannot read them. Two database accounts: the application account (both servers and the
+# owner commands) and the DDL account (migrate and the grants; its password is typed and not stored).
 # Run as root: sudo deploy/install.sh --jars=<dir> --driver-jar=<file> --driver-class=<class> --owner-account=<account>
-#   --mcp-account=<account> --admin-account=<account> --jdbc-url=<url> [the other options of render-deploy]
-# Needs a database whose accounts (the owner, the MCP server's and the admin web's) were created beforehand with the DBMS's
-# own tools. It installs no package and no database. A re-run is an upgrade: jars, driver jar and files are replaced, the
-# schema and the grants are applied again, the services are restarted; secrets, tokens and data are never replaced.
+#   --app-account=<account> --jdbc-url=<url> [the other options of render-deploy]
+# Both accounts are created beforehand with the DBMS's own tools. It installs no package and no database. A re-run is an
+# upgrade: jars, driver jar and files are replaced, the schema and the grants are applied again, the services are restarted;
+# secrets, tokens and data are never replaced.
 set -eu
 umask 022
 
-MCP=pg-ledger-mcp
+SVC=pg-ledger-mcp
 ADMIN=pg-ledger-admin
 LIB=/opt/pg-ledger-mcp
+ETC=/etc/pg-ledger-mcp
 JARS=
 DRIVER_JAR=
 DRIVER_CLASS=
 OWNER=
-MCP_ACCOUNT=
-ADMIN_ACCOUNT=
+APP_ACCOUNT=
 NGINX=
 
 die() { echo "install.sh: $*" >&2; exit 1; }
-run_as() { user=$1; shift; runuser -u "$user" -- java -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" --ledger.secrets.instance="$user" "$@"; }
+cli() { java -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" "$@"; }
+as_svc() { runuser -u "$SVC" -- java -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" "$@"; }
 
 # The options read here are taken out; the rest (a JDBC URL, ports, host names, TLS paths) goes on to render-deploy.
 for arg in "$@"; do
@@ -36,58 +40,49 @@ for arg in "$@"; do
     --driver-jar=*) DRIVER_JAR=${arg#*=} ;;
     --driver-class=*) DRIVER_CLASS=${arg#*=} ;;
     --owner-account=*) OWNER=${arg#*=} ;;
-    --mcp-account=*) MCP_ACCOUNT=${arg#*=}; set -- "$@" "$arg" ;;
-    --admin-account=*) ADMIN_ACCOUNT=${arg#*=}; set -- "$@" "$arg" ;;
+    --app-account=*) APP_ACCOUNT=${arg#*=}; set -- "$@" "$arg" ;;
     --nginx-conf=*) NGINX=1; set -- "$@" "$arg" ;;
     *) set -- "$@" "$arg" ;;
   esac
 done
 [ "$(id -u)" = 0 ] || die "run as root (sudo)"
-[ -n "$JARS$DRIVER_JAR$DRIVER_CLASS$OWNER$MCP_ACCOUNT$ADMIN_ACCOUNT" ] || die "options are missing: see the header of this file"
-for v in "$JARS" "$DRIVER_JAR" "$DRIVER_CLASS" "$OWNER" "$MCP_ACCOUNT" "$ADMIN_ACCOUNT"; do [ -n "$v" ] || die "an option is missing"; done
+for v in "$JARS" "$DRIVER_JAR" "$DRIVER_CLASS" "$OWNER" "$APP_ACCOUNT"; do [ -n "$v" ] || die "an option is missing: see the header of this file"; done
 JAVA=$(command -v java) || die "java is not installed"
 case $(java -version 2>&1) in
-  *'version "25.'* | *'version "25"'*) ;;
+  *\"25.* | *\"25\"*) ;;
   *) die "Java 25 is required" ;;
 esac
 
-# Users, directories, jars. The MCP server and the admin web are two users with two secret directories, so the MCP server
-# cannot read the admin password or the admin tokens.
+# User, directories, jars.
+id -u "$SVC" >/dev/null 2>&1 || useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$SVC"
 install -d -m 0755 -o root -g root "$LIB"
 for j in ledger-cli ledger-mcp-server ledger-admin-web; do install -m 0644 -o root -g root "$JARS/$j.jar" "$LIB/$j.jar"; done
-for u in "$MCP" "$ADMIN"; do
-  id -u "$u" >/dev/null 2>&1 || useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$u"
-  install -d -m 0750 -o "$u" -g "$u" "/etc/$u"
-  install -d -m 0755 -o root -g root "/etc/$u/drivers"
-  install -d -m 0700 -o "$u" -g "$u" "/etc/$u/secrets"
-  install -m 0644 -o root -g root "$DRIVER_JAR" "/etc/$u/drivers/"
-done
+install -d -m 0750 -o "$SVC" -g "$SVC" "$ETC"
+install -d -m 0755 -o root -g root "$ETC/drivers"
+install -d -m 0700 -o "$SVC" -g "$SVC" "$ETC/secrets"
+install -m 0644 -o root -g root "$DRIVER_JAR" "$ETC/drivers/"
 
-# The units, the settings and the nginx site (root writes them; no instance, so root reads no registration and no secret).
-java -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" --ledger.secrets.instance=none render-deploy --java="$JAVA" "$@"
+# The units and the settings (root writes them; no instance, so root reads no registration and no secret).
+cli --ledger.secrets.home=/nonexistent render-deploy --java="$JAVA" "$@"
 
-# Secrets: typed with hidden input or generated, as each service's own user; an existing one is kept. The tokens are shown once.
-for u in "$MCP" "$ADMIN"; do
-  [ -e "/etc/$u/secrets/ledger.jdbc.password" ] || run_as "$u" secret-set ledger.jdbc.password
-done
-run_as "$ADMIN" token-generate ledger.admin.token --print
-run_as "$MCP" token-generate ledger.mcp.token --print
-# The admin web must know the agents' token to refuse it: a copy of the MCP token in the admin's own directory.
-[ -e "/etc/$ADMIN/secrets/ledger.admin.agent-token" ] || install -m 0600 -o "$ADMIN" -g "$ADMIN" "/etc/$MCP/secrets/ledger.mcp.token" "/etc/$ADMIN/secrets/ledger.admin.agent-token"
+# Secrets: typed with hidden input or generated, as the service user; an existing one is kept. The tokens are shown once.
+[ -e "$ETC/secrets/ledger.jdbc.password" ] || as_svc secret-set ledger.jdbc.password
+as_svc token-generate ledger.admin.token --print
+as_svc token-generate ledger.mcp.token --print
+# The admin web must know the agents' token to refuse it: a copy of the MCP token in the same secret directory.
+[ -e "$ETC/secrets/ledger.admin.agent-token" ] || install -m 0600 -o "$SVC" -g "$SVC" "$ETC/secrets/ledger.mcp.token" "$ETC/secrets/ledger.admin.agent-token"
 
-# The driver is registered after the secrets (a registered driver makes the commands connect). To replace it, delete the file.
-for u in "$MCP" "$ADMIN"; do
-  [ -e "/etc/$u/jdbc-driver.yaml" ] || run_as "$u" driver-register --jar="/etc/$u/drivers/${DRIVER_JAR##*/}" --class="$DRIVER_CLASS"
-done
+# The driver is registered after the secrets (a registered driver makes the commands connect).
+as_svc driver-register --jar="$ETC/drivers/${DRIVER_JAR##*/}" --class="$DRIVER_CLASS"
 
-# Schema and grants through the owner account; its password is typed and not stored.
-run_as "$ADMIN" migrate --owner-account="$OWNER" --mcp-account="$MCP_ACCOUNT" --admin-account="$ADMIN_ACCOUNT"
+# Schema and grants through the DDL account; its password is typed and not stored.
+as_svc migrate --owner-account="$OWNER" --app-account="$APP_ACCOUNT"
 
 systemctl daemon-reload
-systemctl enable "$MCP" "$ADMIN"
-systemctl restart "$MCP" "$ADMIN"
+systemctl enable "$SVC" "$ADMIN"
+systemctl restart "$SVC" "$ADMIN"
 if [ -n "$NGINX" ]; then
   nginx -t
   nginx -s reload
 fi
-echo "install.sh: done. Check the MCP server with: ledger-cli mcp-check --url=<its public URL>"
+echo "install.sh: done. Check the MCP server with: java -jar $LIB/ledger-cli.jar mcp-check --url=<its public URL>"

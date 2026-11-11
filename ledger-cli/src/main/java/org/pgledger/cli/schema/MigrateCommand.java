@@ -27,10 +27,10 @@ import org.springframework.stereotype.Component;
  * on a database that is up to date it applies nothing. The server applications only verify the schema and never change it,
  * so this is the one command that does. It is the one command that does not check the schema first.
  *
- * <p>{@code --owner-account=<account>} runs it as that database account (the account that may do DDL and grant; its
- * password is typed with hidden input and kept in memory for this run only, see {@code OwnerAccountPropertySource}); the
- * command itself only checks that the option has a value. {@code --mcp-account=<account> --admin-account=<account>}
- * (both or none) apply the grant templates of the MCP server and of the admin web ({@link GrantApplier}) after the
+ * <p>{@code --owner-account=<account>} runs it as that database account (the DDL account, the one that may do DDL and
+ * grant; its password is typed with hidden input and kept in memory for this run only, see
+ * {@code OwnerAccountPropertySource}); the command itself only checks that the option has a value.
+ * {@code --app-account=<account>} applies the grant template of the application account ({@link GrantApplier}) after the
  * schema, also when no file was pending, so that a table added by an upgrade is granted. The accounts are created
  * beforehand with the tools of the DBMS: creating an account is not ANSI SQL and not part of the product.
  */
@@ -39,8 +39,8 @@ public class MigrateCommand implements Command {
 
     /** Read by {@code OwnerAccountEnvironmentPostProcessor}: the run connects as this account, its password is typed. */
     static final String OWNER_ACCOUNT = "owner-account";
-    static final String MCP_ACCOUNT = "mcp-account";
-    static final String ADMIN_ACCOUNT = "admin-account";
+    /** The application account (one, shared by the MCP server, the admin web and the owner commands) that gets the grants. */
+    static final String APP_ACCOUNT = "app-account";
 
     private final ObjectProvider<SchemaMigrator> migrator;
     private final ObjectProvider<GrantApplier> grants;
@@ -62,7 +62,7 @@ public class MigrateCommand implements Command {
 
     @Override
     public Set<String> options() {
-        return Set.of(OWNER_ACCOUNT, MCP_ACCOUNT, ADMIN_ACCOUNT);
+        return Set.of(OWNER_ACCOUNT, APP_ACCOUNT);
     }
 
     @Override
@@ -72,13 +72,9 @@ public class MigrateCommand implements Command {
         }
         // a value without a name of its own would be a blank account: refused here, before anything is changed
         CliOptions.value(arguments, OWNER_ACCOUNT);
-        Optional<String> mcpAccount = CliOptions.value(arguments, MCP_ACCOUNT);
-        Optional<String> adminAccount = CliOptions.value(arguments, ADMIN_ACCOUNT);
-        if (mcpAccount.isPresent() != adminAccount.isPresent()) {
-            // the grants are applied for both applications or for none: one account alone would leave the other unprepared
-            throw new UsageException(ErrorCode.MISSING_ARGUMENT);
-        }
-        if (mcpAccount.isPresent() && !accountsAreUsable(mcpAccount.get(), adminAccount.get())) {
+        Optional<String> appAccount = CliOptions.value(arguments, APP_ACCOUNT);
+        // a plain account name only: no SQL is made from anything else
+        if (appAccount.isPresent() && !GrantApplier.isAccountName(appAccount.get())) {
             throw new UsageException(ErrorCode.INVALID_OPTION_VALUE);
         }
         SchemaMigrator target = migrator.getIfAvailable();
@@ -101,32 +97,25 @@ public class MigrateCommand implements Command {
             output.info(messages.get("migrate.applied", String.valueOf(applied.size()),
                     applied.stream().map(version -> "V" + version).collect(Collectors.joining(", "))));
         }
-        if (mcpAccount.isPresent()) {
-            grant(mcpAccount.get(), adminAccount.get());
+        if (appAccount.isPresent()) {
+            grant(appAccount.get());
         }
     }
 
     /**
-     * Applies the grant templates of the two applications after the schema, also when nothing was migrated: an upgrade that
-     * adds a table has to grant it, and granting again changes nothing.
+     * Applies the grant template of the application account after the schema, also when nothing was migrated: an upgrade
+     * that adds a table has to grant it, and granting again changes nothing.
      */
-    private void grant(String mcpAccount, String adminAccount) {
+    private void grant(String appAccount) {
         GrantApplier applier = grants.getIfAvailable();
         if (applier == null) {
             throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
         }
         try {
-            applier.apply(GrantApplier.Profile.MCP, mcpAccount);
-            applier.apply(GrantApplier.Profile.ADMIN, adminAccount);
+            applier.apply(appAccount);
         } catch (SchemaMigrationException failed) {
             throw new FailureException(ErrorCode.GRANT_FAILED, failed);
         }
-        output.info(messages.get("migrate.granted", mcpAccount, adminAccount));
-    }
-
-    /** Both are plain account names (no SQL is made from anything else) and they are two accounts, not one. */
-    private static boolean accountsAreUsable(String mcpAccount, String adminAccount) {
-        return GrantApplier.isAccountName(mcpAccount) && GrantApplier.isAccountName(adminAccount)
-                && !mcpAccount.equalsIgnoreCase(adminAccount);
+        output.info(messages.get("migrate.granted", appAccount));
     }
 }

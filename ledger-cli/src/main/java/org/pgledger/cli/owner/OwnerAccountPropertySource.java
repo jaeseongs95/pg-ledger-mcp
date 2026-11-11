@@ -13,10 +13,10 @@ import org.springframework.core.env.PropertySource;
  * the service. The password is typed with hidden input ({@link SecretInput}, which in the product is the console) and lives
  * in memory for this run only: it is never stored, written or printed.
  *
- * <p>The password is asked for when the DataSource asks for it, not when the source is made, so a command that never
- * connects (a refused command line, no registered driver) never prompts; it is asked for once, whoever asks and however
- * often. A refusal (no terminal, an empty input) is thrown while the DataSource is made and so reaches the user as the
- * refusal of the command (see {@code CliFailureAnalyzer}), not as a stack trace. Spring reference:
+ * <p>The password is asked for when the settings {@code ledger.jdbc.*} are bound (while the application starts, before the
+ * command runs), not when the source is made, and it is asked for once, whoever asks and however often. A refusal (no
+ * terminal, an empty input) is thrown while that binding happens and so reaches the user as the refusal of the command
+ * (see {@code CliFailureAnalyzer}), not as a stack trace. Spring reference:
  * {@link PropertySource} and https://docs.spring.io/spring-boot/reference/features/external-config.html (the order of the
  * property sources).
  */

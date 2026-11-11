@@ -106,7 +106,7 @@ sealed interface SecretProtection {
         }
     }
 
-    /** An ACL with one entry for the owner. */
+    /** An ACL with one entry for the owner (the account of this process, which creates the directory and the files). */
     record Acl(UserPrincipal owner) implements SecretProtection {
 
         /** What another principal may hold without reaching a secret: its attributes, its ACL, the wait for the handle. */

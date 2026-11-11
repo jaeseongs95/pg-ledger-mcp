@@ -1,5 +1,7 @@
 package org.pgledger.cli.owner;
 
+import java.util.Set;
+import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.secret.ConsoleSecretInput;
 import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.boot.SpringApplication;
@@ -26,13 +28,20 @@ public final class OwnerAccountEnvironmentPostProcessor implements EnvironmentPo
     /** The option, as the command line property source names it. */
     public static final String OPTION = "owner-account";
 
+    /** The commands that declare the option: the schema migration and the legacy import ({@code CliCommand.cliName}). */
+    private static final Set<String> COMMANDS = Set.of(CliCommand.MIGRATE.cliName(), CliCommand.IMPORT_LEGACY.cliName());
+
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         PropertySource<?> commandLine = environment.getPropertySources()
                 .get(CommandLinePropertySource.COMMAND_LINE_PROPERTY_SOURCE_NAME);
         Object account = commandLine == null ? null : commandLine.getProperty(OPTION);
-        // an option without a value is refused by the command itself (MISSING_OPTION_VALUE)
-        if (account instanceof String text && !text.isBlank()) {
+        Object operands = commandLine == null ? null
+                : commandLine.getProperty(CommandLinePropertySource.DEFAULT_NON_OPTION_ARGS_PROPERTY_NAME);
+        // an option without a value is refused by the command itself (MISSING_OPTION_VALUE); only the two commands that
+        // declare the option ask for the password, any other command refuses the option without having prompted
+        if (account instanceof String text && !text.isBlank() && operands instanceof String words
+                && COMMANDS.contains(words.split(",")[0])) {
             environment.getPropertySources()
                     .addFirst(new OwnerAccountPropertySource(text, prompt(text), new ConsoleSecretInput()));
         }

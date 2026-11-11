@@ -380,6 +380,22 @@ class SecretStoreTest {
     }
 
     @Test
+    @DisplayName("SEC-022 exists reports whether a secret is stored, and refuses like check when the store or the file cannot be used")
+    void sec022_existsReportsPresenceAndRefusesLikeCheck() throws IOException {
+        assumeThat(FileSystems.getDefault().supportedFileAttributeViews()).containsAnyOf("posix", "acl");
+        Path directory = tmp.resolve("secrets");
+        SecretStore store = store(directory);
+        SecretStore orphan = store(tmp.resolve("etc").resolve("pg-ledger-mcp").resolve("secrets"));
+        assertRefused(() -> orphan.exists(NAME), ErrorCode.PARENT_MISSING, tmp.resolve("etc").resolve("pg-ledger-mcp").toString());
+        store.store(new SecretName("other"), "x".toCharArray());
+
+        assertThat(store.exists(NAME)).isFalse();
+        store.store(NAME, "v".toCharArray());
+        assertThat(store.exists(NAME)).isTrue();
+        assertThat(Files.readString(directory.resolve(NAME.value()))).isEqualTo("v");
+    }
+
+    @Test
     @DisplayName("SEC-021 a protection is chosen by the attribute views of the file system: POSIX first, then ACL, a file system with neither has none")
     void sec021_protectionFollowsTheAttributeViews() throws IOException {
         FileSystem system = FileSystems.getDefault();

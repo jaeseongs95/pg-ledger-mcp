@@ -20,11 +20,13 @@ import java.util.List;
 enum Language {
 
     EN("README.md", "Tool", "Command", "Section", "English", false, "removed",
-            List.of("ANSI SQL", "DBMS-specific", "JDBC driver", "bundled", "UTC", "sudo deploy/install.sh"),
+            List.of("ANSI SQL", "DBMS-specific", "JDBC driver", "bundled", "UTC", "sudo deploy/install.sh",
+                    "deploy\\install.cmd", "macOS is not supported"),
             List.of("Summary", "Breaking changes", "Migration", "New", "Changed", "Removed", "Security", "Requirements",
                     "Known limitations")),
     KO("README.ko.md", "도구", "명령", "섹션", "한국어", true, "제거",
-            List.of("ANSI SQL", "DBMS 고유", "JDBC 드라이버", "동봉", "UTC", "sudo deploy/install.sh"),
+            List.of("ANSI SQL", "DBMS 고유", "JDBC 드라이버", "동봉", "UTC", "sudo deploy/install.sh",
+                    "deploy\\install.cmd", "macOS는 지원하지 않습니다"),
             List.of("요약", "호환되지 않는 변경", "이전 절차", "추가", "변경", "제거", "보안", "요구 사항", "알려진 제한"));
 
     private final String readmeFile;

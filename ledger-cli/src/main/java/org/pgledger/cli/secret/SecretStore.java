@@ -119,10 +119,10 @@ public class SecretStore {
             throw new FailureException(ErrorCode.UNEXPECTED_FILE_TYPE, path.toString());
         }
         // The service reads the secrets with its own account: a path owned by anyone else (for example root) is useless.
-        UserPrincipal owner = Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
+        UserPrincipal actual = Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
         UserPrincipal current = processUser.current(path.getFileSystem());
-        if (!owner.equals(current)) {
-            throw new FailureException(ErrorCode.FOREIGN_OWNER, path.toString(), owner.getName(), current.getName());
+        if (!actual.equals(current)) {
+            throw new FailureException(ErrorCode.FOREIGN_OWNER, path.toString(), actual.getName(), current.getName());
         }
         protection.requireOwnerOnlyAccess(path);
     }

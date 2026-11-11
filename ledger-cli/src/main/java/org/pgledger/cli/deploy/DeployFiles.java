@@ -28,14 +28,16 @@ public final class DeployFiles {
     }
 
     /**
-     * @param root the directory the absolute paths of the files are put below ({@code /} on a host)
+     * @param root the directory the absolute paths of the files are put below (a drive letter becomes a directory name:
+     *             {@code C:/x} is {@code <root>/C/x}), or null to write each file at its own path, as an installation does
      * @return the files written, in order
      * @throws FailureException DEPLOY_WRITE_FAILED naming the file and the kind of failure
      */
     public static List<Path> write(Path root, List<RenderedFile> files) {
         List<Path> written = new ArrayList<>();
         for (RenderedFile file : files) {
-            Path target = root.resolve(file.path().substring(1));
+            Path target = root == null ? Path.of(file.path())
+                    : root.resolve(file.path().replaceFirst("^([A-Za-z]):", "$1").replaceFirst("^/", ""));
             try {
                 replace(target, file.content());
             } catch (IOException e) {

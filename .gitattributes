@@ -1,1 +1,3 @@
 * text=auto eol=lf
+# cmd.exe reads labels and goto targets reliably only from files with CRLF line ends
+*.cmd text eol=crlf

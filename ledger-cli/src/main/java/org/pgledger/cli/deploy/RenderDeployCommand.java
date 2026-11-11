@@ -17,13 +17,16 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.stereotype.Component;
 
 /**
- * {@code render-deploy --java=<path> --jdbc-url=<url> --mcp-account=<account> --admin-account=<account> [...]}: writes the two
- * systemd units, the settings file of each service and, with {@code --nginx-conf}, the nginx site of the two public host
- * names, from the parameters ({@link DeployParameters}, {@link DeployRenderer}). It needs no database and writes no secret.
+ * {@code render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [...]}: writes the definition of the two
+ * services (systemd units, or WinSW configurations), the settings files and, with {@code --nginx-conf}, the nginx site of the
+ * two public host names, from the parameters ({@link DeployParameters}, {@link DeployRenderer}). It needs no database and writes no secret.
  * All parameters are validated before the first file is written, so a refused value leaves nothing written. {@code --root}
- * writes below a directory instead of {@code /} (a test, or a look at the files before they are put in place). The command
- * is the one {@code deploy/install.sh} calls; it runs as root there, which is the only reason the files can be put into
- * {@code /etc}.
+ * writes below a directory instead of at the paths of the files (a test, or a look at the files before they are put in
+ * place). The command is the one {@code deploy/install.sh} (Linux) and {@code deploy/install.cmd} (Windows,
+ * {@code --platform=windows}) call; they run it as root or as an administrator, which is the only reason the files can be
+ * put into {@code /etc} or the service directories. The targets (a personal PC, a Windows server, a Linux server) differ by
+ * the options only: {@code --platform}, {@code --home}, the host names, and {@code --nginx-conf} (the site of the reverse
+ * proxy, Linux only).
  */
 @Component
 public class RenderDeployCommand implements Command {
@@ -61,7 +64,7 @@ public class RenderDeployCommand implements Command {
         DeployParameters parameters = DeployParameters.of(values);
         Path root;
         try {
-            root = Path.of(values.getOrDefault(DeployOptions.ROOT, "/"));
+            root = values.containsKey(DeployOptions.ROOT) ? Path.of(values.get(DeployOptions.ROOT)) : null;
         } catch (InvalidPathException e) {
             throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, e, DeployOptions.ROOT);
         }

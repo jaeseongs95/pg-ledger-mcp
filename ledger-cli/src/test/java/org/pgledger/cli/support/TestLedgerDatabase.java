@@ -58,6 +58,17 @@ public final class TestLedgerDatabase implements AutoCloseable {
         return dataSource;
     }
 
+    /**
+     * A JDBC template that connects to this database as another account (one made with {@code CREATE USER}, an H2
+     * statement of the tests; the product never makes an account). The database options of the URL (after the first
+     * {@code ;}) are the owner's.
+     */
+    public JdbcTemplate asAccount(String user, String password) {
+        String url = dataSource.getJdbcUrl();
+        return new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                url.substring(0, url.indexOf(';')), user, password));
+    }
+
     /** The rows of an ANSI query (column names are case-insensitive keys). */
     public List<Map<String, Object>> rows(String sql, Object... arguments) {
         return jdbc.queryForList(sql, arguments);
