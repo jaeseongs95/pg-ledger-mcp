@@ -1,7 +1,9 @@
 package org.pgledger.mcp.support;
 
+import java.time.Clock;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
+import org.pgledger.application.admin.SessionKeyService;
 import org.pgledger.mcp.support.McpTestSchema.SchemaMigrated;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -17,6 +19,12 @@ public class McpTestInfrastructure {
 
     /** Present once the categories are in the database. */
     public record CategoriesSeeded() {
+    }
+
+    /** The key pairs of the test authors (the hook and the owner of the tests, see {@link KeyRing}). */
+    @Bean
+    KeyRing keyRing(SessionKeyService owner, Clock clock) {
+        return new KeyRing(owner, clock);
     }
 
     @Bean

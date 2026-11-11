@@ -4,6 +4,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import javax.sql.DataSource;
+import org.pgledger.application.admin.SessionKeyService;
+import org.pgledger.application.gate.SignedAttestationVerifier;
 import org.pgledger.application.support.LedgerTestFixtures;
 import org.pgledger.application.support.RecordingDataSource;
 import org.pgledger.application.support.TestClock;
@@ -12,7 +14,9 @@ import org.pgledger.database.schema.SchemaProperties;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.transaction.PlatformTransactionManager;
 
 /**
  * What the service tests add to the application under test: the injected UTC clock, the recording of the SQL
@@ -46,6 +50,24 @@ public class LedgerTestInfrastructure {
     @Bean
     LedgerTestFixtures ledgerTestFixtures() {
         return new LedgerTestFixtures();
+    }
+
+    /** The key pairs of the test authors; the hook of the service tests (see {@link SigningAttestationVerifier}). */
+    @Bean
+    TestKeyRing testKeyRing() {
+        return new TestKeyRing();
+    }
+
+    /**
+     * Signs the plain authors of the service tests and hands the signed attestation to the real verifier. It is the
+     * primary {@link AttestationVerifier} of the context; the real one stays a bean of its own type for the tests of
+     * the verification.
+     */
+    @Bean
+    @Primary
+    SigningAttestationVerifier signingAttestationVerifier(SignedAttestationVerifier real, TestKeyRing keys, Clock clock,
+            SessionKeyService sessionKeys, PlatformTransactionManager transactions) {
+        return new SigningAttestationVerifier(real, keys, clock, sessionKeys, transactions);
     }
 
     @Bean

@@ -61,7 +61,7 @@ public class BatchService {
             BatchOpInput op = ops.get(i);
             String opRequestId = op.requestId() != null ? op.requestId() : batchId.derive(i).toString();
             try {
-                results.add(run(actor, op, opRequestId, i));
+                results.add(run(actor, requestId, op, opRequestId, i));
             } catch (LedgerException failure) {
                 throw failure.withDetails(Map.of("op_index", List.of(Integer.toString(i + 1)),
                         "op", List.of(kind(op).token())));
@@ -81,13 +81,14 @@ public class BatchService {
         };
     }
 
-    private WriteResult run(String actor, BatchOpInput op, String id, int index) {
+    /** {@code boundRequestId} is the request id of the whole batch as the caller sent it: what the attestation is bound to. */
+    private WriteResult run(String actor, String boundRequestId, BatchOpInput op, String id, int index) {
         return switch (op) {
             case BatchOpInput.Save s -> {
                 require(index, "entity", s.entity());
                 require(index, "fields", s.fields());
                 require(index, "reason", s.reason());
-                yield save.run(actor, Channel.AUTHOR,
+                yield save.run(actor, boundRequestId, Channel.AUTHOR,
                         new SaveCommand(id, s.entity(), s.id(), s.expectedVersion(), s.fields(), s.reason()));
             }
             case BatchOpInput.Transition t -> {
@@ -96,7 +97,7 @@ public class BatchService {
                 require(index, "expected_version", t.expectedVersion());
                 require(index, "to", t.to());
                 require(index, "reason", t.reason());
-                yield transition.run(actor, Channel.AUTHOR, new TransitionCommand(id, t.entity(), t.id(),
+                yield transition.run(actor, boundRequestId, Channel.AUTHOR, new TransitionCommand(id, t.entity(), t.id(),
                         t.expectedVersion(), t.to(), t.reason(), t.evidenceUri(), t.evidenceSha256(),
                         t.mergedInto()));
             }
@@ -105,7 +106,7 @@ public class BatchService {
                 require(index, "repo", f.repo());
                 require(index, "commit_sha", f.commitSha());
                 require(index, "reason", f.reason());
-                yield recordFix.run(actor, Channel.AUTHOR, new RecordFixCommand(id, f.defectId(), f.repo(),
+                yield recordFix.run(actor, boundRequestId, Channel.AUTHOR, new RecordFixCommand(id, f.defectId(), f.repo(),
                         f.commitSha(), f.reason(), f.branch(), f.ciRef(), f.ciConclusion(), f.ciCompletedAt(),
                         f.markSourceFixed()));
             }
@@ -113,7 +114,7 @@ public class BatchService {
                 require(index, "defect_id", c.defectId());
                 require(index, "observation", c.observation());
                 require(index, "reason", c.reason());
-                yield recordCase.run(actor, Channel.AUTHOR, new RecordCaseCommand(id, c.defectId(),
+                yield recordCase.run(actor, boundRequestId, Channel.AUTHOR, new RecordCaseCommand(id, c.defectId(),
                         c.observation(), c.reason(), c.evidence(), c.userQuote(), c.observedAt()));
             }
             case BatchOpInput.Link l -> {
@@ -121,13 +122,13 @@ public class BatchService {
                 require(index, "a", l.a());
                 require(index, "b", l.b());
                 require(index, "reason", l.reason());
-                yield link.run(actor, Channel.AUTHOR, new LinkCommand(id, l.kind(), l.a(), l.b(), l.reason(),
+                yield link.run(actor, boundRequestId, Channel.AUTHOR, new LinkCommand(id, l.kind(), l.a(), l.b(), l.reason(),
                         l.remove()));
             }
             case BatchOpInput.Correct c -> {
                 require(index, "history_id", c.historyId());
                 require(index, "reason", c.reason());
-                yield correct.run(actor, Channel.AUTHOR, new CorrectCommand(id, c.historyId(), c.reason()));
+                yield correct.run(actor, boundRequestId, Channel.AUTHOR, new CorrectCommand(id, c.historyId(), c.reason()));
             }
         };
     }

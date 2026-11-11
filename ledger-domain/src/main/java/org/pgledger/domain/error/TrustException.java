@@ -16,6 +16,11 @@ public final class TrustException extends LedgerException {
         super(code, args, details, null);
     }
 
+    /** With the failure that made the check fail (kept for the log; it never reaches the caller of a tool). */
+    public TrustException(TrustCode code, List<String> args, Map<String, List<String>> details, Throwable cause) {
+        super(code, args, details, cause);
+    }
+
     @Override
     protected LedgerException copyWith(Map<String, List<String>> newDetails) {
         return new TrustException((TrustCode) code(), args(), newDetails);

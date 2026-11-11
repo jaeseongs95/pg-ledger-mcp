@@ -3,6 +3,13 @@ plugins {
     id("org.springframework.boot") version libs.versions.springBoot.get()
 }
 
+// The built client hook jar (ledger-client-hook.jar), only for the tests: the round trip test (MCW-040) signs with the
+// real hook, started as a process, and calls this server with what it printed. It is not part of the server.
+val hookJar by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+
 dependencies {
     // The services of the ledger (write gate, receipts, history, queries) with the database module and the domain.
     implementation(project(":ledger-application"))
@@ -19,6 +26,9 @@ dependencies {
     implementation("tools.jackson.core:jackson-databind")
 
     testImplementation(testFixtures(project(":ledger-domain")))
+    // The tests play the client hook (they sign attestations with the shared token format) and start the built hook jar.
+    testImplementation(project(":ledger-attestation"))
+    hookJar(project(":ledger-client-hook")) { isTransitive = false }
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: not in the Boot BOM, see gradle/libs.versions.toml
     testImplementation(libs.archunit)
@@ -27,6 +37,11 @@ dependencies {
 }
 
 tasks.test {
+    dependsOn(hookJar)
+    doFirst {
+        // the path of the hook jar is passed in, never guessed (the dependency has no transitive part: it is the one fat jar)
+        systemProperty("ledger.hook.jar", hookJar.singleFile.absolutePath)
+    }
     // The JDK HttpClient refuses to send a Host header unless the property allows it. The Host allow list test
     // (MCC-016) must send a Host that differs from the address it connects to.
     jvmArgs("-Djdk.httpclient.allowRestrictedHeaders=host")

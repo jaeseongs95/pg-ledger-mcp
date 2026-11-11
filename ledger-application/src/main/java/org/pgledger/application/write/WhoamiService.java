@@ -3,7 +3,9 @@ package org.pgledger.application.write;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import org.pgledger.application.gate.AttestationVerifier;
 import org.pgledger.database.repository.GrantStateRepository;
+import org.pgledger.domain.context.ToolScope;
 import org.pgledger.domain.error.TrustCode;
 import org.pgledger.domain.error.TrustException;
 import org.pgledger.domain.model.SessionGrant;
@@ -30,27 +32,36 @@ public class WhoamiService {
         }
     }
 
+    private final AttestationVerifier attestation;
     private final GrantStateRepository grants;
     private final Clock clock;
 
-    public WhoamiService(GrantStateRepository grants, Clock clock) {
+    public WhoamiService(AttestationVerifier attestation, GrantStateRepository grants, Clock clock) {
+        this.attestation = attestation;
         this.grants = grants;
         this.clock = clock;
     }
 
     /**
-     * @param actor the host attestation; null is HOST_ATTESTATION_REQUIRED. A malformed one is answered with
-     *        {@code authorFormatOk=false} and no grants, as the old function did.
+     * @param actor the host attestation; null is HOST_ATTESTATION_REQUIRED. A whoami call carries no request id, so
+     *        the attestation must have been signed with an empty one. A value whose author has no valid format is
+     *        answered with {@code authorFormatOk=false} and no grants, as the old function did; every other
+     *        failure of the attestation (unsigned, unknown key, bad signature, wrong tool, outside the window) is
+     *        the error of the gate, so a session finds out here why it cannot write.
      */
     public Whoami whoami(String actor, Channel channel) {
-        if (actor == null) {
-            throw new TrustException(TrustCode.HOST_ATTESTATION_REQUIRED, List.of());
+        AuthorId author;
+        try {
+            author = attestation.verify(actor, ToolScope.current(), "");
+        } catch (TrustException failure) {
+            if (failure.code() == TrustCode.AUTHOR_ID_FORMAT) {
+                return new Whoami(failure.args().getFirst(), false, channel == Channel.REVIEWER, channel.login(),
+                        List.of());
+            }
+            throw failure;
         }
-        boolean formatOk = AuthorId.matches(actor);
-        List<GrantView> live = formatOk
-                ? grants.findLive(AuthorId.of(actor), clock.instant()).stream().map(WhoamiService::view).toList()
-                : List.of();
-        return new Whoami(actor, formatOk, channel == Channel.REVIEWER, channel.login(), live);
+        List<GrantView> live = grants.findLive(author, clock.instant()).stream().map(WhoamiService::view).toList();
+        return new Whoami(author.value(), true, channel == Channel.REVIEWER, channel.login(), live);
     }
 
     private static GrantView view(SessionGrant grant) {

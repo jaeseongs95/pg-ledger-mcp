@@ -52,6 +52,9 @@ public final class Scenario {
         ctx.clock().set(TestClock.START);
         ProjectService.ProjectCommand project = new ProjectCommand(projectId, code, "Project " + number);
         ctx.bean(ProjectService.class).add(project);
+        // the actors of the catalogue have a registered key (the owner registered it when it granted them), the one
+        // without a grant has a key as well: it is refused for the missing grant, not for the missing key
+        List.of(AUTHOR, REVIEWER, DEFECT_ONLY, NOGRANT).forEach(ctx::enroll);
         GrantService grants = ctx.bean(GrantService.class);
         grants.grant(new GrantCommand(AUTHOR, projectId, List.of("defect", "task", "fix", "verify"), null, null));
         grants.grant(new GrantCommand(REVIEWER, projectId, List.of("fix", "verify"), null, null));
@@ -189,10 +192,13 @@ public final class Scenario {
 
     /** A new author id that holds no grant. */
     public String actorWithoutGrants() {
-        return "claude:n" + UUID.randomUUID().toString().substring(0, 8);
+        String actor = "claude:n" + UUID.randomUUID().toString().substring(0, 8);
+        ctx.enroll(actor);
+        return actor;
     }
 
     public void grant(String actor, String project, String... scopes) {
+        ctx.enroll(actor);
         bean(GrantService.class).grant(new GrantCommand(actor, project, List.of(scopes), null, null));
     }
 
