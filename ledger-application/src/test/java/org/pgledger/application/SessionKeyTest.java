@@ -222,8 +222,8 @@ class SessionKeyTest {
     }
 
     @Test
-    @DisplayName("SVC-KEY-16 a registration of a key that another registration of the same author made live between its two lookups (the key was not live when it looked at the fingerprint, and is the author's live key when it looks at the author) answers with that row like any repeated registration: no KEY_REPLACEMENT_NOT_CONFIRMED, no second row, no second audit row, nothing closed")
-    void key16_theSameKeyBecomesLiveBetweenTheLookups(Scenario s) {
+    @DisplayName("SVC-KEY-17 a registration of a key that another registration of the same author made live between its two lookups (the key was not live when it looked at the fingerprint, and is the author's live key when it looks at the author) answers with that row like any repeated registration: no KEY_REPLACEMENT_NOT_CONFIRMED, no second row, no second audit row, nothing closed")
+    void key17_theSameKeyBecomesLiveBetweenTheLookups(Scenario s) {
         SessionKeyService real = s.bean(SessionKeyService.class);
         String author = newAuthor();
         String key = publicKey(TestKeyRing.newPair());

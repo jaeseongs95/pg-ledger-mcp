@@ -116,6 +116,11 @@ public class SessionKeyService {
         Optional<SessionPublicKey> current = state.findLive(author);
         if (current.isPresent()) {
             SessionPublicKey open = current.get();
+            if (Objects.equals(open.fingerprint(), fingerprint)) {
+                // another registration of this very key for this author became live after the lookup by fingerprint
+                // above found nothing: the same answer as for any repeated registration (no row, no audit, nothing closed)
+                return registered(open);
+            }
             if (!Objects.equals(open.fingerprint(), replacedFingerprint)) {
                 throw new ConflictException(ConflictCode.KEY_REPLACEMENT_NOT_CONFIRMED,
                         List.of(author.value(), open.fingerprint(), open.registeredAt().toString()));
