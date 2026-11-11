@@ -4,9 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.bind.DefaultValue;
-import org.springframework.boot.convert.DurationStyle;
 import org.springframework.validation.annotation.Validated;
 
 /**
@@ -31,18 +29,9 @@ public record SchemaProperties(
         @Pattern(regexp = "[a-z][a-z0-9_]{0,29}") String name,
         @DefaultValue(SchemaProperties.DEFAULT_PEER_WAIT) Duration peerWait) {
 
-    static final String DEFAULT_LOCATION = "classpath:db/";
-    static final String DEFAULT_LONG_TEXT_TYPE = "TEXT";
-    static final String DEFAULT_PEER_WAIT = "5s";
-
-    /** For code that builds the settings by hand: {@code null} for {@code location} means the default location. */
-    public SchemaProperties(String location, String longTextType, boolean requireUtc, String name) {
-        this(location == null ? DEFAULT_LOCATION : location, longTextType, requireUtc, name,
-                DurationStyle.SIMPLE.parse(DEFAULT_PEER_WAIT));
-    }
-
-    /** Declares the binding constructor, as Boot needs when a record has more than one constructor. */
-    @ConstructorBinding
-    public SchemaProperties {
-    }
+    /** The defaults of the binding; code that builds the settings by hand passes them on explicitly. */
+    public static final String DEFAULT_LOCATION = "classpath:db/";
+    public static final String DEFAULT_LONG_TEXT_TYPE = "TEXT";
+    /** ISO-8601, which {@link Duration#parse} and the Boot binder both read. */
+    public static final String DEFAULT_PEER_WAIT = "PT5S";
 }

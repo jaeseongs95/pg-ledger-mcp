@@ -122,7 +122,9 @@ class DmlAccountTest {
         HikariDataSource owner = pool(ownerUrl, null, null);
         if (migrate) {
             new SchemaMigrator(owner, new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(null, Databases.LONG_TEXT, true, null), Clock.systemUTC()).migrate();
+                    new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
+                            java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)), Clock.systemUTC())
+                    .migrate();
         }
         try (Connection c = owner.getConnection(); Statement s = c.createStatement()) {
             s.execute("CREATE USER " + account + " PASSWORD '" + PASSWORD + "'");
@@ -258,7 +260,9 @@ class DmlAccountTest {
     void sch014_theMigrationIsRefusedForTheApplicationAccountButItCanReadTheHistory() throws Exception {
         try (Env fresh = environment(false, false)) {
             assertThatThrownBy(() -> new SchemaMigrator(fresh.app(), new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(null, Databases.LONG_TEXT, true, null), Clock.systemUTC()).migrate())
+                    new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
+                            java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)), Clock.systemUTC())
+                    .migrate())
                     .isInstanceOf(SchemaMigrationException.class);
         }
         try (Env migrated = environment(true, true)) {
