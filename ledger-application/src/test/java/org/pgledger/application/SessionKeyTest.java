@@ -236,6 +236,8 @@ class SessionKeyTest {
         SessionKeyService keys = s.bean(SessionKeyService.class);
         String key = publicKey(TestKeyRing.newPair());
         long audited = s.count("SELECT COUNT(*) FROM owner_audit WHERE subject = ?", "user:owner");
+        // the harness of the service tests may have put a row of its own in this context (see SigningAttestationVerifier)
+        long rows = s.count("SELECT COUNT(*) FROM session_key WHERE author_id = ?", "user:owner");
 
         LedgerException failure = Expect.failure(
                 () -> keys.register(new RegisterCommand("user:owner", key, null), TestOwners.OWNER),
@@ -245,7 +247,8 @@ class SessionKeyTest {
         Expect.failure(() -> keys.registerReplacing(new RegisterCommand("user:owner", key, null), TestOwners.OWNER,
                 "0".repeat(64)), ValidationCode.VALIDATION_FAILED);
 
-        assertThat(keys.live("user:owner")).isEmpty();
+        assertThat(s.count("SELECT COUNT(*) FROM session_key WHERE author_id = ?", "user:owner")).as("nothing was stored")
+                .isEqualTo(rows);
         assertThat(s.count("SELECT COUNT(*) FROM owner_audit WHERE subject = ?", "user:owner")).isEqualTo(audited);
     }
 
