@@ -3,12 +3,21 @@ package org.pgledger.cli;
 import java.util.Objects;
 import java.util.Optional;
 
-/** The commands this tool offers. Only implemented commands are listed here. */
+/** The commands this tool offers; the usage text lists them in this order. */
 public enum CliCommand {
 
     SECRET_SET("secret-set"),
+    DRIVER_REGISTER("driver-register"),
+    MIGRATE("migrate"),
     KEY_REGISTER("key-register"),
-    KEY_REVOKE("key-revoke");
+    KEY_REVOKE("key-revoke"),
+    PROJECT_ADD("project-add"),
+    CODE_SET("code-set"),
+    CODES("codes"),
+    GRANT("grant"),
+    REVOKE("revoke"),
+    GRANTS("grants"),
+    MCP_CHECK("mcp-check");
 
     private final String cliName;
 
