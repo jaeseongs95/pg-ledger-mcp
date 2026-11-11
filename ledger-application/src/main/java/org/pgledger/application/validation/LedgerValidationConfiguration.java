@@ -107,6 +107,8 @@ public class LedgerValidationConfiguration {
         Map<String, Object> attributes = violation.getConstraintDescriptor().getAttributes();
         return switch (reason) {
             case MUST_BE_AT_MOST_CHARS -> List.of(String.valueOf(attributes.get("max")));
+            case MUST_HOLD_ITEMS -> List.of(String.valueOf(attributes.get("min")),
+                    String.valueOf(attributes.get("max")));
             case MUST_BE_CHARS_RANGE -> List.of(String.valueOf(attributes.get("min")),
                     String.valueOf(attributes.get("max")));
             default -> List.of();

@@ -7,7 +7,6 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.sql.Driver;
@@ -41,7 +40,7 @@ public final class DriverLoader {
      *         registered cannot be used (missing or changed jar, not an archive, wrong class)
      */
     public static RegisteredDriver load(DriverRegistration registration) {
-        boolean hasJar = registration.jar() != null && !registration.jar().isBlank();
+        boolean hasJar = registration.jar() != null;
         boolean hasClass = registration.className() != null && !registration.className().isBlank();
         if (!hasJar && !hasClass) {
             throw new InfrastructureException(InfrastructureCode.DRIVER_NOT_CONFIGURED,
@@ -67,38 +66,31 @@ public final class DriverLoader {
      * Checks a jar and a class for registration (before anything is stored) and returns the registration with the
      * digest of the jar. It loads the class exactly as {@link #load} does and closes the loader again.
      */
-    public static DriverRegistration describe(String jarPath, String className, String url,
+    public static DriverRegistration describe(Path jar, String className, String url,
             java.time.Instant registeredAt) {
-        Path jar = requireUsableJar(jarPath);
+        requireUsableJar(jar);
         Sha256 digest = digestOf(jar);
         try (RegisteredDriver driver = instantiate(jar, className)) {
             driver.requireAccepts(url);
         }
-        return new DriverRegistration(jar.toString(), className, digest.hex(), registeredAt);
+        return new DriverRegistration(jar, className, digest.hex(), registeredAt);
     }
 
-    private static Path requireUsableJar(String jarPath) {
-        Path jar;
-        try {
-            jar = Path.of(jarPath);
-        } catch (InvalidPathException e) {
-            throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID,
-                    List.of("the jar path is not a valid path: " + jarPath), e);
-        }
+    private static Path requireUsableJar(Path jar) {
         if (!jar.isAbsolute()) {
-            throw invalid("the jar path must be absolute: " + jarPath);
+            throw invalid("the jar path must be absolute: " + jar);
         }
         if (!jar.equals(jar.normalize())) {
-            throw invalid("the jar path must not contain '..' or '.' segments: " + jarPath);
+            throw invalid("the jar path must not contain '..' or '.' segments: " + jar);
         }
         if (Files.isDirectory(jar)) {
-            throw invalid("the jar path is a directory: " + jarPath);
+            throw invalid("the jar path is a directory: " + jar);
         }
         if (!Files.isRegularFile(jar)) {
-            throw invalid("the jar does not exist: " + jarPath);
+            throw invalid("the jar does not exist: " + jar);
         }
         if (!Files.isReadable(jar)) {
-            throw invalid("the jar is not readable: " + jarPath);
+            throw invalid("the jar is not readable: " + jar);
         }
         requireNotWritableByOthers(jar);
         return jar;

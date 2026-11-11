@@ -22,6 +22,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.testing.ArchitectureRules;
+import org.pgledger.testing.CodingScan;
 import org.pgledger.testing.SourceRules;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

@@ -73,7 +73,7 @@ public final class LedgerJson {
                     path.append('.').append(step.getPropertyName());
                 }
             }
-            throw ValidationException.invalid(path.toString(), ValidationReason.INVALID_JSON, e, e.getOriginalMessage());
+            throw ValidationException.invalid(path.toString(), ValidationReason.INVALID_JSON, e);
         }
     }
 }

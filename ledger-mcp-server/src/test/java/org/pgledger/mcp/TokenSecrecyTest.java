@@ -8,17 +8,33 @@ import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.mcp.config.LedgerMcpProperties;
 import org.pgledger.mcp.security.AgentTokenProvider;
 import org.pgledger.mcp.support.McpTestSettings;
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.diagnostics.FailureAnalysis;
+import org.springframework.boot.diagnostics.FailureAnalyzer;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.support.SpringFactoriesLoader;
+import org.springframework.core.io.support.SpringFactoriesLoader.ArgumentResolver;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthenticationToken;
 import org.springframework.util.unit.DataSize;
 
-/** MCC-015, the parts that need no server: the comparison of the token and what prints it. */
+/** MCC-015 and MCC-027, the parts that need no server: the comparison of the token and what prints it. */
+@ExtendWith(OutputCaptureExtension.class)
 class TokenSecrecyTest {
 
     private static final String TOKEN = McpTestSettings.TOKEN;
@@ -68,6 +84,65 @@ class TokenSecrecyTest {
         assertThatThrownBy(() -> provider.authenticate(new BearerTokenAuthenticationToken(wrong.token())))
                 .isInstanceOf(BadCredentialsException.class).hasMessageNotContaining(wrong.token())
                 .hasMessageNotContaining(TOKEN).hasNoCause();
+    }
+
+    /** The settings of the server bound from the property, and the provider that is made from them. */
+    @Configuration(proxyBeanMethods = false)
+    @EnableConfigurationProperties(LedgerMcpProperties.class)
+    static class TokenConfiguration {
+
+        @Bean
+        AgentTokenProvider agentTokenProvider(LedgerMcpProperties properties) {
+            return new AgentTokenProvider(properties);
+        }
+    }
+
+    /** Every text the failure of a start can show: the messages of its causes and what the failure analyzers say. */
+    private static String everythingShownAbout(Throwable failure) {
+        StringBuilder shown = new StringBuilder();
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            shown.append(cause.getMessage()).append('\n');
+        }
+        List<FailureAnalyzer> analyzers = SpringFactoriesLoader.forDefaultResourceLocation(
+                TokenSecrecyTest.class.getClassLoader()).load(FailureAnalyzer.class,
+                        ArgumentResolver.of(BeanFactory.class, new DefaultListableBeanFactory())
+                                .and(Environment.class, new StandardEnvironment()));
+        for (FailureAnalyzer analyzer : analyzers) {
+            FailureAnalysis analysis = analyzer.analyze(failure);
+            if (analysis != null) {
+                shown.append(analysis.getDescription()).append('\n').append(analysis.getAction()).append('\n');
+            }
+        }
+        return shown.toString();
+    }
+
+    static Stream<String> unusableTokens() {
+        return Stream.of(TOKEN.substring(0, 15), "abc123xyz"," ".repeat(20));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unusableTokens")
+    @DisplayName("MCC-027: a token that is too short or blank stops the start, names the key and prints no token")
+    void anUnusableTokenStopsTheStartWithoutPrintingIt(String token, CapturedOutput output) {
+        new ApplicationContextRunner().withUserConfiguration(TokenConfiguration.class)
+                .withPropertyValues("ledger.mcp.token=" + token).run(context -> {
+                    assertThat(context).hasFailed();
+                    String shown = everythingShownAbout(context.getStartupFailure());
+                    assertThat(shown).contains("ledger.mcp.token");
+                    assertThat(shown).doesNotContain("Value: ").doesNotContain("\"" + token + "\"");
+                    if (!token.isBlank()) {
+                        assertThat(shown).doesNotContain(token);
+                        assertThat(output.getAll()).doesNotContain(token);
+                    }
+                });
+    }
+
+    @Test
+    @DisplayName("MCC-027: a token of 16 characters starts")
+    void aTokenOfTheLeastLengthStarts() {
+        new ApplicationContextRunner().withUserConfiguration(TokenConfiguration.class)
+                .withPropertyValues("ledger.mcp.token=" + TOKEN.substring(0, 16))
+                .run(context -> assertThat(context).hasNotFailed());
     }
 
     @Test

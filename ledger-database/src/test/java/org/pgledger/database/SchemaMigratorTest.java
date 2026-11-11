@@ -141,7 +141,8 @@ class SchemaMigratorTest {
     @Test
     void sch001_aFreshDatabaseGetsEveryRealFileInOrderWithItsDigest() {
         SchemaMigrator real = new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(),
-                new SchemaProperties(null, Databases.LONG_TEXT, true, null), clock);
+                new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
+                        Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)), clock);
         assertThat(real.migrate()).containsExactly(1, 2, 3);
         assertThat(history()).isEqualTo(List.of(
                 success(1, "V1__core_tables.sql", resource("db/V1__core_tables.sql"), T0),
@@ -245,7 +246,8 @@ class SchemaMigratorTest {
     }
 
     private List<String> twoMigrationsAtOnce() {
-        SchemaProperties real = new SchemaProperties(null, Databases.LONG_TEXT, true, null);
+        SchemaProperties real = new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true,
+                null, Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT));
         Callable<String> migrate = () -> {
             Throwable refused = catchThrowable(
                     () -> new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(), real, clock).migrate());
@@ -356,7 +358,8 @@ class SchemaMigratorTest {
                     + "CONSTRAINT pk_legacy_defect PRIMARY KEY (id))");
             s.execute("INSERT INTO ledger.defect (id, title) VALUES ('OLD-D-1', 'old')");
         }
-        SchemaProperties named = new SchemaProperties(null, Databases.LONG_TEXT, true, "pgledger");
+        SchemaProperties named = new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true,
+                "pgledger", Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT));
         new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(), named, clock).migrate();
         new SchemaVerifier(pool, new PathMatchingResourcePatternResolver(), named).verify();
         JdbcClient jdbc = JdbcClient.create(pool);

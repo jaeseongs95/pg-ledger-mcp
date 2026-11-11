@@ -10,6 +10,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
+import org.pgledger.application.history.ChangeSet;
 import org.pgledger.application.history.Snapshot;
 import org.pgledger.application.json.LedgerJson;
 import org.pgledger.domain.value.JsonDocument;
@@ -175,7 +177,8 @@ class ReadQueryTest {
         List<HistoryView> rows = rows(s);
         HistoryView edit = rows.stream().filter(h -> h.id() == edited.historyId()).findFirst().orElseThrow();
         HistoryView corrected = rows.stream().filter(h -> h.id() == correction.historyId()).findFirst().orElseThrow();
-        assertThat(edit.changes().entries()).containsOnlyKeys("title");
+        assertThat(s.bean(LedgerJson.class).read(edit.changes(), ChangeSet.class).entries())
+                .containsOnlyKeys("title");
         assertThat(edit.vendor()).isEqualTo("claude");
         assertThat(edit.requestId()).isNotBlank();
         assertThat(edit.legacyRef()).isNull();
@@ -270,6 +273,42 @@ class ReadQueryTest {
     private Page<SearchService.Hit> search(Scenario s, List<String> keywords, String match) {
         return s.bean(SearchService.class).search(new SearchQuery(s.projectId(), null, keywords, match, null, null,
                 null, null, null));
+    }
+
+    private static List<String> keywords(int count) {
+        return IntStream.range(0, count).mapToObj(i -> "k" + i).toList();
+    }
+
+    @Test
+    @DisplayName("MCR-S08: 20 keywords are accepted, 21 are refused before any SQL runs")
+    void s08_keywordCount(Scenario s) {
+        assertThat(search(s, keywords(20), null).items()).isEmpty();
+
+        s.ctx().spy().clear();
+        LedgerException e = Expect.failure(() -> search(s, keywords(21), null), ValidationCode.VALIDATION_FAILED);
+
+        assertThat(e.args()).containsExactly("keywords");
+        assertThat(Expect.firstIssue(e).reason()).isEqualTo(ValidationReason.MUST_HOLD_ITEMS);
+        assertThat(Expect.firstIssue(e).reasonArgs()).containsExactly("0", "20");
+        assertThat(s.ctx().spy().statements()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("MCR-H15: 200 ids are accepted, 201 are refused before any SQL runs")
+    void h15_idCount(Scenario s) {
+        List<Long> accepted = LongStream.rangeClosed(1, 200).boxed().toList();
+        assertThat(history(s).history(new HistoryQuery(accepted, null, null, null, null, null, null, null, null,
+                null, null, 1000, null)).items()).hasSizeLessThanOrEqualTo(200);
+
+        s.ctx().spy().clear();
+        List<Long> tooMany = LongStream.rangeClosed(1, 201).boxed().toList();
+        LedgerException e = Expect.failure(() -> history(s).history(new HistoryQuery(tooMany, null, null, null,
+                null, null, null, null, null, null, null, 1000, null)), ValidationCode.VALIDATION_FAILED);
+
+        assertThat(e.args()).containsExactly("ids");
+        assertThat(Expect.firstIssue(e).reason()).isEqualTo(ValidationReason.MUST_HOLD_ITEMS);
+        assertThat(Expect.firstIssue(e).reasonArgs()).containsExactly("0", "200");
+        assertThat(s.ctx().spy().statements()).isEmpty();
     }
 
     @ParameterizedTest

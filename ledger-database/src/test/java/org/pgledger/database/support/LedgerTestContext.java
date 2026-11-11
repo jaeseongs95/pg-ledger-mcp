@@ -36,7 +36,8 @@ public final class LedgerTestContext implements AutoCloseable {
         this.spy = new RecordingDataSource(pool);
         if (migrate) {
             new SchemaMigrator(spy, new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(null, Databases.LONG_TEXT, true, null), clock).migrate();
+                    new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
+                            java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)), clock).migrate();
         }
         this.context = new SpringApplicationBuilder(TestApplication.class).web(WebApplicationType.NONE)
                 .properties("spring.main.banner-mode=off", "logging.level.root=WARN", "spring.jmx.enabled=false")

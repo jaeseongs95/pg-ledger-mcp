@@ -20,10 +20,22 @@ import org.springframework.security.oauth2.server.resource.authentication.Bearer
  */
 public final class AgentTokenProvider implements AuthenticationProvider {
 
+    /** The shortest token that is accepted as the secret of the agents. */
+    static final int MIN_TOKEN_LENGTH = 16;
+
     private final byte[] expected;
 
+    /**
+     * @throws IllegalArgumentException when the token is missing, blank or too short; the message names the key and
+     *         never the value
+     */
     public AgentTokenProvider(LedgerMcpProperties properties) {
-        this.expected = digest(properties.token());
+        String token = properties.token();
+        if (token == null || token.isBlank() || token.length() < MIN_TOKEN_LENGTH) {
+            throw new IllegalArgumentException("ledger.mcp.token must be set to at least " + MIN_TOKEN_LENGTH
+                    + " characters");
+        }
+        this.expected = digest(token);
     }
 
     @Override

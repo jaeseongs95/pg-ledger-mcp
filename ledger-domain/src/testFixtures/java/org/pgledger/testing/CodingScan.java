@@ -1,4 +1,4 @@
-package org.pgledger.cli;
+package org.pgledger.testing;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -14,10 +14,9 @@ import java.util.stream.Stream;
 /**
  * Source scan for the catch and string rules of the development principles (3.3, 3.4). Comments are dropped and
  * the content of every string literal is blanked ({@code ""}) before the patterns run, so a pattern never matches
- * the text of a literal (this file included). The same scan sits in the tests of the database, cli and hook
- * modules; the shared test fixtures belong to another owner.
+ * the text of a literal (this file included). One copy for every module; a module names its own boundary files.
  */
-final class CodingScan {
+public final class CodingScan {
 
     /** Text block, string, char, block comment or line comment, in the order a Java lexer meets them. */
     private static final Pattern LEXEME = Pattern.compile(
@@ -37,7 +36,7 @@ final class CodingScan {
      * ARC-036: no empty catch, no catch of SQLException (outside a directory named {@code sqlAllowedDirectory}, the
      * driver boundary) and no catch of Exception, Throwable, RuntimeException or Error outside the named boundary files.
      */
-    static List<String> catchProblems(Set<String> broadAllowedFiles, String sqlAllowedDirectory, Path... roots) {
+    public static List<String> catchProblems(Set<String> broadAllowedFiles, String sqlAllowedDirectory, Path... roots) {
         List<String> problems = new ArrayList<>();
         for (Path file : javaFiles(roots)) {
             String text = strip(file);
@@ -64,7 +63,7 @@ final class CodingScan {
      * ARC-037: no {@code variable.equals("literal")}, no {@code ==} against a string literal, no string
      * {@code switch}, no {@code intern()}, and no {@code new String(} outside the named files.
      */
-    static List<String> stringProblems(Set<String> newStringAllowedFiles, Path... roots) {
+    public static List<String> stringProblems(Set<String> newStringAllowedFiles, Path... roots) {
         List<String> problems = new ArrayList<>();
         for (Path file : javaFiles(roots)) {
             String text = strip(file);

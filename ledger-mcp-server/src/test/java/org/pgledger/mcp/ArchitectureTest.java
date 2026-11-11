@@ -20,6 +20,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.mcp.archfixture.LeakyTokenCheck;
 import org.pgledger.testing.ArchitectureRules;
+import org.pgledger.testing.CodingScan;
 import org.pgledger.testing.SourceRules;
 
 /**
@@ -119,6 +120,23 @@ class ArchitectureTest {
         assertThat(SourceRules.utilityNames(MAIN_JAVA)).isEmpty();
         assertThat(SourceRules.vendorNames(MAIN_JAVA)).isEmpty();
         assertThat(SourceRules.forbiddenBuildSwitches(java.util.List.of(Path.of("build.gradle.kts")))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ARC-036 catch rules: no empty catch, no broad catch outside the MCP boundary ToolResults.run")
+    void arc036_catchRules() {
+        assertThat(CodingScan.catchProblems(Set.of("ToolResults.java"), null, MAIN_JAVA, TEST_JAVA)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ARC-037 string rules: literal first in equals, no == on strings, no string switch, no intern(), no new String(")
+    void arc037_stringRules() {
+        noClasses().should().callMethod(String.class, "intern")
+                .orShould().callConstructor(String.class, String.class)
+                .orShould().callConstructor(String.class, byte[].class)
+                .orShould().callConstructor(String.class, byte[].class, java.nio.charset.Charset.class)
+                .check(MAIN);
+        assertThat(CodingScan.stringProblems(Set.of(), MAIN_JAVA, TEST_JAVA)).isEmpty();
     }
 
     @Test

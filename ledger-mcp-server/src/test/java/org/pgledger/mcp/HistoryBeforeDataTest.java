@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pgledger.mcp.support.Calls;
@@ -65,5 +66,33 @@ class HistoryBeforeDataTest {
         assertThat(rows.getLast().beforeData().createdAt()).isNotNull();
         assertThat(rows.getLast().beforeData().updatedAt()).isNotNull();
         assertThat(camel.getLast().beforeData()).isEqualTo(new CamelBefore(null, null, null, null));
+    }
+
+    /** The part of a history row this case looks at: the changes as the wire shows them, field to [before, after]. */
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    record ChangeRow(String op, Map<String, List<String>> changes) {
+    }
+
+    @Test
+    @DisplayName("MCR-H14: the changes of a history row are written with the snake_case field names and as "
+            + "[before, after] pairs")
+    void changesAreWrittenWithTheKeysOfTheContract(McpSession session, Scenario scenario) {
+        Saved created = session.ok("ledger_save", Calls.Save.create("defect",
+                Fields.defect(scenario.projectId(), "first title"), Scenario.AUTHOR), Saved.class);
+        Fields edit = new Fields(null, "second title", null, null, null, "second cause", null, null, null, null,
+                null, null, null, null, null);
+        session.ok("ledger_save", Calls.Save.edit("defect", created.id(), created.version(), edit,
+                Scenario.AUTHOR), Saved.class);
+
+        CallToolResult result = session.call("ledger_history", new Calls.History(scenario.projectId(), false, null));
+        List<ChangeRow> rows = session.readItems(result, ChangeRow.class).items();
+
+        assertThat(rows).extracting(ChangeRow::op).containsExactly("CREATE", "EDIT");
+        assertThat(rows.getFirst().changes()).containsKeys("title", "root_cause", "project_id")
+                .doesNotContainKeys("rootCause", "projectId");
+        assertThat(rows.getLast().changes()).containsOnlyKeys("title", "root_cause");
+        assertThat(rows.getLast().changes().get("title")).containsExactly("first title", "second title");
+        assertThat(rows.getLast().changes().get("root_cause")).containsExactly("cause of first title",
+                "second cause");
     }
 }

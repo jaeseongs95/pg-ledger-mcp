@@ -1,6 +1,7 @@
 package org.pgledger.mcp.support;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import javax.sql.DataSource;
 import org.pgledger.database.schema.SchemaMigrator;
@@ -33,6 +34,7 @@ public class McpTestSchema {
     @Bean
     SchemaMigrated schemaMigrated(DataSource dataSource, Clock clock) {
         return new SchemaMigrated(new SchemaMigrator(dataSource, new PathMatchingResourcePatternResolver(),
-                new SchemaProperties(null, LONG_TEXT, true, null), clock).migrate());
+                new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, LONG_TEXT, true, null,
+                        Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)), clock).migrate());
     }
 }

@@ -9,6 +9,7 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import java.nio.file.Path;
 import java.util.Set;
 import org.pgledger.testing.ArchitectureRules;
+import org.pgledger.testing.CodingScan;
 import org.pgledger.testing.SourceRules;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;

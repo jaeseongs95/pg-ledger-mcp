@@ -1,12 +1,12 @@
 package org.pgledger.application.read;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.pgledger.application.history.ChangeSet;
-import org.pgledger.application.json.LedgerJson;
 import org.pgledger.database.repository.HistoryQueryRepository;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.domain.model.HistoryEntry;
@@ -21,6 +21,7 @@ import org.pgledger.domain.value.Tokens;
 import org.pgledger.domain.value.UtcInstant;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
 
 /**
  * The history, the receipt of every write: by id list, id range, entity, project, operation, author and time,
@@ -28,21 +29,26 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @Transactional(readOnly = true)
+@Validated
 public class HistoryService {
 
+    /** The most ids one history call may carry (they become the {@code IN} list of the SQL). */
+    public static final int MAX_IDS = 200;
+
     /** The criteria, all optional and combined with AND. */
-    public record HistoryQuery(List<Long> ids, Long idFrom, Long idTo, String entity, String entityId,
+    public record HistoryQuery(@Size(max = MAX_IDS, message = "{reason.MUST_HOLD_ITEMS}") List<Long> ids, Long idFrom, Long idTo, String entity, String entityId,
             String project, String op, String authorId, String atFrom, String atTo, Boolean includeBefore,
             Number maxRows, String cursor) {
     }
 
     /**
      * One history row as the tools show it. {@code beforeData} is null unless asked for and present; it is the JSON
-     * text as the row stores it (written by the ledger mapper, snake_case), which is passed on and not parsed.
+     * text as the row stores it (written by the ledger mapper, snake_case), which is passed on and not parsed; so is
+     * {@code changes}, the stored JSON object of field to [before, after].
      */
     public record HistoryView(long id, Instant at, String authorId, String vendor, String login,
             String actorAssurance, String entity, String entityId, String op, String fromState, String toState,
-            ChangeSet changes, JsonDocument beforeData, String reason, String evidenceUri, Long correctsId,
+            JsonDocument changes, JsonDocument beforeData, String reason, String evidenceUri, Long correctsId,
             String requestId, String legacyRef) {
     }
 
@@ -50,18 +56,15 @@ public class HistoryService {
 
     private final HistoryQueryRepository queries;
     private final HistoryRepository rows;
-    private final LedgerJson json;
     private final Cursors cursors;
 
-    public HistoryService(HistoryQueryRepository queries, HistoryRepository rows, LedgerJson json,
-            Cursors cursors) {
+    public HistoryService(HistoryQueryRepository queries, HistoryRepository rows, Cursors cursors) {
         this.queries = queries;
         this.rows = rows;
-        this.json = json;
         this.cursors = cursors;
     }
 
-    public Page<HistoryView> history(HistoryQuery q) {
+    public Page<HistoryView> history(@Valid HistoryQuery q) {
         HistoryQueryRepository.Filter filter = new HistoryQueryRepository.Filter(q.ids(), q.idFrom(), q.idTo(),
                 blank(q.entity()) ? null : Tokens.parse("entity", q.entity(), HistoryEntity.values()),
                 blank(q.entityId()) ? null : q.entityId(),
@@ -88,7 +91,7 @@ public class HistoryService {
         Matcher vendor = VENDOR.matcher(new SessionKey(row.authorId().value()).value());
         return new HistoryView(row.id(), row.at(), row.authorId().value(), vendor.matches() ? vendor.group(1) : null,
                 row.login(), row.actorAssurance().name(), row.entity().token(), row.entityId(), row.op().name(),
-                row.fromState(), row.toState(), json.read(row.changes(), ChangeSet.class), before, row.reason(),
+                row.fromState(), row.toState(), row.changes(), before, row.reason(),
                 row.evidenceUri(), row.correctsId(), row.requestId().toString(), row.legacyRef());
     }
 

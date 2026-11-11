@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.pgledger.cli.secret.ConsoleSecretInput;
 import org.pgledger.cli.secret.SecretInput;
 import org.pgledger.testing.ArchitectureRules;
+import org.pgledger.testing.CodingScan;
 import org.pgledger.testing.SourceRules;
 import org.springframework.beans.factory.annotation.Value;
 
