@@ -703,8 +703,14 @@ class LegacyImportTest {
             TransitionResult moved = ctx.bean(TransitionService.class).transition(SEED, new TransitionCommand(null, "task",
                     "OLD-T-1", 1L, "ACTIVE", Scenario.REASON, null, null, null));
             assertThat(moved.version()).isEqualTo(2);
-            assertThat(rig.count("SELECT MIN(id) FROM history WHERE id > 57")).isEqualTo(58);
-            assertThat(rig.count("SELECT COUNT(*) FROM history")).isGreaterThan(10);
+            // every history row written after the import has an id above the imported ones, the ids continue without a gap
+            // or a collision, and they are exactly the ones the calls returned (the fix also moved the defect to
+            // SOURCE_FIXED, which is a second history row of its own)
+            List<Long> returned = List.of(created.historyId(), task.historyId(), edited.historyId(), observed.historyId(),
+                    fixed.historyId(), fixed.transitionHistoryId(), verified.historyId(), moved.historyId());
+            assertThat(rig.ctx().jdbc().sql("SELECT id FROM history WHERE id > 57 ORDER BY id").query(Long.class).list())
+                    .containsExactlyInAnyOrderElementsOf(returned).containsExactly(58L, 59L, 60L, 61L, 62L, 63L, 64L, 65L);
+            assertThat(rig.count("SELECT COUNT(*) FROM history")).isEqualTo(10 + returned.size());
         });
     }
 
