@@ -727,6 +727,9 @@ File locations are test directories (configurable); POSIX permission assertions 
 | SEC-010 | E2E | `install` on a host that has the old env keys (`DBHUB_AUTH_TOKEN`, admin token, DB passwords) | run installer | values moved into the secret store (0600), env file keeps only references, old env backed up 0600, nothing printed | plan: env -> secrets | no |
 | SEC-011 | E2E | unit file and env file after install | scan | no secret-looking literal (32+ hex/base64 strings, DSN with password) | plan | no |
 | SEC-012 | CLI | non-POSIX file system | `secret-set` | fails with an explicit message instead of storing with default permissions | plan | no |
+| SEC-013 | CLI | secrets directory or target file owned by another user than the running process (e.g. created by root while the services run as the service account) | `secret-set` | refused before the prompt, exit 1 `FOREIGN_OWNER`, message names path, owner and current user and advises `sudo -u <service account> ledger-cli secret-set <name>`; nothing written | main review of 00f8324: services read the configtree as the service account | no |
+| SEC-014 | CLI | parent of the secrets directory (`/etc/<instance>`) missing or not a directory | `secret-set` | refused before the prompt, exit 1 `PARENT_MISSING` naming the parent; only the secrets directory itself is ever created (the installer creates the parent) | main review of 00f8324 | no |
+| SEC-015 | SERVICE | a temporary file left in the secrets directory by an interrupted `secret-set` | start an app with `spring.config.import=configtree:<dir>` | the leftover is not bound as a property: temporary names start with `..` (Boot 4.1.2 configtree reads single-dot names but skips `..` names; a characterization test pins this) | main review of 00f8324 | no |
 
 ## 13. HK: client hooks (one executable jar, three clients)
 
