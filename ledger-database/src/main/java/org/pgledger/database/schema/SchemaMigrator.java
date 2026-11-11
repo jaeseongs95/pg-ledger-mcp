@@ -95,7 +95,7 @@ public class SchemaMigrator {
             if (!history.tableExists()) {
                 throw new SchemaMigrationException("cannot create schema_history", e);
             }
-            // another migration process created it at the same time
+            LOG.info("schema_history was created by another migration process at the same time", e);
         }
     }
 
@@ -171,7 +171,7 @@ public class SchemaMigrator {
     private boolean failed(SchemaHistoryRepository history, MigrationFile file, List<Row> before,
             RuntimeException cause) {
         if (appliedByAnotherProcess(history, file, before)) {
-            LOG.info("V{} was applied by another migration process", file.version());
+            LOG.info("V{} was applied by another migration process", file.version(), cause);
             return false;
         }
         List<Row> now = history.rows().stream().filter(r -> r.version() == file.version()).toList();

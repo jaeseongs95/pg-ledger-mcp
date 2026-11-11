@@ -10,6 +10,7 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Stream;
@@ -28,6 +29,8 @@ import org.pgledger.domain.model.Project;
 import org.pgledger.domain.model.Task;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.ConnectionCallback;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /** REPO-001 .. REPO-003, REPO-005, SCH-012, SCH-016 .. SCH-018 and the catalog half of ANSI-004 / ANSI-014. */
@@ -58,11 +61,8 @@ class SchemaCatalogTest {
     }
 
     private <T> T withConnection(ConnectionWork<T> work) {
-        try (Connection c = ctx.pool().getConnection()) {
-            return work.run(c);
-        } catch (SQLException e) {
-            throw new IllegalStateException(e);
-        }
+        // Spring gets and releases the connection and turns a SQLException into a DataAccessException
+        return new JdbcTemplate(ctx.pool()).execute((ConnectionCallback<T>) work::run);
     }
 
     interface ConnectionWork<T> {
@@ -105,8 +105,8 @@ class SchemaCatalogTest {
     void repo001_theTablesAreExactlyTheDesignedOnes() {
         assertThat(tableNames("TABLE")).isEqualTo(new TreeSet<>(TABLES));
         assertThat(tableNames("VIEW")).as("no views").isEmpty();
-        assertThat(columns().stream().filter(c -> c.table().equals("defect")).map(Column::name)).contains("case_seq");
-        assertThat(columns().stream().filter(c -> c.table().equals("request_receipt")).map(Column::name))
+        assertThat(columns().stream().filter(c -> "defect".equals(c.table())).map(Column::name)).contains("case_seq");
+        assertThat(columns().stream().filter(c -> "request_receipt".equals(c.table())).map(Column::name))
                 .contains("origin");
     }
 
@@ -129,7 +129,7 @@ class SchemaCatalogTest {
     void repo002_anEnumColumnIsText(String column) {
         String table = column.substring(0, column.indexOf('.'));
         String name = column.substring(column.indexOf('.') + 1);
-        assertThat(columns()).filteredOn(c -> c.table().equals(table) && c.name().equals(name)).singleElement()
+        assertThat(columns()).filteredOn(c -> Objects.equals(c.table(), table) && Objects.equals(c.name(), name)).singleElement()
                 .satisfies(c -> assertThat(c.type()).isEqualTo(Types.VARCHAR));
     }
 
@@ -182,13 +182,13 @@ class SchemaCatalogTest {
     @ValueSource(strings = {"project", "task", "defect", "release_condition", "defect_task", "defect_relation",
             "condition_link", "common_code"})
     void repo005_createdByIsNotNull(String table) {
-        assertThat(columns()).filteredOn(c -> c.table().equals(table) && c.name().equals("created_by"))
+        assertThat(columns()).filteredOn(c -> Objects.equals(c.table(), table) && "created_by".equals(c.name()))
                 .singleElement().satisfies(c -> assertThat(c.nullable()).isFalse());
     }
 
     @Test
     void sch012_schemaHistoryHasExactlyItsColumns() {
-        assertThat(columns().stream().filter(c -> c.table().equals("schema_history")).map(Column::name))
+        assertThat(columns().stream().filter(c -> "schema_history".equals(c.table())).map(Column::name))
                 .containsExactlyInAnyOrder("version", "file_name", "sha256", "applied_at", "outcome");
         assertThat(jdbc.sql("SELECT COUNT(*) FROM schema_history WHERE outcome = 'SUCCESS'").query(Integer.class)
                 .single()).isGreaterThanOrEqualTo(3);

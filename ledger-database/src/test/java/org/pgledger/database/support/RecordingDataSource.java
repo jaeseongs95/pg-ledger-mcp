@@ -52,11 +52,11 @@ public final class RecordingDataSource extends DelegatingDataSource {
         return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[] {Connection.class},
                 (proxy, method, args) -> {
                     Object result = invoke(connection, method, args);
-                    if (method.getName().equals("prepareStatement") && args != null && args[0] instanceof String sql) {
+                    if ("prepareStatement".equals(method.getName()) && args != null && args[0] instanceof String sql) {
                         statements.add(sql);
                         return wrapPrepared((PreparedStatement) result, sql);
                     }
-                    if (method.getName().equals("createStatement") && result instanceof Statement statement) {
+                    if ("createStatement".equals(method.getName()) && result instanceof Statement statement) {
                         return wrapStatement(statement);
                     }
                     return result;
@@ -89,6 +89,7 @@ public final class RecordingDataSource extends DelegatingDataSource {
         try {
             return method.invoke(target, args);
         } catch (InvocationTargetException e) {
+            // rethrown unchanged: a proxy must show the caller the exception of the real call, not the reflection wrapper
             throw e.getCause();
         }
     }

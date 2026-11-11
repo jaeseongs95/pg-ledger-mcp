@@ -2,6 +2,8 @@ dependencies {
     api(project(":ledger-domain"))
     // Spring JDBC, Spring Data JDBC and Hikari. No JDBC driver: the driver is registered by the user at run time.
     api("org.springframework.boot:spring-boot-starter-data-jdbc")
+    // Bean Validation for the @Validated settings records: a bad value stops the startup (version from the Boot BOM)
+    api("org.springframework.boot:spring-boot-starter-validation")
 
     testImplementation(testFixtures(project(":ledger-domain")))
     testImplementation("org.springframework.boot:spring-boot-starter-test")

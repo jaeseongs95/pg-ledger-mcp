@@ -7,16 +7,20 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.sql.Driver;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.domain.value.Sha256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The driver boundary: the only place of the product that loads classes from a path and uses reflection. It checks
@@ -24,6 +28,8 @@ import org.pgledger.domain.value.Sha256;
  * driver. The user supplies the jar; nothing of any DBMS is on the product's class path.
  */
 public final class DriverLoader {
+
+    private static final Logger LOG = LoggerFactory.getLogger(DriverLoader.class);
 
     private DriverLoader() {
     }
@@ -50,7 +56,7 @@ public final class DriverLoader {
             throw invalid("ledger.jdbc.driver.sha256 is missing");
         }
         Sha256 actual = digestOf(jar);
-        if (!actual.hex().equals(registration.sha256())) {
+        if (!Objects.equals(actual.hex(), registration.sha256())) {
             throw invalid("digest mismatch for " + jar + ": registered " + registration.sha256() + " but the file is "
                     + actual.hex());
         }
@@ -72,7 +78,13 @@ public final class DriverLoader {
     }
 
     private static Path requireUsableJar(String jarPath) {
-        Path jar = Path.of(jarPath);
+        Path jar;
+        try {
+            jar = Path.of(jarPath);
+        } catch (InvalidPathException e) {
+            throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID,
+                    List.of("the jar path is not a valid path: " + jarPath), e);
+        }
         if (!jar.isAbsolute()) {
             throw invalid("the jar path must be absolute: " + jarPath);
         }
@@ -139,32 +151,32 @@ public final class DriverLoader {
             Constructor<?> constructor = type.getConstructor();
             return new RegisteredDriver((Driver) constructor.newInstance(), loader);
         } catch (ClassNotFoundException e) {
-            closeQuietly(loader, e);
+            closeQuietly(loader);
             throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID,
                     List.of("class " + className + " is not in " + jar), e);
         } catch (NoSuchMethodException e) {
-            closeQuietly(loader, e);
+            closeQuietly(loader);
             throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID,
                     List.of("class " + className + " has no public no-argument constructor"), e);
         } catch (InvocationTargetException | InstantiationException | IllegalAccessException
                 | LinkageError | MalformedURLException e) {
-            closeQuietly(loader, e);
+            closeQuietly(loader);
             throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID,
                     List.of("class " + className + " cannot be instantiated: " + e), e);
         } catch (InfrastructureException e) {
-            closeQuietly(loader, e);
+            closeQuietly(loader);
             throw e;
         }
     }
 
-    private static void closeQuietly(URLClassLoader loader, Throwable cause) {
+    private static void closeQuietly(URLClassLoader loader) {
         if (loader == null) {
             return;
         }
         try {
             loader.close();
         } catch (IOException e) {
-            cause.addSuppressed(e);
+            LOG.warn("cannot close the class loader of the driver jar; the original failure follows", e);
         }
     }
 

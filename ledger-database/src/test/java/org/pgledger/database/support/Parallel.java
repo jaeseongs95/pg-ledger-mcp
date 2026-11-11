@@ -34,7 +34,10 @@ public final class Parallel {
             return results;
         } catch (ExecutionException e) {
             throw new IllegalStateException("a parallel task failed", e.getCause());
-        } catch (InterruptedException | TimeoutException e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("parallel run was interrupted", e);
+        } catch (TimeoutException e) {
             throw new IllegalStateException("parallel run did not finish", e);
         }
     }

@@ -129,8 +129,9 @@ class SchemaMigratorTest {
     }
 
     private static String resource(String name) {
-        try (var in = SchemaMigratorTest.class.getClassLoader().getResourceAsStream(name)) {
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        try {
+            return new ClassPathResource(name, SchemaMigratorTest.class.getClassLoader())
+                    .getContentAsString(StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -245,12 +246,13 @@ class SchemaMigratorTest {
     private List<String> twoMigrationsAtOnce() {
         SchemaProperties real = new SchemaProperties(null, Databases.LONG_TEXT, true, null);
         Callable<String> migrate = () -> {
-            try {
-                new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(), real, clock).migrate();
+            Throwable refused = catchThrowable(
+                    () -> new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(), real, clock).migrate());
+            if (refused == null) {
                 return "done";
-            } catch (SchemaMigrationException e) {
-                return "refused";
             }
+            assertThat(refused).isInstanceOf(SchemaMigrationException.class);
+            return "refused";
         };
         return Parallel.all(List.of(migrate, migrate));
     }
@@ -258,7 +260,7 @@ class SchemaMigratorTest {
     @Test
     void sch009_twoMigrationsAtOnceLeaveTheSchemaWholeWithOneSuccessPerVersion() {
         assertThat(twoMigrationsAtOnce()).as("the loser waits or is refused cleanly").contains("done")
-                .allMatch(outcome -> outcome.equals("done") || outcome.equals("refused"));
+                .allMatch(outcome -> "done".equals(outcome) || "refused".equals(outcome));
         assertThat(history().stream().filter(r -> r.outcome() == Outcome.SUCCESS).map(Row::version))
                 .containsExactly(1, 2, 3);
         assertThat(tableExists("request_receipt")).isTrue();

@@ -133,18 +133,19 @@ class CounterTest {
         long before = JdbcClient.create(ctx.pool()).sql("SELECT issued_no FROM id_counter WHERE name = 'HISTORY'")
                 .query(Long.class).single();
         List<Callable<Long>> writers = IntStream.rangeClosed(1, 64).<Callable<Long>>mapToObj(n -> () -> {
-            try {
-                return ctx.tx(() -> {
+            if (n % 8 == 0) {
+                assertThatThrownBy(() -> ctx.tx(() -> {
                     long id = ids.next(Counter.HISTORY);
                     ctx.bean(HistoryRepository.class).insert(historyRow(id, defect, n));
-                    if (n % 8 == 0) {
-                        throw new IllegalStateException("roll back writer " + n);
-                    }
-                    return id;
-                });
-            } catch (IllegalStateException rolledBack) {
+                    throw new IllegalStateException("roll back writer " + n);
+                })).isInstanceOf(IllegalStateException.class).hasMessage("roll back writer " + n);
                 return -1L;
             }
+            return ctx.tx(() -> {
+                long id = ids.next(Counter.HISTORY);
+                ctx.bean(HistoryRepository.class).insert(historyRow(id, defect, n));
+                return id;
+            });
         }).toList();
         List<Long> committed = Parallel.all(writers).stream().filter(id -> id > 0).sorted().toList();
         assertThat(committed).hasSize(56);
@@ -160,17 +161,14 @@ class CounterTest {
     void repo013_everyCounterIssuesDistinctNumbersWithoutGapsAfterRollbacks(Counter counter) {
         long before = ctx.tx(() -> ids.next(counter));
         List<Callable<Long>> writers = IntStream.rangeClosed(1, 64).<Callable<Long>>mapToObj(n -> () -> {
-            try {
-                return ctx.tx(() -> {
-                    long id = ids.next(counter);
-                    if (n % 8 == 0) {
-                        throw new IllegalStateException("roll back writer " + n);
-                    }
-                    return id;
-                });
-            } catch (IllegalStateException rolledBack) {
+            if (n % 8 == 0) {
+                assertThatThrownBy(() -> ctx.tx(() -> {
+                    ids.next(counter);
+                    throw new IllegalStateException("roll back writer " + n);
+                })).isInstanceOf(IllegalStateException.class).hasMessage("roll back writer " + n);
                 return -1L;
             }
+            return ctx.tx(() -> ids.next(counter));
         }).toList();
         List<Long> committed = Parallel.all(writers).stream().filter(id -> id > 0).sorted().toList();
         assertThat(committed).isEqualTo(LongStream.rangeClosed(before + 1, before + 56).boxed().toList());

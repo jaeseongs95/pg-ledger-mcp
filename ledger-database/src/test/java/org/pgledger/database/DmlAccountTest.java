@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.springframework.core.io.ClassPathResource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -127,8 +128,8 @@ class DmlAccountTest {
             s.execute("CREATE USER " + account + " PASSWORD '" + PASSWORD + "'");
         }
         if (grant) {
-            String template = new String(getClass().getClassLoader().getResourceAsStream("db-templates/dml-grants.sql")
-                    .readAllBytes(), StandardCharsets.UTF_8).replace("${dml_account}", account);
+            String template = new ClassPathResource("db-templates/dml-grants.sql", getClass().getClassLoader())
+                    .getContentAsString(StandardCharsets.UTF_8).replace("${dml_account}", account);
             try (Connection c = owner.getConnection()) {
                 new ResourceDatabasePopulator(new ByteArrayResource(template.getBytes(StandardCharsets.UTF_8)))
                         .populate(c);
