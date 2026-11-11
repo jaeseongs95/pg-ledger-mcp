@@ -124,7 +124,8 @@ public final class LegacyLedger implements AutoCloseable {
 
     private static JdbcDataSource dataSource(String name, String user, String secret) {
         JdbcDataSource dataSource = new JdbcDataSource();
-        dataSource.setURL("jdbc:h2:mem:" + name + ";DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=60000");
+        // the options are database settings that only an administrator may set; the read-only account joins the database as it is
+        dataSource.setURL("jdbc:h2:mem:" + name + ("SA".equals(user) ? ";DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=60000" : ""));
         dataSource.setUser(user);
         dataSource.setPassword(secret);
         return dataSource;
