@@ -17,6 +17,7 @@ import org.pgledger.admin.app.LedgerAdminProperties;
 import org.pgledger.admin.console.McpHealthClient;
 import org.pgledger.admin.console.McpStatus;
 import org.pgledger.admin.support.AdminTest;
+import org.pgledger.admin.support.AdminTestSettings;
 import org.pgledger.admin.support.Browser;
 import org.pgledger.admin.support.StandInMcpServer;
 import org.pgledger.admin.support.StandInMcpServer.Mode;
