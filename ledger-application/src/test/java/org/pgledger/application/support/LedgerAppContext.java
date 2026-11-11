@@ -33,6 +33,8 @@ public final class LedgerAppContext implements AutoCloseable {
     private final ConfigurableApplicationContext context;
     private final JdbcClient jdbc;
     private final AtomicInteger projects = new AtomicInteger();
+    private final java.util.concurrent.ConcurrentHashMap<String, Object> fixtures =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     private LedgerAppContext(Dbms dbms, HikariDataSource pool, boolean seedCategories) {
         this.dbms = dbms;
@@ -104,6 +106,13 @@ public final class LedgerAppContext implements AutoCloseable {
     /** Runs the work in a transaction of its own that the services join. */
     public <T> T tx(Supplier<T> work) {
         return bean(TransactionTemplate.class).execute(status -> work.get());
+    }
+
+    /** Builds a fixture the first time it is asked for and returns the same one afterwards (for a whole test class). */
+    public <T> T once(String key, Supplier<T> build) {
+        @SuppressWarnings("unchecked")
+        T value = (T) fixtures.computeIfAbsent(key, k -> build.get());
+        return value;
     }
 
     /** A number no other scenario of this database has used. */
