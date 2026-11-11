@@ -1,5 +1,6 @@
 package org.pgledger.domain.value;
 
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.pgledger.domain.error.ValidationException;
@@ -11,8 +12,18 @@ public record DefectId(String value) {
 
     public DefectId {
         if (value == null || !FORMAT.matcher(value).matches()) {
-            throw ValidationException.invalid("defect_id", "must match <PROJECT_CODE>-D-<number of 4 or more digits>");
+            throw malformed();
         }
+    }
+
+    /** The id of a text, or none when the text is not a defect id; nothing is thrown. */
+    public static Optional<DefectId> parse(String value) {
+        return value != null && FORMAT.matcher(value).matches() ? Optional.of(new DefectId(value)) : Optional.empty();
+    }
+
+    /** The failure of a text that is not a defect id (the constructor throws it; a gate may carry it as a value). */
+    public static ValidationException malformed() {
+        return ValidationException.invalid("defect_id", "must match <PROJECT_CODE>-D-<number of 4 or more digits>");
     }
 
     public static DefectId of(String value) {

@@ -1,7 +1,5 @@
 package org.pgledger.application.write;
 
-import java.util.Arrays;
-import java.util.Optional;
 import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Resolution;
 import org.pgledger.application.gate.WriteGate;
@@ -13,13 +11,10 @@ import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.model.HistoryEntry;
 import org.pgledger.domain.model.ReceiptOperation;
-import org.pgledger.domain.rule.ConditionState;
-import org.pgledger.domain.rule.DefectStatus;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
 import org.pgledger.domain.rule.LifecycleState;
 import org.pgledger.domain.rule.Scope;
-import org.pgledger.domain.rule.TaskState;
 import org.pgledger.domain.value.CanonicalPayload;
 import org.pgledger.domain.value.ConditionId;
 import org.pgledger.domain.value.DefectId;
@@ -95,21 +90,7 @@ public class CorrectOperation extends WriteOperation<CorrectCommand, CorrectResu
     }
 
     private static boolean isVerification(HistoryEntity entity, String stored) {
-        return state(entity, stored).filter(LifecycleState::verification).isPresent();
-    }
-
-    /** The state constant of a stored state text; none for a text that is none of the entity's states. */
-    private static Optional<LifecycleState> state(HistoryEntity entity, String stored) {
-        return switch (entity) {
-            case DEFECT -> find(DefectStatus.values(), stored);
-            case TASK -> find(TaskState.values(), stored);
-            case CONDITION -> find(ConditionState.values(), stored);
-            case CONDITION_LINK, DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, DEFECT_CASE -> Optional.empty();
-        };
-    }
-
-    private static Optional<LifecycleState> find(LifecycleState[] states, String stored) {
-        return Arrays.stream(states).filter(state -> state.token().equals(stored)).findFirst();
+        return LifecycleState.of(entity, stored).filter(LifecycleState::verification).isPresent();
     }
 
     private static String before(String id, char separator) {

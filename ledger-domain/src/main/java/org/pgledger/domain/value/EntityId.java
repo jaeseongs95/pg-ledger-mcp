@@ -21,9 +21,17 @@ public record EntityId(String value) {
         return new EntityId(value);
     }
 
+    static boolean isValid(String value) {
+        return value != null && PATTERN.matcher(value).matches();
+    }
+
+    static ValidationException malformed(String path) {
+        return ValidationException.invalid(path, "must be an upper-case id matching " + PATTERN.pattern());
+    }
+
     static void requireValid(String path, String value) {
-        if (value == null || !PATTERN.matcher(value).matches()) {
-            throw ValidationException.invalid(path, "must be an upper-case id matching " + PATTERN.pattern());
+        if (!isValid(value)) {
+            throw malformed(path);
         }
     }
 }
