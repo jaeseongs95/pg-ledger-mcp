@@ -1,6 +1,7 @@
 package org.pgledger.application.gate;
 
 import java.time.Clock;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +42,9 @@ public class WriteGate {
             case Resolution.Unresolved unresolved -> throw unresolved.failure();
             case Resolution.Resolved resolved -> {
                 Set<Target> distinct = new LinkedHashSet<>(resolved.targets());
-                distinct.forEach(target -> authorize(author, target));
+                // one fixed order of grant rows, so two writes that need the same grants cannot wait for each other
+                distinct.stream().sorted(Comparator.comparing((Target t) -> t.project().value())
+                        .thenComparing(t -> t.scope())).forEach(target -> authorize(author, target));
                 yield new GateSession(author, channel);
             }
         };
