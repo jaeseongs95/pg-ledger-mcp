@@ -15,6 +15,8 @@ import org.pgledger.application.admin.SessionKeyService;
 import org.pgledger.attestation.PublicKeys;
 import org.pgledger.mcp.error.ToolError;
 import org.pgledger.mcp.support.Args;
+import org.pgledger.mcp.support.BatchResults;
+import org.pgledger.mcp.support.Calls;
 import org.pgledger.mcp.support.Calls.Fields;
 import org.pgledger.mcp.support.KeyRing;
 import org.pgledger.mcp.support.Ledger;
@@ -247,6 +249,71 @@ class AttestationWireTest {
                 .isEqualTo("ATTESTATION_UNSIGNED");
         assertThat(session.ok(WHOAMI, Args.of().with("_hostAttestation", "claude"), WriteOutputs.Whoami.class)
                 .authorFormatOk()).isFalse();
+    }
+
+    /** The token of the hook for exactly these arguments (the hook signs after it has put the request id in). */
+    private static String signedFor(KeyRing keys, String author, String tool, String requestId, Args arguments) {
+        return keys.token(author, tool, requestId);
+    }
+
+    private static Args batchCall(McpSession session, String requestId, Calls.Op... ops) {
+        return Args.from(session.mapper(), Calls.Batch.of(null, ops)).with("request_id", requestId);
+    }
+
+    @Test
+    @DisplayName("MCW-041: the token of a batch cannot be sent again with other operations: new operations, an extra one or a changed one are ATTESTATION_BINDING_MISMATCH (arguments) and write nothing")
+    void batchTokenCannotCarryOtherOperations(McpSession session, Scenario scenario, @Autowired KeyRing keys) {
+        String author = scenario.actorWith("br", "defect");
+        keys.enroll(author);
+        String project = scenario.projectId();
+        String batchId = UUID.randomUUID().toString();
+        Args legitimate = batchCall(session, batchId, Calls.Op.save("defect", Fields.defect(project, "one")));
+        String token = signedFor(keys, author, "ledger_batch", batchId, legitimate);
+
+        List<Args> variants = List.of(
+                batchCall(session, batchId, Calls.Op.save("defect", Fields.defect(project, "one")),
+                        Calls.Op.save("defect", Fields.defect(project, "extra"))),
+                batchCall(session, batchId, Calls.Op.save("defect", Fields.defect(project, "changed"))),
+                batchCall(session, batchId, Calls.Op.save("defect", Fields.defect(project, "one"))
+                        .withRequestId(UUID.randomUUID().toString())));
+        int before = Ledger.history(session, project).size();
+        for (Args variant : variants) {
+            ToolError error = session.failed("ledger_batch", variant.with("_hostAttestation", token));
+            assertThat(error.code()).isEqualTo("ATTESTATION_BINDING_MISMATCH");
+            assertThat(error.details()).containsEntry("field", List.of("arguments"));
+            assertThat(error.message()).doesNotContain(token);
+        }
+        assertThat(Ledger.history(session, project)).hasSize(before);
+
+        session.ok("ledger_batch", legitimate.with("_hostAttestation", token), BatchResults.class);
+        session.ok("ledger_batch", legitimate.with("_hostAttestation", token), BatchResults.class);
+        assertThat(Ledger.history(session, project)).hasSize(before + 1);
+    }
+
+    @Test
+    @DisplayName("MCW-042: the token of a save cannot be used for other content, whether the legitimate call came first or not")
+    void saveTokenCannotCarryOtherContent(McpSession session, Scenario scenario, @Autowired KeyRing keys) {
+        String author = scenario.actorWith("pl", "defect");
+        keys.enroll(author);
+        String requestId = UUID.randomUUID().toString();
+        Args signed = Args.of().with("entity", "defect").with("reason", Scenario.REASON)
+                .with("fields", Fields.defect(scenario.projectId(), "signed")).with("request_id", requestId);
+        Args other = signed.with("fields", Fields.defect(scenario.projectId(), "attacker content"));
+        String token = signedFor(keys, author, "ledger_save", requestId, signed);
+        int before = Ledger.history(session, scenario.projectId()).size();
+
+        // the attacker is first: the other content must not win the race for the request id
+        ToolError raced = session.failed("ledger_save", other.with("_hostAttestation", token));
+        assertThat(raced.code()).isEqualTo("ATTESTATION_BINDING_MISMATCH");
+        assertThat(raced.details()).containsEntry("field", List.of("arguments"));
+        assertThat(Ledger.history(session, scenario.projectId())).hasSize(before);
+
+        WriteOutputs.Saved written = session.ok("ledger_save", signed.with("_hostAttestation", token),
+                WriteOutputs.Saved.class);
+        assertThat(written.author()).isEqualTo(author);
+        assertThat(session.failed("ledger_save", other.with("_hostAttestation", token)).code())
+                .isEqualTo("ATTESTATION_BINDING_MISMATCH");
+        assertThat(Ledger.history(session, scenario.projectId())).hasSize(before + 1);
     }
 
     @Test

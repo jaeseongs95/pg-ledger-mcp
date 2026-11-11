@@ -355,6 +355,40 @@ class AttestationGateTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    /** The token text with the 64 signature bytes replaced by zeros: well formed, never valid. */
+    private static String withZeroSignature(String token) {
+        return token.substring(0, token.lastIndexOf('.') + 1) + "A".repeat(86);
+    }
+
+    @Test
+    @DisplayName("SVC-GATE-39: an author with a key and an author without one cannot be told apart by a caller that cannot sign: one code, no argument, no author, the same message")
+    void gate39_noOracleForRegisteredKeys(Scenario s) {
+        String keyed = s.actorWith("defect");
+        String keyless = "claude:nokey" + UUID.randomUUID().toString().substring(0, 8);
+        s.bean(org.pgledger.application.admin.GrantService.class).grant(new org.pgledger.application.admin.GrantService
+                .GrantCommand(keyless, s.projectId(), List.of("defect"), null, null));
+        Instant at = s.ctx().clock().instant();
+        List<LedgerException> failures = new java.util.ArrayList<>();
+        for (String author : List.of(keyed, keyless)) {
+            String requestId = newRequestId();
+            String zero = withZeroSignature(TestKeyRing.token(TestKeyRing.newPair(), author, SAVE, requestId, at));
+            failures.add(Expect.failure(() -> save(s, zero, create(s, requestId, "oracle")),
+                    TrustCode.ATTESTATION_SIGNATURE_INVALID));
+            String foreign = TestKeyRing.token(TestKeyRing.newPair(), author, SAVE, requestId, at);
+            failures.add(Expect.failure(() -> save(s, foreign, create(s, requestId, "oracle")),
+                    TrustCode.ATTESTATION_SIGNATURE_INVALID));
+            failures.add(Expect.failure(() -> asTool("ledger_whoami", () -> s.bean(WhoamiService.class).whoami(
+                    TestKeyRing.token(TestKeyRing.newPair(), author, "ledger_whoami", "", at), Channel.AUTHOR)),
+                    TrustCode.ATTESTATION_SIGNATURE_INVALID));
+        }
+        for (LedgerException failure : failures) {
+            assertThat(failure.args()).isEmpty();
+            assertThat(failure.details()).isEmpty();
+            assertThat(Expect.message(failure)).doesNotContain(keyed).doesNotContain(keyless)
+                    .isEqualTo(Expect.message(failures.getFirst()));
+        }
+    }
+
     @Test
     @DisplayName("SVC-GATE-35: no failure of the attestation carries the token, its signature or a key in its message, arguments or details")
     void gate35_noSecretInFailures(Scenario s) {

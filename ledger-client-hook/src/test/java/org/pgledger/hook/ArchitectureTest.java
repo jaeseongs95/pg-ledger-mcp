@@ -56,6 +56,18 @@ class ArchitectureTest {
     }
 
     @Test
+    @DisplayName("HK-037 the key file is opened once without following links and read from that channel: no read of a path (readAllBytes, readString, readAllLines, newInputStream, newBufferedReader)")
+    void keyFileIsNeverReadByPath() {
+        noClasses().should().callMethod(java.nio.file.Files.class, "readAllBytes", java.nio.file.Path.class)
+                .orShould().callMethod(java.nio.file.Files.class, "readString", java.nio.file.Path.class)
+                .orShould().callMethod(java.nio.file.Files.class, "readAllLines", java.nio.file.Path.class)
+                .orShould().callMethod(java.nio.file.Files.class, "newInputStream", java.nio.file.Path.class,
+                        java.nio.file.OpenOption[].class)
+                .orShould().callMethod(java.nio.file.Files.class, "newBufferedReader", java.nio.file.Path.class)
+                .check(hook);
+    }
+
+    @Test
     @DisplayName("HK-018 only Main touches java.lang.System, and only for stdin, stdout, stderr, exit, System.getenv(String) and System.getProperty(String)")
     void systemOnlyInMain() {
         noClasses().that().doNotHaveFullyQualifiedName("org.pgledger.hook.Main")

@@ -174,6 +174,12 @@ public final class Calls {
             Fields fields, String evidenceUri, String defectId, String repo, String commitSha, String observation,
             String kind, String a, String b, Long historyId, String requestId) {
 
+        /** The same operation with a request id of its own (the batch derives one for an operation without). */
+        public Op withRequestId(String newRequestId) {
+            return new Op(op, entity, id, expectedVersion, to, reason, fields, evidenceUri, defectId, repo, commitSha,
+                    observation, kind, a, b, historyId, newRequestId);
+        }
+
         public static Op save(String entity, Fields fields) {
             return new Op("save", entity, null, null, null, Scenario.REASON, fields, null, null, null, null, null,
                     null, null, null, null, null);
