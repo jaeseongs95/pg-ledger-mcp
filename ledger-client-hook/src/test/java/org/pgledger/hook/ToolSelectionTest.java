@@ -130,7 +130,7 @@ class ToolSelectionTest {
     @ParameterizedTest
     @ValueSource(strings = {"mcp__codex_apps__app_ledger_ledger_get", "mcp__codex_apps__app_ledger_ledger_history",
             "mcp__codex_apps__app_ledger_ledger_save_extra", "mcp__codex_apps__app_ledger_save",
-            "mcp__codex_apps__app_ledger_ledger_Save", "mcp__codex_apps__app__ledger_save",
+            "mcp__codex_apps__app_ledger_ledger_Save", "mcp__codex_apps__app_.ledger_save",
             "mcp__other__app_ledger_ledger_save", "mcp__codex_apps__ledger_ledger_get", "mcp__codex_apps__apps_ledger_ledger_save"})
     @DisplayName("HK-013 Codex Apps namespace: a non-ledger or read operation, a malformed app segment, or another pseudo server is not touched")
     void codexAppsNamespaceOtherNamesAreUntouched(String name, HookFixture fixture) {

@@ -21,6 +21,14 @@ import java.util.Map;
  * the definition of the algorithm of the RFC (and does not depend on how {@code Double.toString} of a given JDK
  * chooses its digits).
  *
+ * <p>What the RFC makes an error is an error here, and nothing else: every JSON number has a canonical form, its
+ * IEEE 754 double (section 3.1 "JSON number data MUST be expressible as IEEE 754 double-precision values", section
+ * 3.2.2.3, so a big integer or {@code 0.10} is signed by its double and the sender passes the original text on
+ * unchanged); only NaN and Infinity (a value that overflows a double, such as {@code 1e999}) "MUST cause a compliant
+ * JCS implementation to terminate with an appropriate error" (section 3.2.2.3). A string with an unpaired surrogate is
+ * invalid Unicode and likewise "MUST cause a compliant JCS implementation to terminate with an appropriate error"
+ * (the note of section 3.2.2.2).
+ *
  * <p>The value is a Java model of JSON: {@code null}, {@link Boolean}, {@link String}, any {@link Number} (read as a
  * double, so {@code 1}, {@code 1.0} and {@code 1e0} are the same value, as in JSON of the RFC), {@link List} and
  * {@link Map} with {@link String} keys. Anything else, a non-finite number and a string that holds an unpaired
