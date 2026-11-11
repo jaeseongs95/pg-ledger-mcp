@@ -4,6 +4,8 @@ import java.security.PublicKey;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import org.pgledger.attestation.AttestationException;
 import org.pgledger.attestation.PublicKeys;
@@ -16,7 +18,9 @@ import org.pgledger.domain.error.ConflictException;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.SessionPublicKey;
+import org.pgledger.domain.rule.OwnerAction;
 import org.pgledger.domain.value.AuthorId;
+import org.pgledger.domain.value.OwnerIdentity;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.resilience.annotation.Retryable;
 import org.springframework.stereotype.Service;
@@ -25,7 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * The public keys that authors sign their writes with. Used by the admin web and the CLI, never by the MCP tools: only
  * the owner decides which key belongs to which author (the owner compares the fingerprint with the one the requesting
- * session printed). Registering closes the live key of the author first; rows are never deleted, so the keys an
+ * session printed). A key is bound to an author that has none; an author that has one gets another only by an explicit,
+ * confirmed replacement, which closes the live key first; rows are never deleted, so the keys an
  * author had stay on record. Two registrations of one author at the same time end with exactly one live key, and a
  * key is live for one author only.
  */
@@ -44,24 +49,58 @@ public class SessionKeyService {
     private final SessionKeyStateRepository state;
     private final SessionKeyRepository keys;
     private final IdAllocator ids;
+    private final OwnerAuditWriter audit;
     private final Clock clock;
 
     public SessionKeyService(SessionKeyStateRepository state, SessionKeyRepository keys, IdAllocator ids,
-            Clock clock) {
+            OwnerAuditWriter audit, Clock clock) {
         this.state = state;
         this.keys = keys;
         this.ids = ids;
+        this.audit = audit;
         this.clock = clock;
     }
 
     /**
-     * Binds the key to the author. Registering the key that is already live for the author changes nothing and answers
-     * with the existing row. A key that is live for another author is refused (DUPLICATE_KEY). Another registration of
-     * the same author or key that commits first makes the insert a duplicate key; the whole call is then retried in a
-     * new transaction (the retry is the outer advice, the transaction the inner one).
+     * Binds the key to an author that has no live key yet, for a caller that has no person behind it (tests); the owner
+     * operations name who they are with {@link #register(RegisterCommand, OwnerIdentity)}.
      */
     @Retryable(includes = DuplicateKeyException.class, maxRetries = 3, delay = 10)
     public Registered register(RegisterCommand command) {
+        return bind(command, OwnerIdentity.SYSTEM, null);
+    }
+
+    /**
+     * Binds the key to an author that has no live key yet and records who did it in the owner's audit trail. Registering
+     * the key that is already live for the author changes nothing and answers with the existing row. A key that is live
+     * for another author is refused (DUPLICATE_KEY). An author that already has another live key is refused
+     * (KEY_REPLACEMENT_NOT_CONFIRMED, naming the fingerprint and the registration time of the live key): a key is never
+     * replaced silently, because whoever gets the owner to register a key under a known author name would otherwise
+     * inherit that author's grants. Another registration of the same author or key that commits first makes the insert a
+     * duplicate key; the whole call is then retried in a new transaction (the retry is the outer advice, the transaction
+     * the inner one).
+     */
+    @Retryable(includes = DuplicateKeyException.class, maxRetries = 3, delay = 10)
+    public Registered register(RegisterCommand command, OwnerIdentity actor) {
+        return bind(command, actor, null);
+    }
+
+    /**
+     * Like {@link #register(RegisterCommand, OwnerIdentity)}, and when the author already has another live key, replaces
+     * it. The caller must name the fingerprint of the key being replaced ({@code replacedFingerprint}, any letter case),
+     * which the owner read from the refusal or from the screen together with the registration time; a different
+     * fingerprint (the live key changed meanwhile) is refused like no confirmation at all. The replaced key stays on
+     * record as a closed row; the audit trail says that it was a replacement.
+     */
+    @Retryable(includes = DuplicateKeyException.class, maxRetries = 3, delay = 10)
+    public Registered registerReplacing(RegisterCommand command, OwnerIdentity actor, String replacedFingerprint) {
+        if (replacedFingerprint == null || replacedFingerprint.isBlank()) {
+            throw ValidationException.invalid("replace", ValidationReason.REQUIRED);
+        }
+        return bind(command, actor, replacedFingerprint.strip().toLowerCase(Locale.ROOT));
+    }
+
+    private Registered bind(RegisterCommand command, OwnerIdentity actor, String replacedFingerprint) {
         AuthorId author = author(command.author());
         PublicKey key = key(command.publicKey());
         String text = PublicKeys.encode(key);
@@ -74,16 +113,47 @@ public class SessionKeyService {
             throw new ConflictException(ConflictCode.DUPLICATE_KEY, List.of("public key " + fingerprint));
         }
         Instant now = clock.instant();
-        state.findLive(author).ifPresent(open -> state.close(open.id(), now));
+        Optional<SessionPublicKey> current = state.findLive(author);
+        if (current.isPresent()) {
+            SessionPublicKey open = current.get();
+            if (!Objects.equals(open.fingerprint(), replacedFingerprint)) {
+                throw new ConflictException(ConflictCode.KEY_REPLACEMENT_NOT_CONFIRMED,
+                        List.of(author.value(), open.fingerprint(), open.registeredAt().toString()));
+            }
+            state.close(open.id(), now);
+        }
         long id = ids.next(Counter.SESSION_KEY);
         SessionPublicKey row = keys.insert(SessionPublicKey.register(id, author, text, fingerprint, AuthorId.OWNER,
                 now, command.note()));
+        audit.record(actor, current.isPresent() ? OwnerAction.KEY_REPLACED : OwnerAction.KEY_REGISTERED,
+                author.value(), "key=" + fingerprint
+                        + current.map(open -> " replaced=" + open.fingerprint()).orElse(""));
         return registered(row);
     }
 
-    /** Closes the live key of the author; true when there was one. The author cannot write until a key is registered. */
+    /**
+     * Closes the live key of the author for a caller that has no person behind it; true when there was one. The author
+     * cannot write until a key is registered.
+     */
     public boolean revoke(String author) {
-        return state.findLive(author(author)).map(open -> state.close(open.id(), clock.instant())).orElse(false);
+        return revoke(author, OwnerIdentity.SYSTEM);
+    }
+
+    /** Closes the live key of the author and records who did it; true when there was one. */
+    public boolean revoke(String author, OwnerIdentity actor) {
+        AuthorId id = author(author);
+        Optional<SessionPublicKey> open = state.findLive(id);
+        boolean closed = open.map(row -> state.close(row.id(), clock.instant())).orElse(false);
+        if (closed) {
+            audit.record(actor, OwnerAction.KEY_REVOKED, id.value(), "key=" + open.get().fingerprint());
+        }
+        return closed;
+    }
+
+    /** The fingerprint of a public key as the owner compares it (the validation of {@code register}, nothing stored). */
+    @Transactional(readOnly = true)
+    public String fingerprintOf(String publicKey) {
+        return PublicKeys.fingerprint(key(publicKey));
     }
 
     /** The live key of the author now. */

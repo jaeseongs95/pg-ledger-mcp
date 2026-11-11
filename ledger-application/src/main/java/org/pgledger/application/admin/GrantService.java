@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.pgledger.database.repository.Counter;
 import org.pgledger.database.repository.GrantStateRepository;
 import org.pgledger.database.repository.IdAllocator;
@@ -16,8 +17,10 @@ import org.pgledger.domain.error.LookupException;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.SessionGrant;
+import org.pgledger.domain.rule.OwnerAction;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.value.AuthorId;
+import org.pgledger.domain.value.OwnerIdentity;
 import org.pgledger.domain.value.ProjectId;
 import org.pgledger.domain.value.Tokens;
 import org.pgledger.domain.value.UtcInstant;
@@ -47,24 +50,40 @@ public class GrantService {
     private final SessionGrantRepository grants;
     private final ProjectRepository projects;
     private final IdAllocator ids;
+    private final OwnerAuditWriter audit;
     private final Clock clock;
 
     public GrantService(GrantStateRepository state, SessionGrantRepository grants, ProjectRepository projects,
-            IdAllocator ids, Clock clock) {
+            IdAllocator ids, OwnerAuditWriter audit, Clock clock) {
         this.state = state;
         this.grants = grants;
         this.projects = projects;
         this.ids = ids;
+        this.audit = audit;
         this.clock = clock;
     }
 
     /**
-     * Issues the grants and returns the id of each, one per scope in the order given. Another grant of the same key
-     * that commits first makes the insert a duplicate key; the whole call is then retried in a new transaction (the
-     * retry is the outer advice, the transaction the inner one), which closes that grant first.
+     * Issues the grants for a caller that has no person behind it (tests, imports); the owner operations of the admin
+     * web and of the command line tool name who they are with {@link #grant(GrantCommand, OwnerIdentity)}.
      */
     @Retryable(includes = DuplicateKeyException.class, maxRetries = 3, delay = 10)
     public List<Long> grant(GrantCommand command) {
+        return issueAll(command, OwnerIdentity.SYSTEM);
+    }
+
+    /**
+     * Issues the grants and returns the id of each, one per scope in the order given; who issued them is recorded in the
+     * owner's audit trail in the same transaction. Another grant of the same key that commits first makes the insert a
+     * duplicate key; the whole call is then retried in a new transaction (the retry is the outer advice, the
+     * transaction the inner one), which closes that grant first.
+     */
+    @Retryable(includes = DuplicateKeyException.class, maxRetries = 3, delay = 10)
+    public List<Long> grant(GrantCommand command, OwnerIdentity actor) {
+        return issueAll(command, actor);
+    }
+
+    private List<Long> issueAll(GrantCommand command, OwnerIdentity actor) {
         AuthorId author = author(command.author());
         ProjectId project = ProjectId.of(command.project());
         if (!projects.existsById(project)) {
@@ -83,6 +102,10 @@ public class GrantService {
         for (Scope scope : scopes) {
             issued.add(issue(author, project, scope, now, expiresAt, command.note()));
         }
+        audit.record(actor, OwnerAction.GRANT_ISSUED, author.value() + "|" + project.value(),
+                "scopes=" + scopes.stream().map(Scope::token).collect(Collectors.joining(",")) + " expires="
+                        + (expiresAt == null ? "never" : expiresAt) + " grants="
+                        + issued.stream().map(String::valueOf).collect(Collectors.joining(",")));
         return issued;
     }
 
@@ -99,16 +122,30 @@ public class GrantService {
                 .ifPresent(open -> state.revoke(open.id(), now));
     }
 
-    /** Revokes the matching live grants and returns how many. */
+    /** Revokes the matching live grants for a caller that has no person behind it and returns how many. */
     public int revoke(RevokeCommand command) {
+        return revokeAll(command, OwnerIdentity.SYSTEM);
+    }
+
+    /** Revokes the matching live grants, records who did it in the owner's audit trail, and returns how many. */
+    public int revoke(RevokeCommand command, OwnerIdentity actor) {
+        return revokeAll(command, actor);
+    }
+
+    private int revokeAll(RevokeCommand command, OwnerIdentity actor) {
         AuthorId author = author(command.author());
         boolean hasProject = command.project() != null && !command.project().isBlank();
         boolean hasScope = command.scope() != null && !command.scope().isBlank();
         if (hasScope && !hasProject) {
             throw ValidationException.invalid("project", ValidationReason.REQUIRED_WITH_SCOPE);
         }
-        return state.revokeLive(author, hasProject ? ProjectId.of(command.project()) : null,
-                hasScope ? Tokens.parse("scope", command.scope(), Scope.values()) : null, clock.instant());
+        ProjectId project = hasProject ? ProjectId.of(command.project()) : null;
+        Scope scope = hasScope ? Tokens.parse("scope", command.scope(), Scope.values()) : null;
+        int revoked = state.revokeLive(author, project, scope, clock.instant());
+        audit.record(actor, OwnerAction.GRANT_REVOKED,
+                author.value() + (project == null ? "" : "|" + project.value()),
+                "scope=" + (scope == null ? "all" : scope.token()) + " revoked=" + revoked);
+        return revoked;
     }
 
     /** The live grants of an author now. */
