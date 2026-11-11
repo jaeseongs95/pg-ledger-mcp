@@ -194,6 +194,8 @@ const save = (await mcp.toolDefinitions()).find(t => t.name === "ledger_save");
 if (!save.description.includes("(없음: ledger-admin category-add로 추가)")) throw new Error("empty category placeholder missing");
 console.log("PASS  empty-category bootstrap is usable through tools/list");
 JS
+  # sql/16 seeds regression_of on a fresh install only; an upgrade finds the group already populated (16 is a no-op there).
+  pass_if 'fresh install seeds RELATION_KIND regression_of (active)' "$(pgsu -d "$DB" -tAc "select count(*) from ledger.common_code where code_group='RELATION_KIND' and code='regression_of' and active")" 1
 fi
 
 echo "== owner setup"
@@ -292,6 +294,9 @@ expect_error 'inactive category is refused at the DB boundary' ledger_author 'CO
   "select ledger.save(gen_random_uuid(),'claude:e2e-author','defect','$CODE-D-0002',1,jsonb_build_object('category','RETIRED'),'e2e: retired category')"
 expect_error 'unknown relation names valid DB codes' ledger_author 'link: unknown kind related' \
   "select ledger.link(gen_random_uuid(),'claude:e2e-author','related','$CODE-D-0001','$CODE-D-0002','e2e: unknown relation')"
+if [ -z "$UPGRADE_FROM" ]; then
+  pass_if 'fresh install: a regression_of link between two defects is accepted' "$(login_sql ledger_author "SELECT ledger.link(gen_random_uuid(),'claude:e2e-author','regression_of','$CODE-D-0001','$CODE-D-0002','e2e: regression_of seed link')->>'id'")" "$CODE-D-0001|$CODE-D-0002|regression_of"
+fi
 pass_if 'all eight created_by columns are NOT NULL' "$(pgsu -d "$DB" -tAc "select count(*) from information_schema.columns where table_schema='ledger' and column_name='created_by' and is_nullable='NO'")" 8
 before_reapply=$(snapshot)
 creators=$(pgsu -d "$DB" -tAc "select string_agg(id||':'||created_by,',' order by id) from ledger.defect")
