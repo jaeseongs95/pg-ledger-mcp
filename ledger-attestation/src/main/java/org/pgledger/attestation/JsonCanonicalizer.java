@@ -1,6 +1,7 @@
 package org.pgledger.attestation;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -21,24 +22,43 @@ import java.util.Map;
  * the definition of the algorithm of the RFC (and does not depend on how {@code Double.toString} of a given JDK
  * chooses its digits).
  *
- * <p>What the RFC makes an error is an error here, and nothing else: every JSON number has a canonical form, its
- * IEEE 754 double (section 3.1 "JSON number data MUST be expressible as IEEE 754 double-precision values", section
- * 3.2.2.3, so a big integer or {@code 0.10} is signed by its double and the sender passes the original text on
- * unchanged); only NaN and Infinity (a value that overflows a double, such as {@code 1e999}) "MUST cause a compliant
- * JCS implementation to terminate with an appropriate error" (section 3.2.2.3). A string with an unpaired surrogate is
- * invalid Unicode and likewise "MUST cause a compliant JCS implementation to terminate with an appropriate error"
- * (the note of section 3.2.2.2).
+ * <p>What the RFC makes an error is an error here, and, for integers, what the digest could not tell apart:
+ * <ul>
+ * <li>A decimal number ({@link Double}, {@link Float}, {@link java.math.BigDecimal}, the form a JSON number with a
+ *     fraction or an exponent has) is canonicalised by its IEEE 754 double, as the RFC says (section 3.1 "JSON number
+ *     data MUST be expressible as IEEE 754 double-precision values", section 3.2.2.3), so {@code 0.10} (whose decimal
+ *     value is not exactly the double {@code 0.1}) and {@code 0.1} are one value. That is not ambiguous for the server,
+ *     because a JSON number with a fraction or exponent reaches it as a double as well. The sender passes the original
+ *     text on unchanged.</li>
+ * <li>An integer ({@link Byte}, {@link Short}, {@link Integer}, {@link Long}, {@link java.math.BigInteger}, the form a
+ *     JSON number without fraction and exponent has) must lie in [-(2**53)+1, (2**53)-1], the range in which every
+ *     integer is exactly a double. Outside it the double of {@code 9007199254740993} is {@code 9007199254740992}, so two
+ *     different integers would have one canonical form and one digest, while the server binds each of them as its own
+ *     exact {@code long}: a signature for one would then be valid for the other. RFC 7493 (I-JSON) section 2.2 says "An
+ *     I-JSON sender cannot expect a receiver to treat an integer whose absolute value is greater than 9007199254740991
+ *     (i.e., that is outside the range [-(2**53)+1, (2**53)-1]) as an exact value" and recommends strings for such
+ *     numbers (https://www.rfc-editor.org/rfc/rfc7493#section-2.2); RFC 8785 section 3.1 asks the same of its input
+ *     (https://www.rfc-editor.org/rfc/rfc8785#section-3.1). Such an integer is an {@link IllegalArgumentException}
+ *     here: the hook does not sign it and the server does not verify it.</li>
+ * <li>NaN and Infinity (a value that overflows a double, such as {@code 1e999}) "MUST cause a compliant JCS
+ *     implementation to terminate with an appropriate error" (section 3.2.2.3).</li>
+ * </ul>
+ * A string with an unpaired surrogate is invalid Unicode and likewise "MUST cause a compliant JCS implementation to
+ * terminate with an appropriate error" (the note of section 3.2.2.2).
  *
- * <p>The value is a Java model of JSON: {@code null}, {@link Boolean}, {@link String}, any {@link Number} (read as a
- * double, so {@code 1}, {@code 1.0} and {@code 1e0} are the same value, as in JSON of the RFC), {@link List} and
- * {@link Map} with {@link String} keys. Anything else, a non-finite number and a string that holds an unpaired
- * surrogate (it has no UTF-8 form) is an {@link IllegalArgumentException}: the caller built something that is not JSON.
+ * <p>The value is a Java model of JSON: {@code null}, {@link Boolean}, {@link String}, a {@link Number} of the types
+ * above (read as a double once it is in range, so {@code 1}, {@code 1.0} and {@code 1e0} are the same value, as in JSON
+ * of the RFC), {@link List} and {@link Map} with {@link String} keys. Anything else (also any other {@link Number}
+ * type), a non-finite number, an integer outside the range above and a string that holds an unpaired surrogate (it has
+ * no UTF-8 form) is an {@link IllegalArgumentException}: the caller built something that is not canonical JSON.
  */
 public final class JsonCanonicalizer {
 
     private static final int ES_MAX_INTEGER_DIGITS = 21;
     private static final int ES_MIN_FRACTION_EXPONENT = -6;
     private static final int MAX_PRECISION = 17;
+    /** The largest integer below which every integer is exactly a double: 2**53 - 1 (ECMAScript Number.MAX_SAFE_INTEGER). */
+    private static final long MAX_SAFE_INTEGER = (1L << 53) - 1;
     /** Deeper values are refused: the canonical form is built recursively, and real tool arguments are shallow. */
     private static final int MAX_DEPTH = 256;
 
@@ -140,7 +160,7 @@ public final class JsonCanonicalizer {
 
     /** RFC 8785 section 3.2.2.3 and ECMA-262 Number::toString: k digits, the decimal exponent n, five layouts. */
     static String number(Number number) {
-        double value = number.doubleValue();
+        double value = doubleOf(number);
         if (Double.isNaN(value) || Double.isInfinite(value)) {
             throw new IllegalArgumentException("a JSON number must be finite");
         }
@@ -172,6 +192,43 @@ public final class JsonCanonicalizer {
             out.append('e').append(exponent < 0 ? '-' : '+').append(Math.abs(exponent));
         }
         return out.toString();
+    }
+
+    /**
+     * The double that stands for the number: a decimal number as it is, an integer only when it lies in the range in
+     * which an integer is exactly a double (see the class comment).
+     */
+    private static double doubleOf(Number number) {
+        return switch (number) {
+            case Double decimal -> decimal.doubleValue();
+            case Float decimal -> decimal.doubleValue();
+            case BigDecimal decimal -> decimal.doubleValue();
+            case Byte integer -> integer.doubleValue();
+            case Short integer -> integer.doubleValue();
+            case Integer integer -> integer.doubleValue();
+            case Long integer -> safeInteger(integer);
+            case BigInteger integer -> safeInteger(integer);
+            default -> throw new IllegalArgumentException("not a JSON number type: " + number.getClass().getName());
+        };
+    }
+
+    private static double safeInteger(long integer) {
+        if (integer < -MAX_SAFE_INTEGER || integer > MAX_SAFE_INTEGER) {
+            throw outOfRange();
+        }
+        return integer;
+    }
+
+    private static double safeInteger(BigInteger integer) {
+        if (integer.abs().compareTo(BigInteger.valueOf(MAX_SAFE_INTEGER)) > 0) {
+            throw outOfRange();
+        }
+        return integer.doubleValue();
+    }
+
+    private static IllegalArgumentException outOfRange() {
+        return new IllegalArgumentException("an integer outside [-(2**53)+1, (2**53)-1] has no exact canonical form "
+                + "(RFC 7493 section 2.2); send it as a string");
     }
 
     /** The decimal with the fewest significant digits (trailing zeros stripped) that converts back to the double. */
