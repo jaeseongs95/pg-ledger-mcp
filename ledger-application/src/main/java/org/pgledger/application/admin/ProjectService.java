@@ -22,8 +22,8 @@ import org.springframework.validation.annotation.Validated;
 public class ProjectService {
 
     /** A project to add: id, code (the prefix of its defect and task ids) and title. */
-    public record ProjectCommand(@NotNull(message = "is required") String id,
-            @NotNull(message = "is required") String code, String title) {
+    public record ProjectCommand(@NotNull(message = "{reason.REQUIRED}") String id,
+            @NotNull(message = "{reason.REQUIRED}") String code, String title) {
     }
 
     private final ProjectRepository projects;

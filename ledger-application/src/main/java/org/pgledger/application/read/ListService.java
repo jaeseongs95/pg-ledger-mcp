@@ -32,9 +32,9 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 public class ListService {
 
-    private static final String REQUIRED = "is required";
+    private static final String REQUIRED = "{reason.REQUIRED}";
     private static final int MAX_OWNER = 200;
-    private static final String OWNER_LENGTH = "must be at most 200 characters";
+    private static final String OWNER_LENGTH = "{reason.MUST_BE_AT_MOST_CHARS}";
 
     /** Filters of the defect list; the project is required, everything else narrows (AND). */
     public record DefectsQuery(@NotBlank(message = REQUIRED) String project, String status, String severity,

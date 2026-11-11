@@ -14,6 +14,7 @@ import org.pgledger.database.repository.SessionGrantRepository;
 import org.pgledger.domain.error.LookupCode;
 import org.pgledger.domain.error.LookupException;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.SessionGrant;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.value.AuthorId;
@@ -70,7 +71,7 @@ public class GrantService {
             throw new LookupException(LookupCode.NOT_FOUND, List.of("project", project.value()));
         }
         if (command.scopes() == null || command.scopes().isEmpty()) {
-            throw ValidationException.invalid("scopes", "must name at least one scope",
+            throw ValidationException.invalid("scopes", ValidationReason.MUST_NAME_A_SCOPE,
                     Tokens.allowed(Scope.values()));
         }
         Set<Scope> scopes = new LinkedHashSet<>();
@@ -104,7 +105,7 @@ public class GrantService {
         boolean hasProject = command.project() != null && !command.project().isBlank();
         boolean hasScope = command.scope() != null && !command.scope().isBlank();
         if (hasScope && !hasProject) {
-            throw ValidationException.invalid("project", "is required when a scope is given");
+            throw ValidationException.invalid("project", ValidationReason.REQUIRED_WITH_SCOPE);
         }
         return state.revokeLive(author, hasProject ? ProjectId.of(command.project()) : null,
                 hasScope ? Tokens.parse("scope", command.scope(), Scope.values()) : null, clock.instant());
@@ -118,7 +119,7 @@ public class GrantService {
 
     private static AuthorId author(String raw) {
         if (raw == null) {
-            throw ValidationException.invalid("author", "is required");
+            throw ValidationException.invalid("author", ValidationReason.REQUIRED);
         }
         return AuthorId.of(raw);
     }

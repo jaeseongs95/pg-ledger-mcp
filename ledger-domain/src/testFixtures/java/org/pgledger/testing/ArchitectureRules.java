@@ -40,8 +40,8 @@ public final class ArchitectureRules {
     /** ARC-002 (bytecode part): no setAccessible. */
     public static ArchRule noSetAccessible() {
         return noClasses().should().callMethodWhere(DescribedPredicate.describe("calls setAccessible or trySetAccessible",
-                call -> (call.getTarget().getName().equals("setAccessible")
-                        || call.getTarget().getName().equals("trySetAccessible"))
+                call -> ("setAccessible".equals(call.getTarget().getName())
+                        || "trySetAccessible".equals(call.getTarget().getName()))
                         && call.getTargetOwner().isAssignableTo(AccessibleObject.class)));
     }
 
@@ -115,8 +115,8 @@ public final class ArchitectureRules {
     public static ArchRule noAmbientTime(String... allowedPackages) {
         DescribedPredicate<JavaMethodCall> nowWithoutClock = DescribedPredicate.describe(
                 "calls a java.time now(..) overload that does not take a Clock",
-                call -> call.getTarget().getName().equals("now")
-                        && call.getTargetOwner().getPackageName().equals("java.time")
+                call -> "now".equals(call.getTarget().getName())
+                        && "java.time".equals(call.getTargetOwner().getPackageName())
                         && call.getTarget().getRawParameterTypes().stream()
                                 .noneMatch(p -> p.isAssignableTo(Clock.class)));
         return noClasses().that().resideOutsideOfPackages(allowedPackages)

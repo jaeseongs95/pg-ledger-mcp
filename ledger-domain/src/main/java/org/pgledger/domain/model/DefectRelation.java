@@ -1,6 +1,7 @@
 package org.pgledger.domain.model;
 
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.LinkKind;
 import org.pgledger.domain.value.ActorId;
@@ -16,7 +17,7 @@ public record DefectRelation(DefectId a, DefectId b, CodeValue relation, ActorId
     public DefectRelation {
         int order = a.value().compareTo(b.value());
         if (order == 0) {
-            throw ValidationException.invalid("b", "must differ from a");
+            throw ValidationException.invalid("b", ValidationReason.MUST_DIFFER_FROM, "a");
         }
         if (order > 0) {
             DefectId first = b;

@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.pgledger.application.json.LedgerJson;
 import org.pgledger.domain.error.LedgerException;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.Batch;
 import org.pgledger.domain.model.BatchOpKind;
 import org.pgledger.domain.rule.Channel;
@@ -51,7 +52,7 @@ public class BatchService {
 
     public BatchResult batch(String actor, String requestId, List<BatchOpInput> ops) {
         if (ops == null || ops.isEmpty() || ops.size() > Batch.MAX_OPS) {
-            throw ValidationException.invalid("ops", "must hold 1.." + Batch.MAX_OPS + " operations");
+            throw ValidationException.invalid("ops", ValidationReason.MUST_HOLD_ITEMS, "1", String.valueOf(Batch.MAX_OPS));
         }
         RequestId batchId = requestId == null || requestId.isBlank() ? new RequestId(UUID.randomUUID())
                 : RequestId.parse(requestId);
@@ -133,7 +134,7 @@ public class BatchService {
 
     private static void require(int index, String key, Object value) {
         if (value == null) {
-            throw ValidationException.invalid("ops[" + index + "]." + key, "is required");
+            throw ValidationException.invalid("ops[" + index + "]." + key, ValidationReason.REQUIRED);
         }
     }
 }

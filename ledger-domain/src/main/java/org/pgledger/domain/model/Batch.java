@@ -2,6 +2,7 @@ package org.pgledger.domain.model;
 
 import java.util.List;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.value.RequestId;
 
 /** 1..200 operations that commit together or not at all. */
@@ -11,7 +12,7 @@ public record Batch(RequestId requestId, List<BatchOp> ops) {
 
     public Batch {
         if (ops == null || ops.isEmpty() || ops.size() > MAX_OPS) {
-            throw ValidationException.invalid("ops", "must hold 1.." + MAX_OPS + " operations");
+            throw ValidationException.invalid("ops", ValidationReason.MUST_HOLD_ITEMS, "1", String.valueOf(MAX_OPS));
         }
         ops = List.copyOf(ops);
     }

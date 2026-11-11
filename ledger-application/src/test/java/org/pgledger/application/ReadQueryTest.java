@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
@@ -20,6 +21,7 @@ import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
 import org.pgledger.application.history.Snapshot;
 import org.pgledger.application.json.LedgerJson;
+import org.pgledger.domain.value.JsonDocument;
 import org.pgledger.application.read.AttentionService;
 import org.pgledger.application.read.AttentionService.AttentionQuery;
 import org.pgledger.application.read.CatalogService;
@@ -57,6 +59,7 @@ import org.pgledger.domain.error.ErrorCode;
 import org.pgledger.domain.error.LedgerException;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /** MCR-H01 .. H12, MCR-S01 .. S07, MCR-L01 .. L05, MCR-ST01, ST02, MCR-P01, MCR-K01, MCR-010, MCR-012 and SVC-BEF-12. */
 @LedgerServiceTest
@@ -202,7 +205,7 @@ class ReadQueryTest {
                 + "'imported from the old ledger', ?, 'legacy-7')")
                 .param(s.count("SELECT MAX(id) FROM history") + 1).param(d.id()).param(Scenario.uuid()).update();
         s.ctx().jdbc().sql("UPDATE id_counter SET issued_no = issued_no + 1 WHERE name = 'HISTORY'").update();
-        HistoryView imported = rows(s).stream().filter(h -> h.op().equals("IMPORT")).findFirst().orElseThrow();
+        HistoryView imported = rows(s).stream().filter(h -> "IMPORT".equals(h.op())).findFirst().orElseThrow();
         assertThat(imported.legacyRef()).isEqualTo("legacy-7");
         assertThat(imported.actorAssurance()).isEqualTo("LEGACY_LOGIN");
         assertThat(imported.vendor()).isEqualTo("claude");
@@ -229,14 +232,20 @@ class ReadQueryTest {
         assertThat(history(s).history(history(s.projectId(), false)).items()).allSatisfy(h -> assertThat(
                 h.beforeData()).isNull());
         List<HistoryView> with = history(s).history(history(s.projectId(), true)).items();
-        assertThat(with.stream().filter(h -> h.id() == edited.historyId()).findFirst().orElseThrow().beforeData())
+        LedgerJson json = s.bean(LedgerJson.class);
+        assertThat(json.read(beforeOf(with, edited.historyId()), Snapshot.DefectRow.class))
                 .isInstanceOf(Snapshot.DefectRow.class);
-        assertThat(with.stream().filter(h -> h.id() == transitioned.historyId()).findFirst().orElseThrow()
-                .beforeData()).isInstanceOf(Snapshot.DefectRow.class);
-        assertThat(with.stream().filter(h -> h.id() == unlinked.historyId()).findFirst().orElseThrow().beforeData())
+        assertThat(json.read(beforeOf(with, transitioned.historyId()), Snapshot.DefectRow.class))
+                .isInstanceOf(Snapshot.DefectRow.class);
+        assertThat(json.read(beforeOf(with, unlinked.historyId()), Snapshot.DefectTaskRow.class))
                 .isInstanceOf(Snapshot.DefectTaskRow.class);
         assertThat(with.stream().filter(h -> h.id() == d.historyId() || h.id() == kept.historyId()))
                 .allSatisfy(h -> assertThat(h.beforeData()).isNull());
+    }
+
+    /** The stored before_data text of the history row with the id. */
+    private static JsonDocument beforeOf(List<HistoryView> rows, long id) {
+        return rows.stream().filter(h -> h.id() == id).findFirst().orElseThrow().beforeData();
     }
 
     @Test
@@ -371,7 +380,9 @@ class ReadQueryTest {
     @DisplayName("MCR-S06: a blank keyword is refused")
     void s06_blank(String keyword, Scenario s) {
         LedgerException e = Expect.failure(() -> search(s, List.of(keyword), null), ValidationCode.VALIDATION_FAILED);
-        assertThat(e.args()).containsExactly("keywords", "each keyword must be 1..200 characters");
+        assertThat(e.args()).containsExactly("keywords");
+        assertThat(Expect.firstIssue(e).reason()).isEqualTo(ValidationReason.MUST_NOT_BE_BLANK);
+        assertThat(Expect.firstIssue(e).reasonArgs()).isEmpty();
     }
 
     @Test
@@ -379,7 +390,9 @@ class ReadQueryTest {
     void s06_tooLong(Scenario s) {
         LedgerException e = Expect.failure(() -> search(s, List.of("k".repeat(1000)), null),
                 ValidationCode.VALIDATION_FAILED);
-        assertThat(e.args()).containsExactly("keywords", "each keyword must be 1..200 characters");
+        assertThat(e.args()).containsExactly("keywords");
+        assertThat(Expect.firstIssue(e).reason()).isEqualTo(ValidationReason.MUST_BE_AT_MOST_CHARS);
+        assertThat(Expect.firstIssue(e).reasonArgs()).containsExactly("200");
     }
 
     @Test
@@ -408,11 +421,15 @@ class ReadQueryTest {
         assertThat(mine.items()).extracting(ListService.DefectItem::title).containsExactly("mine");
         LedgerException missing = Expect.failure(() -> s.bean(ListService.class).defects(new DefectsQuery(null, null, null,
                 null, null, null, null, null)), ValidationCode.VALIDATION_FAILED);
-        assertThat(missing.args()).containsExactly("project", "is required");
+        assertThat(missing.args()).containsExactly("project");
+        assertThat(Expect.firstIssue(missing).reason()).isEqualTo(ValidationReason.REQUIRED);
+        assertThat(Expect.firstIssue(missing).reasonArgs()).isEmpty();
         LedgerException longOwner = Expect.failure(() -> s.bean(ListService.class).defects(new DefectsQuery(
                 s.projectId(), null, null, null, null, "o".repeat(201), null, null)),
                 ValidationCode.VALIDATION_FAILED);
-        assertThat(longOwner.args()).containsExactly("owner", "must be at most 200 characters");
+        assertThat(longOwner.args()).containsExactly("owner");
+        assertThat(Expect.firstIssue(longOwner).reason()).isEqualTo(ValidationReason.MUST_BE_AT_MOST_CHARS);
+        assertThat(Expect.firstIssue(longOwner).reasonArgs()).containsExactly("200");
     }
 
     @Test
@@ -556,7 +573,7 @@ class ReadQueryTest {
         Page<CatalogService.ProjectView> page = s.bean(CatalogService.class).projects(new ProjectsQuery(1000, null));
         assertThat(page.items()).extracting(CatalogService.ProjectView::id).contains(s.projectId());
         assertThat(page.items().stream().map(CatalogService.ProjectView::code).toList()).isSorted();
-        CatalogService.ProjectView mine = page.items().stream().filter(p -> p.id().equals(s.projectId())).findFirst()
+        CatalogService.ProjectView mine = page.items().stream().filter(p -> Objects.equals(p.id(), s.projectId())).findFirst()
                 .orElseThrow();
         assertThat(mine.code()).isEqualTo(s.code());
         assertThat(mine.title()).startsWith("Project");
@@ -575,7 +592,7 @@ class ReadQueryTest {
         assertThat(active).extracting(CatalogService.CodeView::code).contains(added).doesNotContain(retired);
         var everything = catalog.codes(new CodesQuery("DEFECT_CATEGORY", true, 1000, null)).items();
         assertThat(everything).extracting(CatalogService.CodeView::code).contains(added, retired);
-        CatalogService.CodeView view = everything.stream().filter(c -> c.code().equals(added)).findFirst()
+        CatalogService.CodeView view = everything.stream().filter(c -> Objects.equals(c.code(), added)).findFirst()
                 .orElseThrow();
         assertThat(view.nameKo()).isEqualTo("화면");
         assertThat(view.nameEn()).isEqualTo("UI");

@@ -1,6 +1,7 @@
 package org.pgledger.domain.rule;
 
 import java.util.Arrays;
+import java.util.Objects;
 import org.pgledger.domain.value.Token;
 
 /**
@@ -25,7 +26,7 @@ public enum LinkKind implements Token {
     /** The structural kind of a wire token; every token that is not structural is a relation kind code. */
     public static LinkKind ofToken(String wireToken) {
         return Arrays.stream(values())
-                .filter(kind -> kind != RELATION && kind.token.equals(wireToken))
+                .filter(kind -> kind != RELATION && Objects.equals(kind.token, wireToken))
                 .findFirst()
                 .orElse(RELATION);
     }

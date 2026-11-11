@@ -2,12 +2,15 @@ package org.pgledger.domain.model;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.EnumSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationIssue;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.ActorAssurance;
 import org.pgledger.domain.rule.Channel;
 import org.pgledger.domain.rule.HistoryEntity;
@@ -31,38 +34,44 @@ public record HistoryEntry(@Id Long id, Instant at, ActorId authorId, String log
         JsonDocument beforeData, String reason, String evidenceUri, Sha256 evidenceSha256, Long correctsId,
         RequestId requestId, String legacyRef) {
 
-    private static final Set<HistoryOp> OPS_WITH_BEFORE_DATA = Set.of(HistoryOp.EDIT, HistoryOp.TRANSITION,
+    private static final Set<HistoryOp> OPS_WITH_BEFORE_DATA = EnumSet.of(HistoryOp.EDIT, HistoryOp.TRANSITION,
             HistoryOp.UNLINK);
+    private static final String OPS_WITH_BEFORE_DATA_TEXT = OPS_WITH_BEFORE_DATA.stream().map(HistoryOp::name)
+            .collect(Collectors.joining(", "));
 
     public HistoryEntry {
         if (changes == null) {
             changes = JsonDocument.EMPTY_OBJECT;
         }
-        require((op == HistoryOp.TRANSITION) == (toState != null), "to_state", "is set exactly for TRANSITION");
-        require((op == HistoryOp.CORRECT) == (correctsId != null), "corrects_id", "is set exactly for CORRECT");
-        require(!op.legacyOnly() || legacyRef != null, "legacy_ref", "is required for imported operations");
+        require((op == HistoryOp.TRANSITION) == (toState != null), "to_state", ValidationReason.SET_EXACTLY_FOR,
+                "TRANSITION");
+        require((op == HistoryOp.CORRECT) == (correctsId != null), "corrects_id", ValidationReason.SET_EXACTLY_FOR,
+                "CORRECT");
+        require(!op.legacyOnly() || legacyRef != null, "legacy_ref",
+                ValidationReason.REQUIRED_FOR_IMPORTED_OPERATIONS);
         require(beforeData == null || OPS_WITH_BEFORE_DATA.contains(op), "before_data",
-                "exists only for EDIT, TRANSITION and UNLINK");
+                ValidationReason.EXISTS_ONLY_FOR, OPS_WITH_BEFORE_DATA_TEXT);
         require(entityId != null && !entityId.isBlank() && entityId.length() <= 300, "entity_id",
-                "must be 1..300 characters");
-        require(reason != null && !reason.isBlank(), "reason", "is required");
+                ValidationReason.MUST_BE_CHARS_RANGE, "1", "300");
+        require(reason != null && !reason.isBlank(), "reason", ValidationReason.REQUIRED);
         if (legacyRef == null) {
             int length = reason.strip().codePointCount(0, reason.strip().length());
             if (length < 10 || length > 1000) {
                 throw new ValidationException(ValidationCode.REASON_INVALID, List.of(),
-                        List.of(new ValidationIssue("reason", "must be 10..1000 characters", List.of())), Map.of());
+                        List.of(new ValidationIssue("reason", ValidationReason.MUST_BE_CHARS_RANGE,
+                                List.of("10", "1000"))), Map.of());
             }
             require(actorAssurance == ActorAssurance.DECLARED && authorId instanceof AuthorId, "actor_assurance",
-                    "a native entry carries a declared author");
+                    ValidationReason.NATIVE_ENTRY_NEEDS_DECLARED_AUTHOR);
             require(op != HistoryOp.TRANSITION || !LifecycleState.of(entity, toState).filter(LifecycleState::verification)
                     .isPresent() || Channel.REVIEWER.login().equals(login), "login",
-                    "a verification needs the reviewer channel");
+                    ValidationReason.VERIFICATION_NEEDS_REVIEWER_CHANNEL);
         }
     }
 
-    private static void require(boolean condition, String path, String reason) {
+    private static void require(boolean condition, String path, ValidationReason reason, String... reasonArgs) {
         if (!condition) {
-            throw ValidationException.invalid(path, reason);
+            throw ValidationException.invalid(path, reason, reasonArgs);
         }
     }
 }

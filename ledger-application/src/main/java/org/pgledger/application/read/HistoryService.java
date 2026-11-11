@@ -6,13 +6,13 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.pgledger.application.history.ChangeSet;
-import org.pgledger.application.history.Snapshot;
 import org.pgledger.application.json.LedgerJson;
 import org.pgledger.database.repository.HistoryQueryRepository;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.domain.model.HistoryEntry;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
+import org.pgledger.domain.value.JsonDocument;
 import org.pgledger.domain.value.MaxRows;
 import org.pgledger.domain.value.PageCursor;
 import org.pgledger.domain.value.ProjectId;
@@ -36,10 +36,13 @@ public class HistoryService {
             Number maxRows, String cursor) {
     }
 
-    /** One history row as the tools show it. {@code beforeData} is null unless asked for and present. */
+    /**
+     * One history row as the tools show it. {@code beforeData} is null unless asked for and present; it is the JSON
+     * text as the row stores it (written by the ledger mapper, snake_case), which is passed on and not parsed.
+     */
     public record HistoryView(long id, Instant at, String authorId, String vendor, String login,
             String actorAssurance, String entity, String entityId, String op, String fromState, String toState,
-            ChangeSet changes, Snapshot beforeData, String reason, String evidenceUri, Long correctsId,
+            ChangeSet changes, JsonDocument beforeData, String reason, String evidenceUri, Long correctsId,
             String requestId, String legacyRef) {
     }
 
@@ -81,8 +84,7 @@ public class HistoryService {
 
     /** One row as a view, optionally with its {@code before_data}. */
     public HistoryView view(HistoryEntry row, boolean withBefore) {
-        Snapshot before = withBefore && row.beforeData() != null
-                ? json.read(row.beforeData(), Snapshot.typeOf(row.entity())) : null;
+        JsonDocument before = withBefore ? row.beforeData() : null;
         Matcher vendor = VENDOR.matcher(new SessionKey(row.authorId().value()).value());
         return new HistoryView(row.id(), row.at(), row.authorId().value(), vendor.matches() ? vendor.group(1) : null,
                 row.login(), row.actorAssurance().name(), row.entity().token(), row.entityId(), row.op().name(),

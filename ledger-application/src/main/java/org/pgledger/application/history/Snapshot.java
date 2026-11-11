@@ -8,7 +8,6 @@ import org.pgledger.domain.model.DefectFix;
 import org.pgledger.domain.model.DefectRelation;
 import org.pgledger.domain.model.DefectTaskLink;
 import org.pgledger.domain.model.Task;
-import org.pgledger.domain.rule.HistoryEntity;
 
 /**
  * The full row as it was just before a change: what the {@code before_data} column of a history row holds. The
@@ -81,19 +80,5 @@ public sealed interface Snapshot {
                     l.taskId() == null ? null : l.taskId().value(),
                     l.defectId() == null ? null : l.defectId().value(), l.createdBy().value());
         }
-    }
-
-    /** The record type that stored {@code before_data} of an entity has; defect cases have none. */
-    static Class<? extends Snapshot> typeOf(HistoryEntity entity) {
-        return switch (entity) {
-            case DEFECT -> DefectRow.class;
-            case TASK -> TaskRow.class;
-            case CONDITION -> ConditionRow.class;
-            case DEFECT_FIX -> FixRow.class;
-            case DEFECT_TASK -> DefectTaskRow.class;
-            case DEFECT_RELATION -> DefectRelationRow.class;
-            case CONDITION_LINK -> ConditionLinkRow.class;
-            case DEFECT_CASE -> throw new IllegalArgumentException("a case row is never replaced");
-        };
     }
 }

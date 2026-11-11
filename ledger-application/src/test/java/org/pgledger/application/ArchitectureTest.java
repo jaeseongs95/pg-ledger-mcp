@@ -39,10 +39,10 @@ class ArchitectureTest {
 
     private static final DescribedPredicate<JavaMethodCall> CALLS_STRING_HASH_CODE = DescribedPredicate.describe(
             "calls String.hashCode (the first step of a switch over a String)",
-            call -> call.getTarget().getName().equals("hashCode") && call.getTargetOwner().isEquivalentTo(String.class));
+            call -> "hashCode".equals(call.getTarget().getName()) && call.getTargetOwner().isEquivalentTo(String.class));
 
     private static final DescribedPredicate<JavaMethodCall> INSERTS_HISTORY = DescribedPredicate.describe(
-            "inserts into the history", call -> call.getTarget().getName().equals("insert")
+            "inserts into the history", call -> "insert".equals(call.getTarget().getName())
                     && call.getTargetOwner().isAssignableTo(HistoryRepository.class));
 
     static Stream<Rule> rules() {

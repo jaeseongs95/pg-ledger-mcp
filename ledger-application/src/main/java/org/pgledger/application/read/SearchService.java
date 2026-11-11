@@ -8,12 +8,14 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.pgledger.database.repository.KeywordMatch;
 import org.pgledger.database.repository.SearchQueryRepository;
 import org.pgledger.database.repository.SearchQueryRepository.Kind;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.ConditionState;
 import org.pgledger.domain.rule.DefectStatus;
 import org.pgledger.domain.rule.LifecycleState;
@@ -42,11 +44,12 @@ public class SearchService {
     /** Longest keyword. */
     public static final int MAX_KEYWORD = 200;
 
-    private static final String KEYWORD_LENGTH = "each keyword must be 1..200 characters";
+    private static final String KEYWORD_BLANK = "{reason.MUST_NOT_BE_BLANK}";
+    private static final String KEYWORD_LENGTH = "{reason.MUST_BE_AT_MOST_CHARS}";
 
     /** The criteria; everything but the keywords is optional. Every keyword is 1..{@link #MAX_KEYWORD} characters. */
     public record SearchQuery(String project, List<String> kinds,
-            List<@NotBlank(message = KEYWORD_LENGTH) @Size(max = MAX_KEYWORD, message = KEYWORD_LENGTH) String> keywords,
+            List<@NotBlank(message = KEYWORD_BLANK) @Size(max = MAX_KEYWORD, message = KEYWORD_LENGTH) String> keywords,
             String match, List<String> excludeStatus, String createdFrom, String createdTo, Number maxRows,
             String cursor) {
     }
@@ -117,7 +120,7 @@ public class SearchService {
         if (position != null) {
             int colon = position.id().indexOf(':');
             if (colon < 0) {
-                throw ValidationException.invalid("cursor", "is damaged");
+                throw ValidationException.invalid("cursor", ValidationReason.CURSOR_DAMAGED);
             }
             after = new SearchQueryRepository.Position(position.sortKey() == null ? Instant.EPOCH
                     : UtcInstant.parse("cursor", position.sortKey()).value(), EnumParser.parse("cursor",
@@ -133,9 +136,9 @@ public class SearchService {
 
     /** The state constant of a name in the exclusion list; the name is that of a state of any of the three kinds. */
     private static LifecycleState status(String raw) {
-        return STATES.stream().filter(state -> state.token().equals(raw)).findFirst()
-                .orElseThrow(() -> ValidationException.invalid("exclude_status", "unknown value " + raw,
-                        STATES.stream().map(LifecycleState::name).distinct().toList()));
+        return STATES.stream().filter(state -> Objects.equals(state.token(), raw)).findFirst()
+                .orElseThrow(() -> ValidationException.invalid("exclude_status", ValidationReason.UNKNOWN_VALUE,
+                        STATES.stream().map(LifecycleState::name).distinct().toList(), String.valueOf(raw)));
     }
 
     private static Instant time(String path, String raw) {

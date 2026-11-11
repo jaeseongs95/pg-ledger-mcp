@@ -5,6 +5,7 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /**
  * A point in time as the contract sees it: input must carry {@code Z} or an offset (a time without a zone is
@@ -15,18 +16,18 @@ public record UtcInstant(Instant value) {
 
     public UtcInstant {
         if (value == null) {
-            throw ValidationException.invalid("instant", "is required");
+            throw ValidationException.invalid("instant", ValidationReason.REQUIRED);
         }
     }
 
     public static UtcInstant parse(String path, String text) {
         if (text == null) {
-            throw ValidationException.invalid(path, "is required");
+            throw ValidationException.invalid(path, ValidationReason.REQUIRED);
         }
         try {
             return new UtcInstant(OffsetDateTime.parse(text, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant());
         } catch (DateTimeParseException e) {
-            throw ValidationException.invalid(path, "must be an ISO-8601 time with Z or an offset");
+            throw ValidationException.invalid(path, ValidationReason.MUST_BE_ISO_8601_INSTANT, e);
         }
     }
 

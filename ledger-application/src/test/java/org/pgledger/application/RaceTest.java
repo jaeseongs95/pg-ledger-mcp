@@ -12,6 +12,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.RepeatedTest;
@@ -64,17 +65,19 @@ class RaceTest {
      * Runs {@code work} inside a transaction that stays open after the work is done: {@code finished} is counted
      * down when the work is done, the transaction commits when {@code release} is counted down.
      */
-    private <T> Future<T> holdingTransaction(Scenario s, Callable<T> work, CountDownLatch finished,
+    private <T> Future<T> holdingTransaction(Scenario s, Supplier<T> work, CountDownLatch finished,
             CountDownLatch release) {
         return Parallel.start(() -> s.ctx().tx(() -> {
             try {
-                T result = work.call();
+                T result = work.get();
                 finished.countDown();
                 release.await(60, TimeUnit.SECONDS);
                 return result;
-            } catch (Exception e) {
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted while the transaction was held open", e);
+            } finally {
                 finished.countDown();
-                throw new IllegalStateException(e);
             }
         }));
     }

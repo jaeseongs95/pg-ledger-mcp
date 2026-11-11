@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import org.pgledger.database.repository.EntityLookupRepository;
 import org.pgledger.database.repository.EntityLookupRepository.Found;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,7 +45,7 @@ public class GetService {
 
     public Result get(List<String> ids) {
         if (ids == null || ids.isEmpty() || ids.size() > MAX_IDS) {
-            throw ValidationException.invalid("ids", "must hold 1.." + MAX_IDS + " ids");
+            throw ValidationException.invalid("ids", ValidationReason.MUST_HOLD_ITEMS, "1", String.valueOf(MAX_IDS));
         }
         List<String> distinct = List.copyOf(new LinkedHashSet<>(ids));
         Map<String, Found> defects = byId(lookup.defects(distinct));

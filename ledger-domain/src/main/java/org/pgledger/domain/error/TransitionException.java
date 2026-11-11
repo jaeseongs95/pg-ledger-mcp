@@ -12,12 +12,21 @@ public final class TransitionException extends LedgerException {
         this(code, args, Map.of());
     }
 
+    public TransitionException(TransitionCode code, List<String> args, Throwable cause) {
+        this(code, args, Map.of(), cause);
+    }
+
     public TransitionException(TransitionCode code, List<String> args, Map<String, List<String>> details) {
-        super(code, args, details, null);
+        this(code, args, details, null);
+    }
+
+    public TransitionException(TransitionCode code, List<String> args, Map<String, List<String>> details,
+            Throwable cause) {
+        super(code, args, details, cause);
     }
 
     @Override
     protected LedgerException copyWith(Map<String, List<String>> newDetails) {
-        return new TransitionException((TransitionCode) code(), args(), newDetails);
+        return new TransitionException((TransitionCode) code(), args(), newDetails, getCause());
     }
 }

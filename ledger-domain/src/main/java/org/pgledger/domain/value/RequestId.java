@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /** Idempotency key of a write request: a UUID in its canonical 36 character form. */
 public record RequestId(UUID value) {
@@ -13,13 +14,13 @@ public record RequestId(UUID value) {
 
     public RequestId {
         if (value == null) {
-            throw ValidationException.invalid("request_id", "is required");
+            throw ValidationException.invalid("request_id", ValidationReason.REQUIRED);
         }
     }
 
     public static RequestId parse(String text) {
         if (text == null || !CANONICAL.matcher(text).matches()) {
-            throw ValidationException.invalid("request_id", "must be a UUID");
+            throw ValidationException.invalid("request_id", ValidationReason.MUST_BE_UUID);
         }
         return new RequestId(UUID.fromString(text));
     }

@@ -4,6 +4,7 @@ import java.time.Instant;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.CiConclusion;
 import org.pgledger.domain.rule.FixOrigin;
 import org.pgledger.domain.value.ActorId;
@@ -19,7 +20,7 @@ public record DefectFix(@Id Long id, DefectId defectId, String repo, CommitSha c
 
     public DefectFix {
         if (ciConclusion != null && ciRef == null) {
-            throw ValidationException.invalid("ci_ref", "is required when ci_conclusion is set");
+            throw ValidationException.invalid("ci_ref", ValidationReason.REQUIRED_WHEN_SET, "ci_conclusion");
         }
     }
 

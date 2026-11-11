@@ -2,6 +2,7 @@ package org.pgledger.domain.value;
 
 import java.util.Locale;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 
 /**
  * Length and normalisation rule of a text field. Lengths count characters (code points), not bytes. An optional
@@ -52,7 +53,7 @@ public enum TextRule {
     public String required(String raw) {
         String value = optional(raw);
         if (value == null) {
-            throw ValidationException.invalid(path(), "is required");
+            throw ValidationException.invalid(path(), ValidationReason.REQUIRED);
         }
         return value;
     }
@@ -64,7 +65,7 @@ public enum TextRule {
         }
         String value = trimmed ? raw.strip() : raw;
         if (value.codePointCount(0, value.length()) > max) {
-            throw ValidationException.invalid(path(), "must be at most " + max + " characters");
+            throw ValidationException.invalid(path(), ValidationReason.MUST_BE_AT_MOST_CHARS, String.valueOf(max));
         }
         return value;
     }

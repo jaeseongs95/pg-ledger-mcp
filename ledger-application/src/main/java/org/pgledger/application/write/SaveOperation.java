@@ -26,6 +26,7 @@ import org.pgledger.domain.error.TransitionCode;
 import org.pgledger.domain.error.TransitionException;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
+import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.error.ValidationIssue;
 import org.pgledger.domain.model.Condition;
 import org.pgledger.domain.model.ConditionFields;
@@ -94,7 +95,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
         if (isCreate(c)) {
             String project = c.fields() == null ? null : c.fields().get("project_id");
             if (project == null || project.isBlank()) {
-                throw ValidationException.invalid("project_id", "is required");
+                throw ValidationException.invalid("project_id", ValidationReason.REQUIRED);
             }
             ProjectId projectId = ProjectId.of(project);
             rows.project(projectId);
@@ -109,7 +110,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
                 throw new IllegalStateException("entity() refused it");
         };
         String moved = c.fields() == null ? null : c.fields().get("project_id");
-        if (entity == HistoryEntity.DEFECT || moved == null || moved.isBlank() || moved.equals(current.value())) {
+        if (entity == HistoryEntity.DEFECT || moved == null || moved.isBlank() || Objects.equals(moved, current.value())) {
             return List.of(new Target(current, scope));
         }
         ProjectId target = ProjectId.of(moved);
@@ -119,14 +120,14 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
 
     private static boolean isCreate(SaveCommand c) {
         if (c.expectedVersion() != null && c.expectedVersion() < 0) {
-            throw ValidationException.invalid("expected_version", "must not be negative");
+            throw ValidationException.invalid("expected_version", ValidationReason.MUST_NOT_BE_NEGATIVE);
         }
         return c.expectedVersion() == null || c.expectedVersion() == 0;
     }
 
     private static String requireId(SaveCommand c) {
         if (c.id() == null || c.id().isBlank()) {
-            throw ValidationException.invalid("id", "is required to edit");
+            throw ValidationException.invalid("id", ValidationReason.REQUIRED_TO_EDIT);
         }
         return c.id();
     }
@@ -187,7 +188,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
             }
             case ConditionFields f -> {
                 if (explicitId == null || explicitId.isBlank()) {
-                    throw ValidationException.invalid("id", "is required for a condition");
+                    throw ValidationException.invalid("id", ValidationReason.REQUIRED_FOR_CONDITION);
                 }
                 ConditionId conditionId = ConditionId.of(explicitId);
                 if (conditions.existsById(conditionId) || conditions.findByProjectIdAndReleaseAndCode(
@@ -229,7 +230,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
         if (!candidate.projectCode().equals(project.code())) {
             String prefix = project.code().value() + "-D-";
             throw new ValidationException(ValidationCode.ID_PREFIX_MISMATCH, List.of(explicit, prefix),
-                    List.of(new ValidationIssue("id", "must start with " + prefix, List.of())), Map.of());
+                    List.of(new ValidationIssue("id", ValidationReason.MUST_START_WITH, List.of(prefix))), Map.of());
         }
         if (defects.existsById(candidate)) {
             throw duplicate("defect", explicit);

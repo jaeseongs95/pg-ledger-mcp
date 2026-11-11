@@ -199,9 +199,9 @@ class ReadDetailTest {
         MergeFixture.merge(s, d4.id(), 1, d3.id());
         MergeFixture.merge(s, d3.id(), 1, d2.id());
         List<CaseView> cases = s.bean(DetailService.class).defect(d2.id()).cases();
-        assertThat(cases.stream().filter(c -> c.source().equals("case")).map(CaseView::defect))
+        assertThat(cases.stream().filter(c -> "case".equals(c.source())).map(CaseView::defect))
                 .containsExactlyInAnyOrder(d2.id(), d3.id(), d4.id());
-        assertThat(cases.stream().filter(c -> c.source().equals("merged_behavior")).map(CaseView::defect))
+        assertThat(cases.stream().filter(c -> "merged_behavior".equals(c.source())).map(CaseView::defect))
                 .containsExactlyInAnyOrder(d3.id(), d4.id());
     }
 

@@ -73,7 +73,7 @@ class LinkTest {
     @DisplayName("SVC-LNK-03: a condition is linked to a task or a defect")
     void lnk03_conditionLinks(String kind, Scenario s) {
         SaveResult c = s.newCondition("1", "r", "c");
-        SaveResult target = kind.equals("condition_task") ? s.newTask("t") : s.newDefect("d");
+        SaveResult target = "condition_task".equals(kind) ? s.newTask("t") : s.newDefect("d");
         LinkResult result = link(s, kind, c.id(), target.id(), null);
         assertThat(result.entity()).isEqualTo("condition_link");
         assertThat(result.id()).isEqualTo(c.id() + "|" + target.id());

@@ -2,6 +2,7 @@ package org.pgledger.application.read;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import org.pgledger.database.repository.CommonCodeRepository;
@@ -79,7 +80,7 @@ public class CatalogService {
             Object criteria, Function<T, String> key, Function<T, R> view) {
         int start = 0;
         if (position != null) {
-            while (start < ordered.size() && !key.apply(ordered.get(start)).equals(position.id())) {
+            while (start < ordered.size() && !Objects.equals(key.apply(ordered.get(start)), position.id())) {
                 start++;
             }
             start = Math.min(start + 1, ordered.size());
