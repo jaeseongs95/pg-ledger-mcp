@@ -41,6 +41,16 @@ public final class Scenario {
         context.getBean(GrantService.class).grant(new GrantCommand(author, projectId, List.of(scopes), null, null));
     }
 
+    /**
+     * A new author id that holds exactly these scopes on this project and nowhere else (the actors of the constants
+     * hold grants on every scenario project, so their whoami lists the projects of the other tests as well).
+     */
+    public String actorWith(String label, String... scopes) {
+        String actor = "claude:" + label + "-" + projectId;
+        grant(actor, scopes);
+        return actor;
+    }
+
     public <T> T bean(Class<T> type) {
         return context.getBean(type);
     }

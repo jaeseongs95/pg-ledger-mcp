@@ -20,7 +20,7 @@ public final class McpExtension implements ParameterResolver {
     @Override
     public boolean supportsParameter(ParameterContext parameter, ExtensionContext extension) {
         Class<?> type = parameter.getParameter().getType();
-        return type == McpSession.class || type == Scenario.class || type == ApplicationContext.class;
+        return type == McpSession.class || type == Scenario.class || type == RawHttp.class;
     }
 
     @Override
@@ -29,21 +29,17 @@ public final class McpExtension implements ParameterResolver {
         Class<?> type = parameter.getParameter().getType();
         if (type == McpSession.class) {
             return extension.getStore(NAMESPACE).computeIfAbsent(new SessionKey(parameter.getIndex(),
-                    extension.getUniqueId()), key -> new ClosingSession(open(context)), ClosingSession.class)
+                    extension.getUniqueId()), key -> new ClosingSession(McpSession.open(context)), ClosingSession.class)
                     .session();
         }
         if (type == Scenario.class) {
             return new Scenario(context);
         }
-        if (type == ApplicationContext.class) {
-            return context;
+        if (type == RawHttp.class) {
+            return new RawHttp(context.getEnvironment().getRequiredProperty("local.server.port", Integer.class),
+                    context.getBean(JsonMapper.class));
         }
         throw new ParameterResolutionException("unsupported parameter " + type);
-    }
-
-    private static McpSession open(ApplicationContext context) {
-        int port = context.getEnvironment().getRequiredProperty("local.server.port", Integer.class);
-        return McpSession.open(port, McpTestSettings.TOKEN, context.getBean(JsonMapper.class));
     }
 
     /** The key of a session in the store of one test. */

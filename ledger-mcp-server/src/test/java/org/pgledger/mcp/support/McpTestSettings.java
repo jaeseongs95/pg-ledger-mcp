@@ -22,6 +22,13 @@ public final class McpTestSettings {
     public static final String TOKEN_PROPERTY = "ledger.mcp.token=" + TOKEN;
     public static final String POLL_PROPERTY = "ledger.mcp.code-poll-interval=" + POLL;
 
+    /** The one browser origin the test server allows (an Origin of any other page is refused). */
+    public static final String ALLOWED_ORIGIN = "http://allowed.example";
+    public static final String ORIGIN_PROPERTY = "ledger.mcp.allowed-origins=" + ALLOWED_ORIGIN;
+
+    /** The host names the test server allows in the Host header (the defaults of the server). */
+    public static final String ALLOWED_HOST = "localhost";
+
     private McpTestSettings() {
     }
 }

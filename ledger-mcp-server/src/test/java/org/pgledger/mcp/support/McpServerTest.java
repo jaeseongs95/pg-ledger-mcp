@@ -24,7 +24,7 @@ import org.springframework.test.context.ActiveProfiles;
 @SpringBootTest(classes = LedgerMcpServerApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {McpTestSettings.URL, McpTestSettings.POOL, McpTestSettings.UTC_SESSION,
             McpTestSettings.QUIET_BANNER, McpTestSettings.QUIET_LOG, McpTestSettings.NO_JMX,
-            McpTestSettings.TOKEN_PROPERTY, McpTestSettings.POLL_PROPERTY})
+            McpTestSettings.TOKEN_PROPERTY, McpTestSettings.POLL_PROPERTY, McpTestSettings.ORIGIN_PROPERTY})
 @ActiveProfiles("embedded")
 @Import(McpTestInfrastructure.class)
 @ExtendWith(McpExtension.class)

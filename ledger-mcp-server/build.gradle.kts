@@ -26,6 +26,12 @@ dependencies {
     testImplementation("com.h2database:h2")
 }
 
+tasks.test {
+    // The JDK HttpClient refuses to send a Host header unless the property allows it. The Host allow list test
+    // (MCC-016) must send a Host that differs from the address it connects to.
+    jvmArgs("-Djdk.httpclient.allowRestrictedHeaders=host")
+}
+
 tasks.bootJar {
     archiveFileName = "ledger-mcp-server.jar"
 }
