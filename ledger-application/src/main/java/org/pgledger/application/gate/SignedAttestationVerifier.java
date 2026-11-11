@@ -32,6 +32,15 @@ public class SignedAttestationVerifier implements AttestationVerifier {
 
     private static final Logger LOG = LoggerFactory.getLogger(SignedAttestationVerifier.class);
 
+    /**
+     * A valid Ed25519 public key (X.509 SubjectPublicKeyInfo as RFC 8410 section 4 defines it, https://www.rfc-editor.org/rfc/rfc8410#section-4)
+     * of a key pair that was generated once and whose private key was discarded at once, so nobody can sign for it. It
+     * is a real curve point, so a check against it costs what a check against a registered key costs. An author without
+     * a live key is checked against it ({@link #provenKey}); the result of that check is never used for anything but the
+     * time it takes.
+     */
+    private static final String DUMMY_PUBLIC_KEY = "MCowBQYDK2VwAyEAJqVX6Tk60f69Z7Ch7bLTjwXWgbUzoBYx4ZYJwW3Hdg4=";
+
     private final SessionKeyStateRepository keys;
     private final AttestationProperties properties;
     private final Clock clock;
@@ -92,19 +101,28 @@ public class SignedAttestationVerifier implements AttestationVerifier {
         }
     }
 
-    /** The live key of the author, once the signature is proven under it; every other outcome is one answer. */
+    /**
+     * The live key of the author, once the signature is proven under it; every other outcome is one answer. An author
+     * without a live key is answered after the same work as one with a key: the signature is checked against
+     * {@link #DUMMY_PUBLIC_KEY}, a fixed valid key that nobody can sign for, so the time of the answer does not tell a
+     * caller which authors have a key (the answer itself is already one for both cases).
+     */
     private SessionPublicKey provenKey(AttestationToken token, AuthorId author) {
         Optional<SessionPublicKey> registered = keys.findLive(author);
-        if (registered.isEmpty()) {
-            LOG.info("attestation of {} refused: no live session key is registered", author.value());
-            throw signatureInvalid();
-        }
+        String keyText = registered.map(SessionPublicKey::publicKey).orElse(DUMMY_PUBLIC_KEY);
         try {
-            PublicKey key = PublicKeys.decode(registered.get().publicKey());
+            PublicKey key = PublicKeys.decode(keyText);
             token.verify(key);
         } catch (AttestationException failure) {
-            LOG.info("attestation of {} refused: the signature does not match its live session key", author.value());
+            LOG.info(registered.isPresent()
+                    ? "attestation of {} refused: the signature does not match its live session key"
+                    : "attestation of {} refused: no live session key is registered", author.value());
             throw new TrustException(TrustCode.ATTESTATION_SIGNATURE_INVALID, List.of(), Map.of(), failure);
+        }
+        if (registered.isEmpty()) {
+            // not reachable (nobody can sign for the dummy key); the answer would be the same if it ever were
+            LOG.warn("attestation of {} verified under the dummy key and is refused: no live session key", author.value());
+            throw signatureInvalid();
         }
         return registered.get();
     }
