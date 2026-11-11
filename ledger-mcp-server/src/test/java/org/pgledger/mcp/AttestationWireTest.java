@@ -249,6 +249,14 @@ class AttestationWireTest {
     }
 
     @Test
+    @DisplayName("MCC-028: no tool registers, revokes or lists keys or grants: the owner does that in the admin web and the CLI only")
+    void noKeyOrGrantTool(McpSession session) {
+        assertThat(session.tools()).extracting(io.modelcontextprotocol.spec.McpSchema.Tool::name)
+                .noneMatch(name -> name.contains("key") || name.contains("grant") || name.contains("register")
+                        || name.contains("revoke") || name.contains("attest"));
+    }
+
+    @Test
     @DisplayName("MCW-039: a text that has the prefix of a token but is not a canonical token is ATTESTATION_MALFORMED and the error never contains it")
     void malformedToken(McpSession session, Scenario scenario) {
         Seed seed = Seed.create(session, scenario);
