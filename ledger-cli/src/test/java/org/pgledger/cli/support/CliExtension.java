@@ -14,6 +14,7 @@ import org.pgledger.cli.CliException;
 import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.LedgerCliApplication;
+import org.pgledger.cli.key.SessionKeyRegistry;
 import org.pgledger.cli.secret.SecretInput;
 import org.springframework.boot.ExitCodeEvent;
 import org.springframework.boot.SpringApplication;
@@ -48,6 +49,12 @@ public final class CliExtension implements ParameterResolver {
 
         /** @param input null keeps the product Console input; @param output null keeps the product stream output */
         public Outcome run(Path secretsDirectory, SecretInput input, CliOutput output, String... args) {
+            return run(secretsDirectory, input, output, null, args);
+        }
+
+        /** As above, with the door to the ledger that the command {@code key-register} uses (null: the tool has none). */
+        public Outcome run(Path secretsDirectory, SecretInput input, CliOutput output, SessionKeyRegistry registry,
+                String... args) {
             List<String> all = new ArrayList<>(List.of(args));
             all.add("--ledger.secrets.directory=" + secretsDirectory);
             AtomicReference<ConfigurableApplicationContext> started = new AtomicReference<>();
@@ -59,6 +66,9 @@ public final class CliExtension implements ParameterResolver {
                         GenericApplicationContext generic = (GenericApplicationContext) ctx;
                         if (input != null) {
                             generic.registerBean("testSecretInput", SecretInput.class, () -> input, bd -> bd.setPrimary(true));
+                        }
+                        if (registry != null) {
+                            generic.registerBean("testSessionKeyRegistry", SessionKeyRegistry.class, () -> registry);
                         }
                         if (output != null) {
                             generic.registerBean("testCliOutput", CliOutput.class, () -> output, bd -> bd.setPrimary(true));
