@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(${task.id()})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('tasks')}"></th:block>
+<main id="main">
+  <p><a th:href="@{/tasks(project=${task.projectId()})}" th:text="#{task.back}">Back to the tasks</a></p>
+  <h1 th:text="${task.id()} + ' - ' + ${task.title()}">Task</h1>
+  <dl class="facts">
+    <dt th:text="#{common.project}">Project</dt><dd th:text="${task.projectId()}">p1</dd>
+    <dt th:text="#{common.state}">State</dt><dd><span th:class="'badge badge-' + ${task.state()}" th:text="${task.state()}">ACTIVE</span></dd>
+    <dt th:text="#{common.owner}">Owner</dt><dd th:text="${task.ownerActorId()}">owner</dd>
+    <dt th:text="#{defect.createdBy}">Created by</dt><dd th:text="${task.createdBy()}">author</dd>
+    <dt th:text="#{task.completedBy}">Completed by</dt><dd th:text="${task.completedBy()}">reporter</dd>
+    <dt th:text="#{col.version}">Version</dt><dd th:text="${task.version()}">1</dd>
+    <dt th:text="#{col.created}">Created</dt><dd><time th:replace="~{fragments :: time(${task.createdAt()})}">t</time></dd>
+    <dt th:text="#{col.updated}">Updated</dt><dd><time th:replace="~{fragments :: time(${task.updatedAt()})}">t</time></dd>
+  </dl>
+  <section><h2 th:text="#{task.purpose}">Purpose</h2><p class="prewrap" th:text="${task.purpose()}">purpose</p></section>
+  <section><h2 th:text="#{task.successCondition}">Success condition</h2><p class="prewrap" th:text="${task.successCondition()}">condition</p></section>
+  <section th:if="${task.originRef() != null or task.originQuote() != null}">
+    <h2 th:text="#{task.origin}">Origin</h2>
+    <p><th:block th:replace="~{fragments :: evidence(${task.originRef()})}"></th:block></p>
+    <blockquote class="prewrap" th:if="${task.originQuote() != null}" th:text="${task.originQuote()}">quote</blockquote>
+  </section>
+  <section th:if="${!#lists.isEmpty(task.defects()) or !#lists.isEmpty(task.conditions())}">
+    <h2 th:text="#{defect.links}">Links</h2>
+    <ul>
+      <li th:each="d : ${task.defects()}"><a th:href="@{/defects/{id}(id=${d})}" th:text="${d}">ID</a></li>
+      <li th:each="c : ${task.conditions()}" th:text="${c}">condition</li>
+    </ul>
+  </section>
+  <p><a th:href="@{/history(project=${task.projectId()}, entity='task', entityId=${task.id()})}" th:text="#{defect.fullHistory}">Full history</a></p>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(#{tasks.title})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('tasks')}"></th:block>
+<main id="main">
+  <h1 th:text="#{tasks.title}">Tasks</h1>
+
+  <p th:if="${choice.selected() == null}" th:text="#{common.noProject}">Add a project first.</p>
+  <th:block th:if="${choice.selected() != null}">
+  <form method="get" th:action="@{/tasks}" class="filters">
+    <label for="project" th:text="#{common.project}">Project</label>
+    <select id="project" name="project">
+      <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.id()}" th:selected="${p.id() == choice.selected()}">p1</option>
+    </select>
+    <label for="state" th:text="#{common.state}">State</label>
+    <select id="state" name="state">
+      <option value="" th:text="#{common.any}">Any</option>
+      <option th:each="s : ${states}" th:value="${s.token()}" th:text="${s.token()}" th:selected="${s.token() == filter.state()}">ACTIVE</option>
+    </select>
+    <label for="attention" th:text="#{common.attention}">Attention</label>
+    <select id="attention" name="attention">
+      <option value="" th:text="#{common.any}">Any</option>
+      <option th:each="a : ${attentions}" th:value="${a}" th:text="#{'attention.' + ${a}}" th:selected="${#strings.toString(a) == filter.attention()}">kind</option>
+    </select>
+    <label for="owner" th:text="#{common.owner}">Owner</label>
+    <input id="owner" name="owner" type="text" th:value="${filter.owner()}" maxlength="200">
+    <label for="limit" th:text="#{paging.size}">Rows per page</label>
+    <select id="limit" name="limit">
+      <option th:each="n : ${sizes}" th:value="${n}" th:text="${n}" th:selected="${n == paging.limit()}">50</option>
+    </select>
+    <button type="submit" th:text="#{common.apply}">Apply</button>
+  </form>
+
+  <table th:if="${!#lists.isEmpty(page.items())}">
+    <caption class="sr-only" th:text="#{tasks.title}">Tasks</caption>
+    <thead><tr>
+      <th scope="col" th:text="#{col.id}">ID</th><th scope="col" th:text="#{common.state}">State</th><th scope="col" th:text="#{col.title}">Title</th>
+      <th scope="col" th:text="#{common.owner}">Owner</th><th scope="col" th:text="#{col.updated}">Updated</th>
+    </tr></thead>
+    <tbody>
+      <tr th:each="t : ${page.items()}">
+        <td><a th:href="@{/tasks/{id}(id=${t.id()})}" th:text="${t.id()}">ID</a></td>
+        <td><span th:class="'badge badge-' + ${t.state()}" th:text="${t.state()}">ACTIVE</span></td>
+        <td th:text="${t.title()}">Title</td><td th:text="${t.ownerActorId()}">owner</td>
+        <td><time th:replace="~{fragments :: time(${t.updatedAt()})}">t</time></td>
+      </tr>
+    </tbody>
+  </table>
+  <p th:if="${#lists.isEmpty(page.items())}" th:text="#{common.noRows}">No rows.</p>
+  <nav th:replace="~{fragments :: pager(${paging}, ${total})}"></nav>
+  </th:block>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

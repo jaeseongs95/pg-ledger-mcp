@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: ledger-admin-web
+  messages:
+    # the bundles of the domain (error codes, validation reasons) and of this application (the pages)
+    basename: messages/ledger-errors,messages/ledger-reasons,messages/admin
+    fallback-to-system-locale: false
+    encoding: UTF-8
+  # A deployment reads the registration of the JDBC driver and the secrets through spring.config.import, set by the
+  # service unit (for example optional:file:/etc/pg-ledger-mcp/jdbc-driver.yaml and optional:configtree:/etc/pg-ledger-mcp/secrets/).
+server:
+  # the admin is reached through the reverse proxy of the host, never directly from another machine
+  address: 127.0.0.1
+  port: 8865
+  # the proxy tells the original scheme and client address (X-Forwarded-*); Tomcat trusts them from internal proxies only
+  forward-headers-strategy: native
+  servlet:
+    session:
+      timeout: 12h
+      cookie:
+        name: LEDGER_ADMIN_SESSION
+        http-only: true
+        same-site: strict
+management:
+  endpoints:
+    web:
+      base-path: /
+      exposure:
+        include: health
+      path-mapping:
+        health: healthz
+  endpoint:
+    health:
+      show-details: never

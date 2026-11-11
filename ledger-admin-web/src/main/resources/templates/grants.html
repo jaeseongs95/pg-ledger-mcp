@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(#{grants.title})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('grants')}"></th:block>
+<main id="main">
+  <h1 th:text="#{grants.title}">Session grants</h1>
+
+  <table th:if="${!#lists.isEmpty(grants)}">
+    <caption class="sr-only" th:text="#{grants.title}">Session grants</caption>
+    <thead><tr>
+      <th scope="col" th:text="#{col.id}">ID</th><th scope="col" th:text="#{grants.author}">Author</th><th scope="col" th:text="#{common.project}">Project</th>
+      <th scope="col" th:text="#{grants.scope}">Scope</th><th scope="col" th:text="#{grants.grantedAt}">Granted</th><th scope="col" th:text="#{grants.expiresAt}">Expires</th>
+      <th scope="col" th:text="#{grants.note}">Note</th>
+    </tr></thead>
+    <tbody>
+      <tr th:each="g : ${grants}">
+        <td th:text="${g.id()}">1</td><td th:text="${g.authorId().value()}">claude:a</td><td th:text="${g.projectId().value()}">p1</td>
+        <td th:text="${g.scope().token()}">defect</td>
+        <td><time th:replace="~{fragments :: time(${g.grantedAt()})}">t</time></td>
+        <td><time th:replace="~{fragments :: time(${g.expiresAt()})}">t</time><span th:if="${g.expiresAt() == null}" th:text="#{grants.never}">never</span></td>
+        <td th:text="${g.note()}">note</td>
+      </tr>
+    </tbody>
+  </table>
+  <p th:if="${#lists.isEmpty(grants)}" th:text="#{grants.none}">No live grant.</p>
+
+  <section>
+    <h2 th:text="#{grants.issue}">Issue grants</h2>
+    <form method="post" th:action="@{/grants}">
+      <label for="author" th:text="#{grants.author.label}">Author (vendor:session)</label>
+      <input id="author" name="author" type="text" required autocomplete="off">
+      <label for="grant-project" th:text="#{common.project}">Project</label>
+      <select id="grant-project" name="project" required>
+        <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.id()}">p1</option>
+      </select>
+      <fieldset>
+        <legend th:text="#{grants.scopes}">Scopes</legend>
+        <label th:each="s : ${scopes}" class="check"><input type="checkbox" name="scopes" th:value="${s.token()}"> <span th:text="${s.token()}">defect</span></label>
+      </fieldset>
+      <label for="expiresAt" th:text="#{grants.expires.label}">Expires (UTC, for example 2030-12-31T00:00:00Z; empty: never)</label>
+      <input id="expiresAt" name="expiresAt" type="text" autocomplete="off">
+      <label for="note" th:text="#{grants.note}">Note</label>
+      <input id="note" name="note" type="text" maxlength="500" autocomplete="off">
+      <button type="submit" th:text="#{grants.submit}">Issue</button>
+    </form>
+  </section>
+
+  <section>
+    <h2 th:text="#{grants.revoke}">Revoke grants</h2>
+    <form method="post" th:action="@{/grants/revoke}">
+      <label for="revoke-author" th:text="#{grants.author.label}">Author</label>
+      <input id="revoke-author" name="author" type="text" required autocomplete="off">
+      <label for="revoke-project" th:text="#{grants.revoke.project}">Project (empty: all projects)</label>
+      <select id="revoke-project" name="project">
+        <option value="" th:text="#{common.allProjects}">All projects</option>
+        <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.id()}">p1</option>
+      </select>
+      <label for="revoke-scope" th:text="#{grants.revoke.scope}">Scope (needs a project; empty: all scopes)</label>
+      <select id="revoke-scope" name="scope">
+        <option value="" th:text="#{common.any}">Any</option>
+        <option th:each="s : ${scopes}" th:value="${s.token()}" th:text="${s.token()}">defect</option>
+      </select>
+      <button type="submit" class="danger" th:text="#{grants.revoke.submit}">Revoke</button>
+    </form>
+  </section>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

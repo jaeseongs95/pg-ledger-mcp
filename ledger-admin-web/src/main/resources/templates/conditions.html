@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(#{conditions.title})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('conditions')}"></th:block>
+<main id="main">
+  <h1 th:text="#{conditions.title}">Release conditions</h1>
+
+  <p th:if="${choice.selected() == null}" th:text="#{common.noProject}">Add a project first.</p>
+  <th:block th:if="${choice.selected() != null}">
+  <form method="get" th:action="@{/conditions}" class="filters">
+    <label for="project" th:text="#{common.project}">Project</label>
+    <select id="project" name="project">
+      <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.id()}" th:selected="${p.id() == choice.selected()}">p1</option>
+    </select>
+    <label for="state" th:text="#{common.state}">State</label>
+    <select id="state" name="state">
+      <option value="" th:text="#{common.any}">Any</option>
+      <option th:each="s : ${states}" th:value="${s.token()}" th:text="${s.token()}" th:selected="${s.token() == filter.state()}">MET</option>
+    </select>
+    <label for="release" th:text="#{conditions.release}">Release</label>
+    <input id="release" name="release" type="text" th:value="${filter.release()}" maxlength="200">
+    <label for="limit" th:text="#{paging.size}">Rows per page</label>
+    <select id="limit" name="limit">
+      <option th:each="n : ${sizes}" th:value="${n}" th:text="${n}" th:selected="${n == paging.limit()}">50</option>
+    </select>
+    <button type="submit" th:text="#{common.apply}">Apply</button>
+  </form>
+
+  <table th:if="${!#lists.isEmpty(page.items())}">
+    <caption class="sr-only" th:text="#{conditions.title}">Release conditions</caption>
+    <thead><tr>
+      <th scope="col" th:text="#{col.id}">ID</th><th scope="col" th:text="#{conditions.release}">Release</th><th scope="col" th:text="#{conditions.goal}">Goal</th>
+      <th scope="col" th:text="#{conditions.code}">Code</th><th scope="col" th:text="#{common.state}">State</th><th scope="col" th:text="#{conditions.text}">Condition</th>
+    </tr></thead>
+    <tbody>
+      <tr th:each="c : ${page.items()}">
+        <td th:text="${c.id()}">ID</td><td th:text="${c.release()}">1.0</td><td th:text="${c.goalLabel()}">goal</td><td th:text="${c.code()}">C1</td>
+        <td><span th:class="'badge badge-' + ${c.state()}" th:text="${c.state()}">UNKNOWN</span></td>
+        <td th:text="${c.conditionText()}">text</td>
+      </tr>
+    </tbody>
+  </table>
+  <p th:if="${#lists.isEmpty(page.items())}" th:text="#{common.noRows}">No rows.</p>
+  <nav th:replace="~{fragments :: pager(${paging}, ${total})}"></nav>
+  </th:block>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

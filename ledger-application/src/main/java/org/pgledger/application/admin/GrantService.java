@@ -117,6 +117,12 @@ public class GrantService {
         return state.findLive(author(author), clock.instant());
     }
 
+    /** The live grants of every author now, ordered by author, project and scope (the list of the admin web). */
+    @Transactional(readOnly = true)
+    public List<SessionGrant> liveAll() {
+        return state.findAllLive(clock.instant());
+    }
+
     private static AuthorId author(String raw) {
         if (raw == null) {
             throw ValidationException.invalid("author", ValidationReason.REQUIRED);

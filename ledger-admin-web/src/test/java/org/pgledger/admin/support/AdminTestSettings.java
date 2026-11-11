@@ -1,0 +1,25 @@
+package org.pgledger.admin.support;
+
+/**
+ * The configuration properties of the admin test contexts: an embedded H2 database is brought by the test
+ * configuration; these are the secrets (generated test values, not real ones) and the quiet logging. The embedded
+ * profile makes the application take that database instead of the registered JDBC driver.
+ */
+public final class AdminTestSettings {
+
+    /** The admin token of the test application (a test value, not a secret). */
+    public static final String TOKEN = "test-admin-token-0123456789-abcdef";
+
+    /** The agent token that the test application knows (it must be refused on the admin). */
+    public static final String AGENT_TOKEN = "test-agent-token-0123456789-abcdef";
+
+    public static final String TOKEN_PROPERTY = "ledger.admin.token=" + TOKEN;
+    public static final String AGENT_TOKEN_PROPERTY = "ledger.admin.agent-token=" + AGENT_TOKEN;
+    public static final String QUIET_BANNER = "spring.main.banner-mode=off";
+    public static final String QUIET_LOG = "logging.level.root=WARN";
+    public static final String NO_JMX = "spring.jmx.enabled=false";
+    public static final String OWNER_EMAIL = "owner@example.test";
+
+    private AdminTestSettings() {
+    }
+}
