@@ -64,6 +64,19 @@ public class IdAllocator {
                 .query(Long.class).single();
     }
 
+    /**
+     * After rows with explicit surrogate ids were copied in (the legacy import): the counter is at least {@code atLeast}, so
+     * the next number issued is above every id in use. A counter that is already higher is left alone.
+     */
+    public void raise(Counter counter, long atLeast) {
+        requireTransaction();
+        int rows = jdbc.sql("UPDATE id_counter SET issued_no = :n WHERE name = :name AND issued_no < :n")
+                .param("n", atLeast).param("name", counter.name()).update();
+        if (rows > 1) {
+            throw new IllegalStateException("counter row duplicated: " + counter);
+        }
+    }
+
     private void advance(String sql, ProjectCode code) {
         if (jdbc.sql(sql).param("code", code.value()).update() != 1) {
             throw new LookupException(LookupCode.NOT_FOUND, List.of("project", code.value()));

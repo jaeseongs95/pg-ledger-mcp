@@ -1,3 +1,7 @@
+plugins {
+    `java-test-fixtures`
+}
+
 dependencies {
     api(project(":ledger-domain"))
     // Spring JDBC, Spring Data JDBC and Hikari. No JDBC driver: the driver is registered by the user at run time.
@@ -16,4 +20,13 @@ dependencies {
     // The tests run on the embedded H2 only (default mode, no compatibility mode); the real DBMS is verified at the
     // test server stage. The driver is test-only: the product ships none.
     testImplementation("com.h2database:h2")
+}
+
+// The builder of the legacy ledger for the tests (MIG-024): the table shapes of the old schema `ledger` on an embedded H2 and the
+// data of the old installer, shared by the tests of the import in the application and CLI modules. Test-only: the product ships
+// no driver, and the runtime class path check does not look at test fixtures.
+dependencies {
+    testFixturesImplementation(platform(libs.spring.boot.bom))
+    testFixturesImplementation("com.h2database:h2")
+    testFixturesImplementation("tools.jackson.core:jackson-databind")
 }
