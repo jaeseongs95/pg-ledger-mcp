@@ -171,6 +171,28 @@ class GrantScreenTest {
     }
 
     @Test
+    @DisplayName("ADM-069: a grant refused after the key was registered can be submitted again: the key stays registered "
+            + "once and the grants are issued")
+    void adm069_retryAfterARefusedGrant() throws Exception {
+        Seeded project = seeds.project();
+        String author = newAuthor();
+        AuthorKeys.Pair key = AuthorKeys.newPair();
+        Browser browser = Browser.signedIn(mvc);
+
+        post(browser, "/grants", key.confirmed(Form.of("author", author, "project", "no-such-project", "scopes",
+                "defect"))).andExpect(status().isNotFound());
+        long registered = keys.live(author).orElseThrow().id();
+        browser.perform(browser.form("/grants", key.confirmed(Form.of("author", author, "project", project.project(),
+                "scopes", "defect")), browser.csrfOf("/grants"))).andExpect(status().is3xxRedirection());
+
+        assertThat(keys.live(author).orElseThrow().id()).isEqualTo(registered);
+        assertThat(keys.history(author)).hasSize(1);
+        assertThat(grants.live(author)).extracting(g -> g.scope().token()).containsExactly("defect");
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM owner_audit WHERE operation = 'KEY_REGISTERED' AND subject = :author")
+                .param("author", author).query(Integer.class).single()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("ADM-066: another key for an author that has one is refused 409 KEY_REPLACEMENT_NOT_CONFIRMED naming the "
             + "registered fingerprint and time; nothing changes")
     void adm066_noSilentReplacement() throws Exception {

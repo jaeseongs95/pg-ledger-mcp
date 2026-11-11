@@ -167,6 +167,25 @@ class OwnerAuditTest {
     }
 
     @Test
+    @DisplayName("SVC-KEY-12: registering the key that is already live for the author again is an idempotent success, "
+            + "so the owner can submit a refused grant again")
+    void key12_sameKeyAgainIsIdempotent(Scenario s) {
+        SessionKeyService keys = s.bean(SessionKeyService.class);
+        String author = newAuthor();
+        KeyPair pair = TestKeyRing.newPair();
+        String text = publicKey(pair);
+        Registered first = keys.register(new RegisterCommand(author, text, null), OWNER);
+
+        assertThat(keys.register(new RegisterCommand(author, text, null), OWNER)).isEqualTo(first);
+        assertThat(keys.register(new RegisterCommand(author, "  " + text + "\n", "again"), OTHER_OWNER)).isEqualTo(first);
+        assertThat(keys.registerReplacing(new RegisterCommand(author, text, null), OWNER,
+                first.fingerprint().toUpperCase(Locale.ROOT))).isEqualTo(first);
+
+        assertThat(keys.history(author)).hasSize(1);
+        assertThat(audit(s, author)).containsExactly("KEY_REGISTERED token:owner key=" + first.fingerprint());
+    }
+
+    @Test
     @DisplayName("SVC-GRT-09: every owner operation of the services takes the owner identity")
     void grt09_noActorlessOperation() {
         for (Class<?> service : List.of(GrantService.class, CommonCodeService.class, SessionKeyService.class)) {
