@@ -31,7 +31,10 @@ import org.slf4j.LoggerFactory;
  * and creates the driver. The user supplies the jar; nothing of any DBMS is on the product's class path.
  *
  * <p>The jar is read once into memory. The digest is taken of exactly those bytes, the bytes are written to a private
- * copy (a temporary file that only the owner can read and write), and the class loader opens the copy. A swap of the
+ * copy (a temporary file; on a file system with POSIX permissions it is created with {@code rw-------} through
+ * {@link PosixFilePermissions#asFileAttribute}, elsewhere with the default of {@link Files#createTempFile}, which the
+ * documentation says may be more restrictive than {@code File.createTempFile} but does not fix), and the class loader
+ * opens the copy. A swap of the
  * registered file between the check and the load (a time-of-check to time-of-use race) therefore cannot change what
  * runs. The copy is deleted when the {@link RegisteredDriver} is closed (and, as a fallback, when the JVM ends). A
  * {@link URLClassLoader} opens an URL, not a byte array, so the copy is the file it opens.

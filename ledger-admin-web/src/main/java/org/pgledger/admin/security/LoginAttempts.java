@@ -33,8 +33,9 @@ import org.springframework.stereotype.Component;
  * Caffeine {@link Cache} (bounded, entries expire by themselves on the ticker). Spring's cache abstraction
  * ({@code org.springframework.cache.Cache}, https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/cache/Cache.html)
  * offers get, put and evict but no atomic update of an entry, which the count-and-check needs; Caffeine's
- * {@code Cache.asMap().compute} is atomic per key
- * (https://www.javadoc.io/doc/com.github.ben-manes.caffeine/caffeine/latest/com.github.benmanes.caffeine/com/github/benmanes/caffeine/cache/Cache.html).
+ * {@code Cache.asMap().compute} runs its function as one atomic operation on the entry
+ * (https://github.com/ben-manes/caffeine/wiki/Compute: "Map compute methods provides the ability to perform logic
+ * within an atomic operation that may create, update, or remove an entry").
  * The check runs in {@link AdminTokenProvider}, the one provider of the chain, so every way of presenting the token
  * (login form, bearer) is covered.
  */

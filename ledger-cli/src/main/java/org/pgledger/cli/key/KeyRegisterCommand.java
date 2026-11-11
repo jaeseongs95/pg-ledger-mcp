@@ -28,8 +28,10 @@ import org.springframework.stereotype.Component;
  * {@code --replace=<that fingerprint>} to replace it. This is a command of the owner's tool; no MCP tool registers keys.
  *
  * <p>The option is written with an equals sign, the form Spring Boot's own command line parser understands
- * ({@code --name=value}, see https://docs.spring.io/spring-boot/reference/features/external-config.html); a separate
- * word after {@code --replace} would be one more operand.
+ * ({@code --name=value}, see https://docs.spring.io/spring-boot/reference/features/external-config.html). An option
+ * written without {@code =value} has no value, and a word after it is a non-option argument, that is one more operand
+ * (https://docs.spring.io/spring-boot/api/java/org/springframework/boot/ApplicationArguments.html, {@code getOptionValues}
+ * and {@code getNonOptionArgs}).
  */
 @Component
 public class KeyRegisterCommand implements Command {
