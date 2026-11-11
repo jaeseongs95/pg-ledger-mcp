@@ -7,6 +7,7 @@ import java.util.Optional;
 public enum CliCommand {
 
     SECRET_SET("secret-set"),
+    TOKEN_GENERATE("token-generate"),
     DRIVER_REGISTER("driver-register"),
     MIGRATE("migrate"),
     IMPORT_LEGACY("import-legacy"),
@@ -18,7 +19,8 @@ public enum CliCommand {
     GRANT("grant"),
     REVOKE("revoke"),
     GRANTS("grants"),
-    MCP_CHECK("mcp-check");
+    MCP_CHECK("mcp-check"),
+    RENDER_DEPLOY("render-deploy");
 
     private final String cliName;
 

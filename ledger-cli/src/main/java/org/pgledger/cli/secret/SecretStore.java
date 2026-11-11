@@ -14,28 +14,23 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.PosixFileAttributes;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.UserPrincipal;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Set;
 
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.springframework.stereotype.Component;
 
 /**
- * Stores one secret per file in an owner-only directory owned by the current process user. Directory 0700 and file 0600 are given at creation and never
- * widened and narrowed afterwards; an existing directory or file with wider access is refused, not repaired.
+ * Stores one secret per file in an owner-only directory owned by the current process user. The protection is given at
+ * creation and chosen by the file system, never by the name of the operating system ({@link SecretProtection}): POSIX
+ * permissions 0700 (directory) and 0600 (file), or on a file system with ACLs an ACL with one entry for the owner and
+ * nothing inherited. An existing directory or file with wider access, a link, or another owner is refused, not repaired.
+ * A file system with neither is refused (NON_POSIX_FILESYSTEM): nothing is stored with the default protection.
  */
 @Component
 public class SecretStore {
-
-    private static final Set<PosixFilePermission> DIRECTORY_MODE = PosixFilePermissions.fromString("rwx------");
-    private static final Set<PosixFilePermission> FILE_MODE = PosixFilePermissions.fromString("rw-------");
-    private static final Set<PosixFilePermission> GROUP_AND_OTHERS = PosixFilePermissions.fromString("---rwxrwx");
 
     /** Temporary files start with two dots: configtree ignores those (SEC-015), and no valid secret name starts with a dot. */
     static final String TEMPORARY_PREFIX = "..secret-";
@@ -51,13 +46,13 @@ public class SecretStore {
 
     /** Refuses early (before the user types anything) when the store cannot be used; creates nothing. */
     public void check(SecretName name) {
-        requirePosix();
+        SecretProtection protection = protection();
         try {
             if (Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
-                requireOwnerOnly(directory, true);
+                requireOwnerOnly(directory, true, protection);
                 Path target = directory.resolve(name.value());
                 if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
-                    requireOwnerOnly(target, false);
+                    requireOwnerOnly(target, false, protection);
                 }
             } else {
                 requireParent();
@@ -67,21 +62,31 @@ public class SecretStore {
         }
     }
 
+    /**
+     * Whether the secret is stored already. Refuses like {@link #check} when the directory or the file cannot be used (a
+     * secret of the wrong owner or with wider access is never reported as present and never used).
+     */
+    public boolean exists(SecretName name) {
+        check(name);
+        return Files.exists(directory.resolve(name.value()), LinkOption.NOFOLLOW_LINKS);
+    }
+
     /** Writes the value (UTF-8, no trailing newline) and returns the file. The caller wipes {@code value}. */
     public Path store(SecretName name, char[] value) {
-        requirePosix();
+        SecretProtection protection = protection();
         ByteBuffer bytes = encode(value);
         try {
             if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
                 requireParent();
-                Files.createDirectory(directory, PosixFilePermissions.asFileAttribute(DIRECTORY_MODE));
+                Files.createDirectory(directory, protection.directoryAttributes());
+                protection.settle(directory);
             }
-            requireOwnerOnly(directory, true);
+            requireOwnerOnly(directory, true, protection);
             Path target = directory.resolve(name.value());
             if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
-                requireOwnerOnly(target, false);
+                requireOwnerOnly(target, false, protection);
             }
-            replace(target, bytes);
+            replace(target, bytes, protection);
             return target;
         } catch (IOException e) {
             throw new FailureException(ErrorCode.IO_FAILED, e, directory.toString(), reason(e));
@@ -98,35 +103,38 @@ public class SecretStore {
         }
     }
 
-    private void requirePosix() {
-        if (!directory.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-            throw new FailureException(ErrorCode.NON_POSIX_FILESYSTEM, directory.toString());
+    /** The protection of this file system; a file system with neither POSIX permissions nor ACLs is refused. */
+    private SecretProtection protection() {
+        try {
+            return SecretProtection.of(directory.getFileSystem(), processUser)
+                    .orElseThrow(() -> new FailureException(ErrorCode.NON_POSIX_FILESYSTEM, directory.toString()));
+        } catch (IOException e) {
+            throw new FailureException(ErrorCode.IO_FAILED, e, directory.toString(), reason(e));
         }
     }
 
-    private void requireOwnerOnly(Path path, boolean expectDirectory) throws IOException {
-        PosixFileAttributes attributes = Files.readAttributes(path, PosixFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+    private void requireOwnerOnly(Path path, boolean expectDirectory, SecretProtection protection) throws IOException {
+        BasicFileAttributes attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
         if (expectDirectory ? !attributes.isDirectory() : !attributes.isRegularFile()) {
             throw new FailureException(ErrorCode.UNEXPECTED_FILE_TYPE, path.toString());
         }
         // The service reads the secrets with its own account: a path owned by anyone else (for example root) is useless.
-        UserPrincipal owner = attributes.owner();
+        UserPrincipal owner = Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
         UserPrincipal current = processUser.current(path.getFileSystem());
         if (!owner.equals(current)) {
             throw new FailureException(ErrorCode.FOREIGN_OWNER, path.toString(), owner.getName(), current.getName());
         }
-        Set<PosixFilePermission> mode = attributes.permissions();
-        if (!Collections.disjoint(mode, GROUP_AND_OTHERS)) {
-            throw new FailureException(ErrorCode.LOOSE_PERMISSIONS, path.toString(), PosixFilePermissions.toString(mode));
-        }
+        protection.requireOwnerOnlyAccess(path);
     }
 
-    /** Temporary 0600 file in the same directory, flushed to disk, then an atomic move over the target. */
-    private void replace(Path target, ByteBuffer bytes) throws IOException {
-        Path temporary = Files.createTempFile(directory, TEMPORARY_PREFIX, TEMPORARY_SUFFIX, PosixFilePermissions.asFileAttribute(FILE_MODE));
+    /** Temporary owner-only file in the same directory, flushed to disk, then an atomic move over the target. */
+    private void replace(Path target, ByteBuffer bytes, SecretProtection protection) throws IOException {
+        Path temporary = Files.createTempFile(directory, TEMPORARY_PREFIX, TEMPORARY_SUFFIX, protection.fileAttributes());
         // try-with-resources, no catch: unless the move happened the temporary file is deleted again, and a failure of
         // that delete is added to the original failure as a suppressed exception.
         try (TemporaryFile guard = new TemporaryFile(temporary)) {
+            // the protection is certain before the first byte of the secret is written
+            protection.settle(temporary);
             try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
                 while (bytes.hasRemaining()) {
                     channel.write(bytes);

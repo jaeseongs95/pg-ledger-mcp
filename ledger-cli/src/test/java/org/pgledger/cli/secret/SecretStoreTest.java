@@ -10,21 +10,29 @@ import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.AclEntry;
+import java.nio.file.attribute.AclEntryPermission;
+import java.nio.file.attribute.AclEntryType;
+import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.attribute.UserPrincipal;
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
-import org.pgledger.cli.support.RequiresNonPosixFileSystem;
 import org.pgledger.cli.support.RequiresPosixPermissions;
 
 class SecretStoreTest {
@@ -214,7 +222,7 @@ class SecretStoreTest {
     void sec014_refusesMissingParent() throws IOException {
         Path parent = tmp.resolve("etc").resolve("pg-ledger-mcp");
         Path directory = parent.resolve("secrets");
-        assumeThat(directory.getFileSystem().supportedFileAttributeViews()).contains("posix");
+        assumeThat(directory.getFileSystem().supportedFileAttributeViews()).containsAnyOf("posix", "acl");
 
         assertRefused(() -> store(directory).store(NAME, "v".toCharArray()), ErrorCode.PARENT_MISSING, parent.toString());
         assertRefused(() -> store(directory).check(NAME), ErrorCode.PARENT_MISSING, parent.toString());
@@ -248,14 +256,141 @@ class SecretStoreTest {
         }
     }
 
+    // ---- SEC-016 .. SEC-020: a file system with ACLs and without POSIX permissions (the Windows file systems) ----
+
+    /** The test needs the default file system to have ACLs and no POSIX permissions: the capability, never the name of the system. */
+    private static void assumeAclFileSystem() {
+        assumeThat(FileSystems.getDefault().supportedFileAttributeViews()).contains("acl").doesNotContain("posix");
+    }
+
+    private static List<AclEntry> acl(Path path) throws IOException {
+        return Files.getFileAttributeView(path, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS).getAcl();
+    }
+
+    private static AclEntry allowAll(UserPrincipal principal) {
+        return AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(principal)
+                .setPermissions(EnumSet.allOf(AclEntryPermission.class)).build();
+    }
+
+    /** Every entry of the ACL of the path is an ALLOW entry of its owner, which has the rights to read, write and delete. */
+    private static void assertOwnerOnlyAcl(Path path) throws IOException {
+        UserPrincipal owner = Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
+        assertThat(acl(path)).as("the ACL of %s", path).isNotEmpty().allSatisfy(entry -> {
+            assertThat(entry.type()).isEqualTo(AclEntryType.ALLOW);
+            assertThat(entry.principal()).isEqualTo(owner);
+        });
+        assertThat(acl(path).stream().flatMap(entry -> entry.permissions().stream()).toList())
+                .contains(AclEntryPermission.READ_DATA, AclEntryPermission.WRITE_DATA, AclEntryPermission.DELETE);
+    }
+
     @Test
-    @RequiresNonPosixFileSystem
-    @DisplayName("SEC-012 on a default file system without POSIX permissions it is refused and nothing is created")
-    void sec012_defaultFileSystemWithoutPosixIsRefused() {
+    @DisplayName("SEC-016 on a file system with ACLs the directory and the file are created with an owner-only ACL and the exact UTF-8 bytes")
+    void sec016_createsOwnerOnlyAcl() throws IOException {
+        assumeAclFileSystem();
         Path directory = tmp.resolve("secrets");
+        String value = "päss-한글-😀 with space";
 
-        assertRefused(() -> store(directory).store(NAME, "v".toCharArray()), ErrorCode.NON_POSIX_FILESYSTEM, directory.toString());
+        Path file = store(directory).store(NAME, value.toCharArray());
 
-        assertThat(Files.exists(directory)).isFalse();
+        assertOwnerOnlyAcl(directory);
+        assertOwnerOnlyAcl(file);
+        assertThat(Files.readAllBytes(file)).isEqualTo(value.getBytes(UTF_8));
+        assertThat(names(directory)).containsExactly("cloudflare-api-token");
+        assertThatCode(() -> store(directory).check(NAME)).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("SEC-017 on a file system with ACLs the same name again is replaced through a new owner-only file and a move, leaving no temporary file")
+    void sec017_replacesWithOwnerOnlyAcl() throws IOException {
+        assumeAclFileSystem();
+        Path directory = tmp.resolve("secrets");
+        SecretStore store = store(directory);
+        Path file = store.store(NAME, "first-value".toCharArray());
+
+        store.store(NAME, "second".toCharArray());
+
+        assertThat(Files.readString(file)).isEqualTo("second");
+        assertOwnerOnlyAcl(file);
+        assertThat(names(directory)).containsExactly("cloudflare-api-token");
+    }
+
+    /** SYSTEM exists on every Windows file system and is not the current user; the lookup is by the file system, as FileTrust does. */
+    private static UserPrincipal system() {
+        try {
+            return FileSystems.getDefault().getUserPrincipalLookupService().lookupPrincipalByName("SYSTEM");
+        } catch (IOException absent) {
+            Assumptions.abort("this machine has no account SYSTEM");
+            throw new IllegalStateException(absent);
+        }
+    }
+
+    @Test
+    @DisplayName("SEC-018 on a file system with ACLs an existing directory whose ACL allows another account is refused naming it, and is not narrowed")
+    void sec018_refusesDirectoryThatAllowsAnotherAccount() throws IOException {
+        assumeAclFileSystem();
+        Path directory = tmp.resolve("secrets");
+        store(directory).store(NAME, "old".toCharArray());
+        UserPrincipal owner = Files.getOwner(directory);
+        Files.getFileAttributeView(directory, AclFileAttributeView.class).setAcl(List.of(allowAll(owner), allowAll(system())));
+        List<AclEntry> before = acl(directory);
+
+        for (Runnable action : List.<Runnable>of(() -> store(directory).store(NAME, "new".toCharArray()),
+                () -> store(directory).check(NAME))) {
+            assertThatThrownBy(action::run).isInstanceOfSatisfying(FailureException.class, e -> {
+                assertThat(e.code()).isEqualTo(ErrorCode.LOOSE_PERMISSIONS);
+                assertThat(e.arguments().getFirst()).isEqualTo(directory.toString());
+            });
+        }
+
+        assertThat(acl(directory)).isEqualTo(before);
+        assertThat(Files.readString(directory.resolve("cloudflare-api-token"))).isEqualTo("old");
+    }
+
+    @Test
+    @DisplayName("SEC-019 on a file system with ACLs an existing secret file whose ACL allows another account is refused and keeps its content")
+    void sec019_refusesFileThatAllowsAnotherAccount() throws IOException {
+        assumeAclFileSystem();
+        Path directory = tmp.resolve("secrets");
+        Path file = store(directory).store(NAME, "old".toCharArray());
+        UserPrincipal owner = Files.getOwner(file);
+        Files.getFileAttributeView(file, AclFileAttributeView.class).setAcl(List.of(allowAll(owner), allowAll(system())));
+
+        assertThatThrownBy(() -> store(directory).store(NAME, "new".toCharArray())).isInstanceOfSatisfying(FailureException.class,
+                e -> {
+                    assertThat(e.code()).isEqualTo(ErrorCode.LOOSE_PERMISSIONS);
+                    assertThat(e.arguments().getFirst()).isEqualTo(file.toString());
+                });
+
+        assertThat(Files.readString(file)).isEqualTo("old");
+    }
+
+    @Test
+    @DisplayName("SEC-020 on a file system with ACLs a directory or file owned by an account other than the current user is refused (FOREIGN_OWNER)")
+    void sec020_refusesAnotherOwner() throws IOException {
+        assumeAclFileSystem();
+        Path directory = tmp.resolve("secrets");
+        Path file = store(directory).store(NAME, "old".toCharArray());
+        UserPrincipal other = system();
+        assumeThat(other).isNotEqualTo(Files.getOwner(directory));
+
+        assertRefused(() -> store(directory, users(other)).store(NAME, "new".toCharArray()), ErrorCode.FOREIGN_OWNER,
+                directory.toString(), Files.getOwner(directory).getName(), other.getName());
+
+        assertThat(Files.readString(file)).isEqualTo("old");
+    }
+
+    @Test
+    @DisplayName("SEC-021 a protection is chosen by the attribute views of the file system: POSIX first, then ACL, a file system with neither has none")
+    void sec021_protectionFollowsTheAttributeViews() throws IOException {
+        FileSystem system = FileSystems.getDefault();
+        Set<String> views = system.supportedFileAttributeViews();
+        Optional<SecretProtection> chosen = SecretProtection.of(system, new SystemProcessUser());
+
+        assertThat(chosen).isPresent();
+        assertThat(chosen.orElseThrow() instanceof SecretProtection.Posix).isEqualTo(views.contains("posix"));
+        assertThat(chosen.orElseThrow() instanceof SecretProtection.Acl).isEqualTo(!views.contains("posix") && views.contains("acl"));
+        try (FileSystem zip = FileSystems.newFileSystem(tmp.resolve("neither.zip"), Map.of("create", "true"))) {
+            assertThat(SecretProtection.of(zip, new SystemProcessUser())).isEmpty();
+        }
     }
 }

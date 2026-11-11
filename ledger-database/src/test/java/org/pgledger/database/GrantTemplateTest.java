@@ -3,55 +3,66 @@ package org.pgledger.database;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.database.schema.GrantApplier;
-import org.pgledger.database.schema.GrantApplier.Profile;
+import org.pgledger.database.schema.SchemaMigrationException;
+import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
+import org.pgledger.database.support.Databases;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 /**
- * INS-007 .. INS-009: the grant templates read as text (they hold ANSI GRANT statements and nothing else, they cover every
- * table of the schema files, they never give a write on the history) and the account name, the one value that enters the
- * SQL.
+ * INS-007 .. INS-010: the grant template of the application account read as text (ANSI GRANT statements and nothing else,
+ * every table of the schema files, never a write on the history), the account name (the one value that enters the SQL) and
+ * the application of the template through {@link GrantApplier} on an H2 account (an H2 {@code CREATE USER} is a test fixture
+ * only). That the account runs every path of the applications and cannot change the history is {@code DmlAccountTest}.
  */
 class GrantTemplateTest {
 
     private static final Pattern STATEMENT = Pattern.compile(
-            "GRANT ((?:SELECT|INSERT|UPDATE|DELETE)(?:, (?:SELECT|INSERT|UPDATE|DELETE))*) ON ([a-z_]+) TO \\$\\{account\\}");
+            "GRANT ((?:SELECT|INSERT|UPDATE|DELETE)(?:, (?:SELECT|INSERT|UPDATE|DELETE))*) ON ([a-z_]+) TO \\$\\{dml_account\\}");
     private static final Pattern CREATE_TABLE = Pattern.compile("(?m)^CREATE TABLE ([a-z_]+) \\(");
 
-    private static String read(String resource) {
+    private static String template() {
         try {
-            return new ClassPathResource(resource, GrantTemplateTest.class.getClassLoader())
+            return new ClassPathResource(GrantApplier.TEMPLATE, GrantTemplateTest.class.getClassLoader())
                     .getContentAsString(StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new java.io.UncheckedIOException(e);
+            throw new UncheckedIOException(e);
         }
     }
 
-    /** The statements of a template without its comment lines, one string each. */
-    private static List<String> statements(Profile profile) {
+    /** The statements of the template without its comment lines, one string each. */
+    private static List<String> statements() {
         List<String> kept = new ArrayList<>();
-        for (String line : read(profile.resource()).split("\\R")) {
+        for (String line : template().split("\\R")) {
             if (!line.strip().startsWith("--")) {
                 kept.add(line);
             }
@@ -65,12 +76,12 @@ class GrantTemplateTest {
         return statements;
     }
 
-    /** The rights a template gives, per table. */
-    private static Map<String, Set<String>> rights(Profile profile) {
+    /** The rights the template gives, per table. */
+    private static Map<String, Set<String>> rights() {
         Map<String, Set<String>> rights = new LinkedHashMap<>();
-        for (String statement : statements(profile)) {
+        for (String statement : statements()) {
             Matcher matcher = STATEMENT.matcher(statement);
-            assertThat(matcher.matches()).as("%s: %s", profile, statement).isTrue();
+            assertThat(matcher.matches()).as(statement).isTrue();
             rights.computeIfAbsent(matcher.group(2), table -> new TreeSet<>())
                     .addAll(Arrays.asList(matcher.group(1).split(", ")));
         }
@@ -91,38 +102,30 @@ class GrantTemplateTest {
         return tables;
     }
 
-    @ParameterizedTest
-    @EnumSource(Profile.class)
-    @DisplayName("INS-007 a template holds only GRANT statements of SELECT, INSERT, UPDATE and DELETE on tables to the placeholder account")
-    void ins007_aTemplateHoldsOnlyPlainGrants(Profile profile) {
-        assertThat(statements(profile)).isNotEmpty().allSatisfy(statement -> assertThat(STATEMENT.matcher(statement).matches())
-                .as(statement).isTrue());
-        // ${account} is the only placeholder
-        assertThat(read(profile.resource()).replace("${account}", "")).doesNotContain("${");
-        assertThat(read(profile.resource()).toUpperCase(java.util.Locale.ROOT)).doesNotContain("PUBLIC", "GRANT OPTION",
-                "TRUNCATE", "REFERENCES", "TRIGGER", "ALL PRIVILEGES");
+    private static SchemaProperties properties() {
+        return new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
+                Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT));
     }
 
     @Test
-    @DisplayName("INS-007 the single template of the application account is gone: the two profiles replace it")
-    void ins007_theSingleTemplateIsGone() {
-        assertThat(new ClassPathResource("db-templates/dml-grants.sql", GrantTemplateTest.class.getClassLoader()).exists())
-                .isFalse();
+    @DisplayName("INS-007 the template holds only GRANT statements of SELECT, INSERT, UPDATE and DELETE on tables to the placeholder account")
+    void ins007_theTemplateHoldsOnlyPlainGrants() {
+        assertThat(statements()).isNotEmpty().allSatisfy(
+                statement -> assertThat(STATEMENT.matcher(statement).matches()).as(statement).isTrue());
+        // ${dml_account} is the only placeholder
+        assertThat(template().replace("${dml_account}", "")).doesNotContain("${");
+        assertThat(template().toUpperCase(Locale.ROOT)).doesNotContain("PUBLIC", "GRANT OPTION", "TRUNCATE", "REFERENCES",
+                "TRIGGER", "ALL PRIVILEGES");
     }
 
     @Test
-    @DisplayName("INS-008 every table of the schema files is granted by at least one template, no template names another table, and nobody can update or delete the history")
+    @DisplayName("INS-008 every table of the schema files is granted by the template, it names no other table, and nobody can update or delete the history")
     void ins008_everyTableIsConsciouslyGranted() throws IOException {
-        Set<String> granted = new TreeSet<>();
-        for (Profile profile : Profile.values()) {
-            Map<String, Set<String>> rights = rights(profile);
-            granted.addAll(rights.keySet());
-            assertThat(rights.getOrDefault("history", Set.of())).as("history of %s", profile)
-                    .doesNotContain("UPDATE", "DELETE");
-            assertThat(rights.getOrDefault("schema_history", Set.of())).as("schema_history of %s", profile)
-                    .containsExactly("SELECT");
-        }
-        assertThat(granted).containsExactlyInAnyOrderElementsOf(schemaTables());
+        Map<String, Set<String>> rights = rights();
+
+        assertThat(rights.keySet()).containsExactlyInAnyOrderElementsOf(schemaTables());
+        assertThat(rights.get("history")).doesNotContain("UPDATE", "DELETE");
+        assertThat(rights.get("schema_history")).containsExactly("SELECT");
     }
 
     @ParameterizedTest
@@ -133,14 +136,13 @@ class GrantTemplateTest {
         assertThat(GrantApplier.isAccountName(name)).isFalse();
         // the data source is never touched: a refusal comes before the template is read
         DataSource untouched = null;
-        GrantApplier applier = new GrantApplier(untouched, new SchemaProperties(SchemaProperties.DEFAULT_LOCATION,
-                SchemaProperties.DEFAULT_LONG_TEXT_TYPE, true, null, Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)));
-        assertThatThrownBy(() -> applier.apply(Profile.MCP, name)).isInstanceOf(IllegalArgumentException.class)
+        GrantApplier applier = new GrantApplier(untouched, properties());
+        assertThatThrownBy(() -> applier.apply(name)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageNotContaining(name.isEmpty() ? "\0" : name);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = { "a", "MCP_ACCOUNT", "ledger_admin", "A1_b2", "abcdefghijklmnopqrstuvwxyz0123" })
+    @ValueSource(strings = { "a", "APP_ACCOUNT", "ledger_app", "A1_b2", "abcdefghijklmnopqrstuvwxyz0123" })
     @DisplayName("INS-009 a plain identifier is an account name")
     void ins009_aPlainIdentifierIsAnAccountName(String name) {
         assertThat(GrantApplier.isAccountName(name)).isTrue();
@@ -150,5 +152,38 @@ class GrantTemplateTest {
     @DisplayName("INS-009 a missing name is not an account name")
     void ins009_nullIsNotAnAccountName() {
         assertThat(GrantApplier.isAccountName(null)).isFalse();
+    }
+
+    @Test
+    @DisplayName("INS-010 applying the template a second time changes nothing; an account that does not exist is a SchemaMigrationException with its cause and no SQL in the message")
+    void ins010_theGrantsCanBeAppliedAgain() throws SQLException {
+        String url = new Databases().newUrl();
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(url);
+        config.setMaximumPoolSize(2);
+        config.setConnectionInitSql("SET TIME ZONE 'UTC'");
+        try (HikariDataSource owner = new HikariDataSource(config)) {
+            new SchemaMigrator(owner, new PathMatchingResourcePatternResolver(), properties(), Clock.systemUTC()).migrate();
+            String account = "APP_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(Locale.ROOT);
+            try (Connection c = owner.getConnection(); Statement s = c.createStatement()) {
+                s.execute("CREATE USER " + account + " PASSWORD 'pw-for-the-test'");
+            }
+            GrantApplier applier = new GrantApplier(owner, properties());
+
+            applier.apply(account);
+            applier.apply(account);
+
+            HikariConfig accountConfig = new HikariConfig();
+            accountConfig.setJdbcUrl(url.substring(0, url.indexOf(';')));
+            accountConfig.setUsername(account);
+            accountConfig.setPassword("pw-for-the-test");
+            accountConfig.setMaximumPoolSize(1);
+            try (HikariDataSource app = new HikariDataSource(accountConfig); Connection c = app.getConnection();
+                    Statement s = c.createStatement()) {
+                s.execute("SELECT COUNT(*) FROM defect");
+            }
+            assertThatThrownBy(() -> applier.apply("NO_SUCH_ACCOUNT")).isInstanceOf(SchemaMigrationException.class)
+                    .hasMessageNotContaining("GRANT").hasCauseInstanceOf(org.springframework.dao.DataAccessException.class);
+        }
     }
 }

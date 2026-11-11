@@ -26,6 +26,8 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.cli.CliCommand;
+import org.pgledger.cli.deploy.DeployLayout;
+import org.pgledger.cli.deploy.RenderDeployCommand;
 import org.pgledger.domain.rule.ToolContract;
 import org.springframework.core.io.ClassPathResource;
 
@@ -41,7 +43,13 @@ class DocsTest {
     private static final String NOTE = "docs/release-notes/2.0.0.md";
     private static final String FORMAT = "docs/RELEASE_NOTES_FORMAT.md";
     private static final List<String> REMOVED_TOOLS = List.of("execute_sql_reader", "search_objects_reader");
-    private static final List<String> LEGACY_DIRECTORIES = List.of("bin", "web", "mcp", "sql", "tests", "deploy");
+    /** Changed by install: {@code deploy/} holds the installer of 2.x (deploy/install.sh), it is not a 1.x directory any more. */
+    private static final List<String> LEGACY_DIRECTORIES = List.of("bin", "web", "mcp", "sql", "tests");
+    private static final String INSTALL_SCRIPT = "deploy/install.sh";
+    /** The options the script reads itself: the patterns {@code --name=*)} of its option loop (derived from the script). */
+    private static final Pattern SCRIPT_OPTION = Pattern.compile("--([a-z][a-z-]*)=\\*\\)");
+    private static final List<String> INSTALL_NOTE_TERMS = List.of("deploy/install.sh", "render-deploy", "token-generate",
+            "pg-ledger-admin", "mcp-grants.sql", "admin-grants.sql");
     private static final List<String> REQUIRED_KEYS = List.of("ledger.mcp.token", "ledger.admin.token",
             "ledger.admin.agent-token", "ledger.admin.driver-directory", "ledger.admin.oidc.owners",
             "ledger.admin.lockout.global-delay", "ledger.jdbc.url", "ledger.schema.name");
@@ -70,9 +78,9 @@ class DocsTest {
             new Term("npm", Pattern.compile("\\bnpm\\b")),
             new Term(".mjs", Pattern.compile("\\.mjs\\b")),
             new Term("Cloudflare", Pattern.compile("(?i)cloudflare")),
-            new Term("shell installers", Pattern.compile("(?i)install\\.sh|one-click|setup-domain")),
+            new Term("1.x shell installers", Pattern.compile("(?i)one-click|setup-domain")),
             new Term("PostgreSQL server tools", Pattern.compile("(?i)\\bpsql\\b|pg_hba|SECURITY DEFINER|pg_dump")),
-            new Term("1.x directories", Pattern.compile("(?<![\\w/.-])(?:bin|web|mcp|sql|deploy|tests)/")));
+            new Term("1.x directories", Pattern.compile("(?<![\\w/.-])(?:bin|web|mcp|sql|tests)/")));
 
     // ---- sources of the lists: always the code ----
 
@@ -246,7 +254,7 @@ class DocsTest {
 
     @ParameterizedTest
     @MethodSource("legacyTermCases")
-    @DisplayName("DOC-007 DBHub, Node, npm, .mjs, Cloudflare, the shell installers, the PostgreSQL server tools and the 1.x directories appear only in a line that says 1.x (the Layout note)")
+    @DisplayName("DOC-007 DBHub, Node, npm, .mjs, Cloudflare, the 1.x shell installers, the PostgreSQL server tools and the 1.x directories appear only in a line that says 1.x (the Layout note); deploy/install.sh is the installer of 2.x and not a 1.x term")
     void legacyTermsAppearOnlyInLinesThatSayTheyAreOneX(Language language, Term term) {
         List<String> offending = language.readme().lines().stream().filter(line -> term.pattern().matcher(line).find())
                 .filter(line -> !line.contains(LEGACY_MARKER)).toList();
@@ -301,9 +309,62 @@ class DocsTest {
 
     @ParameterizedTest
     @MethodSource("requiredPhraseCases")
-    @DisplayName("DOC-011 (ARC-031) the README states the DBMS wording (JDBC driver attached by the user and not bundled, ANSI SQL only, no DBMS-specific feature, UTC) and that an installer is planned")
+    @DisplayName("DOC-011 (ARC-031) the README states the DBMS wording (JDBC driver attached by the user and not bundled, ANSI SQL only, no DBMS-specific feature, UTC) and the install procedure (sudo deploy/install.sh)")
     void readmeStatesTheDatabaseWordingAndTheInstaller(Language language, String phrase) {
         assertThat(language.readme().text()).contains(phrase);
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("DOC-030 the README no longer says that the installer is planned")
+    void readmeDoesNotSayTheInstallerIsPlanned(Language language) {
+        assertThat(language.readme().text()).doesNotContain(language.plannedInstallerSentence());
+    }
+
+    /** The options of the installer: those of the script (derived from its option loop) and those of render-deploy. */
+    private static List<String> installerOptions() {
+        List<String> options = new ArrayList<>();
+        Matcher matcher = SCRIPT_OPTION.matcher(Repository.read(INSTALL_SCRIPT));
+        while (matcher.find()) {
+            options.add(matcher.group(1));
+        }
+        options.addAll(RenderDeployCommand.OPTIONS);
+        return options.stream().distinct().sorted().toList();
+    }
+
+    static Stream<Arguments> installerNameCases() {
+        List<String> names = new ArrayList<>(List.of(DeployLayout.MCP_NAME, DeployLayout.ADMIN_NAME));
+        installerOptions().forEach(option -> names.add("--" + option));
+        return languageAnd(names);
+    }
+
+    @ParameterizedTest
+    @MethodSource("installerNameCases")
+    @DisplayName("DOC-031 the README names the two services and documents every option of the installer (the options of deploy/install.sh and of render-deploy, derived from the code) as a code span")
+    void readmeDocumentsTheInstaller(Language language, String name) {
+        boolean documented = language.readme().codeSpans().stream()
+                .anyMatch(span -> span.equals(name) || span.startsWith(name + "="));
+
+        assertThat(documented).as("a code span of the README for %s", name).isTrue();
+    }
+
+    static Stream<Arguments> installNoteCases() {
+        return languageAnd(INSTALL_NOTE_TERMS);
+    }
+
+    @ParameterizedTest
+    @MethodSource("installNoteCases")
+    @DisplayName("DOC-032 each part of the 2.0.0 note names the installer, its two commands, the second service and the two grant profiles")
+    void noteNamesTheInstaller(Language language, String term) {
+        assertThat(note().part(language.partHeading()).text()).contains(term);
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("DOC-032 the retired single grant template and the one-account limitation are not in the 2.0.0 note or the READMEs")
+    void noteAndReadmesDoNotKeepTheOldAccountModel(Language language) {
+        assertThat(note().part(language.partHeading()).text()).doesNotContain("dml-grants.sql");
+        assertThat(language.readme().text()).doesNotContain("dml-grants.sql");
     }
 
     // ---- what the text must say, derived from the code ----

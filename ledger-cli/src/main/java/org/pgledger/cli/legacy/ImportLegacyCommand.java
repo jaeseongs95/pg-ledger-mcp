@@ -44,6 +44,8 @@ import org.springframework.stereotype.Component;
 public class ImportLegacyCommand implements Command {
 
     static final String VERIFY_ONLY = "verify-only";
+    /** The account the whole ledger is written as: the owner account, not the account of an application (INS-012). */
+    static final String OWNER_ACCOUNT = "owner-account";
 
     /** The arguments of a failed comparison come in groups: table, legacy rows, new rows, legacy digest, new digest. */
     private static final int MISMATCH_GROUP = 5;
@@ -65,7 +67,7 @@ public class ImportLegacyCommand implements Command {
 
     @Override
     public Set<String> options() {
-        return Set.of(VERIFY_ONLY);
+        return Set.of(VERIFY_ONLY, OWNER_ACCOUNT);
     }
 
     @Override
@@ -74,6 +76,8 @@ public class ImportLegacyCommand implements Command {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
         boolean verifyOnly = CliOptions.flag(arguments, VERIFY_ONLY);
+        // the account itself is read before the context starts (OwnerAccountEnvironmentPostProcessor); a blank one is refused here
+        CliOptions.value(arguments, OWNER_ACCOUNT);
         CliLedger target = ledger.getIfAvailable();
         if (target == null) {
             throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);

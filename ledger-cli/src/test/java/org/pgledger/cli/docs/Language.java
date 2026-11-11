@@ -14,17 +14,17 @@ import java.util.List;
  * @param partHeading       the level-2 heading of this language in a file that holds both languages
  * @param writtenInHangul   whether the text of this language contains Hangul
  * @param removedMarker     lower-case word that marks a removed item in a line
- * @param requiredPhrases   statements the README must make (the DBMS wording and the installer sentence)
+ * @param requiredPhrases   statements the README must make (the DBMS wording and the install command)
  * @param sections          the sections of a release note, in order, named in this language
  */
 enum Language {
 
     EN("README.md", "Tool", "Command", "Section", "English", false, "removed",
-            List.of("ANSI SQL", "DBMS-specific", "JDBC driver", "bundled", "UTC", "installer is planned"),
+            List.of("ANSI SQL", "DBMS-specific", "JDBC driver", "bundled", "UTC", "sudo deploy/install.sh"),
             List.of("Summary", "Breaking changes", "Migration", "New", "Changed", "Removed", "Security", "Requirements",
                     "Known limitations")),
     KO("README.ko.md", "도구", "명령", "섹션", "한국어", true, "제거",
-            List.of("ANSI SQL", "DBMS 고유", "JDBC 드라이버", "동봉", "UTC", "설치기는 계획"),
+            List.of("ANSI SQL", "DBMS 고유", "JDBC 드라이버", "동봉", "UTC", "sudo deploy/install.sh"),
             List.of("요약", "호환되지 않는 변경", "이전 절차", "추가", "변경", "제거", "보안", "요구 사항", "알려진 제한"));
 
     private final String readmeFile;
@@ -84,6 +84,14 @@ enum Language {
 
     List<String> sections() {
         return sections;
+    }
+
+    /** The sentence of the old README that said the installer was planned: it is untrue now and must not be there (DOC-030). */
+    String plannedInstallerSentence() {
+        return switch (this) {
+            case EN -> "installer is planned";
+            case KO -> "설치기는 계획";
+        };
     }
 
     Language other() {

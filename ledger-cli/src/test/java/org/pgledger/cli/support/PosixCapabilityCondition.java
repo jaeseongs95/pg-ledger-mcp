@@ -20,6 +20,10 @@ final class PosixCapabilityCondition implements ExecutionCondition {
         if (AnnotationSupport.isAnnotated(element.get(), RequiresPosixPermissions.class) && !posix) {
             return ConditionEvaluationResult.disabled("the default file system has no POSIX permissions");
         }
+        boolean acl = FileSystems.getDefault().supportedFileAttributeViews().contains("acl");
+        if (AnnotationSupport.isAnnotated(element.get(), RequiresOwnerOnlyStorage.class) && !posix && !acl) {
+            return ConditionEvaluationResult.disabled("the default file system has neither POSIX permissions nor ACLs");
+        }
         if (AnnotationSupport.isAnnotated(element.get(), RequiresNonPosixFileSystem.class) && posix) {
             return ConditionEvaluationResult.disabled("the default file system supports POSIX permissions");
         }

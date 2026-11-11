@@ -1,1 +1,2 @@
 org.springframework.boot.diagnostics.FailureAnalyzer=org.pgledger.cli.CliFailureAnalyzer
+org.springframework.boot.EnvironmentPostProcessor=org.pgledger.cli.owner.OwnerAccountEnvironmentPostProcessor

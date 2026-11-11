@@ -48,7 +48,10 @@ public enum ErrorCode {
     IMPORT_TARGET_NOT_EMPTY,
     IMPORT_SOURCE_INCOMPLETE,
     IMPORT_DATA_REFUSED,
-    IMPORT_VERIFY_FAILED;
+    IMPORT_VERIFY_FAILED,
+    INVALID_DEPLOY_VALUE,
+    DEPLOY_WRITE_FAILED,
+    GRANT_FAILED;
 
     public String messageKey() {
         return "error." + name();

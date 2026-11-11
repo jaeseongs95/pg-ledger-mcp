@@ -90,11 +90,11 @@ class UsageTest {
     }
 
     @Test
-    @DisplayName("CLI-001 the usage text names the nine commands of the owner tool next to the three that already existed (changed by import: import-legacy is the 13th command, listed after migrate)")
+    @DisplayName("CLI-001 the usage text names the commands of the owner tool (changed by import: import-legacy is listed after migrate; changed by install, INS-029: token-generate follows secret-set and render-deploy ends the list)")
     void theCommandSetIsTheOneOfThePlan() {
         assertThat(Stream.of(CliCommand.values()).map(CliCommand::cliName)).containsExactly("secret-set",
-                "driver-register", "migrate", "import-legacy", "key-register", "key-revoke", "project-add", "code-set", "codes", "grant",
-                "revoke", "grants", "mcp-check");
+                "token-generate", "driver-register", "migrate", "import-legacy", "key-register", "key-revoke", "project-add", "code-set",
+                "codes", "grant", "revoke", "grants", "mcp-check", "render-deploy");
     }
 
     @Test
