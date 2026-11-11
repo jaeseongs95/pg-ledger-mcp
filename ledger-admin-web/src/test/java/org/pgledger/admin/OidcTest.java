@@ -42,7 +42,8 @@ class OidcTest {
     @DynamicPropertySource
     static void oidc(DynamicPropertyRegistry registry) {
         PROVIDER.registrationProperties(REDIRECT).forEach((name, value) -> registry.add(name, () -> value));
-        registry.add("ledger.admin.oidc.allowed-emails", () -> AdminTestSettings.OWNER_EMAIL);
+        registry.add("ledger.admin.oidc.owners[0].issuer", PROVIDER::issuer);
+        registry.add("ledger.admin.oidc.owners[0].email", () -> AdminTestSettings.OWNER_EMAIL);
     }
 
     @AfterAll
@@ -52,6 +53,9 @@ class OidcTest {
 
     @Autowired
     private MockMvc mvc;
+
+    @Autowired
+    private org.springframework.jdbc.core.simple.JdbcClient jdbc;
 
     /** The authorization request of the browser: where it goes, with what. */
     private record Authorization(MultiValueMap<String, String> query, String state, String nonce) {
@@ -141,6 +145,22 @@ class OidcTest {
                 .andExpect(status().isForbidden());
 
         browser.perform(browser.get("/api/session").accept(MediaType.APPLICATION_JSON)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("ADM-067: an owner operation of an OIDC session is recorded with the issuer and the subject of the sign-in")
+    void adm067_auditActorOfAnOidcSession() throws Exception {
+        Browser browser = new Browser(mvc);
+        Authorization authorization = start(browser);
+        callback(browser, authorization.state(), claims -> { }, authorization).andExpect(status().is3xxRedirection());
+
+        browser.perform(browser.form("/codes", Browser.Form.of("group", "DEFECT_CATEGORY", "code", "OIDCAUD", "nameKo",
+                "감사", "nameEn", "Audit", "state", "ACTIVE"), browser.csrfOf("/codes")))
+                .andExpect(status().is3xxRedirection());
+
+        assertThat(jdbc.sql("SELECT actor FROM owner_audit WHERE operation = 'CODE_SET' AND subject = :subject")
+                .param("subject", "DEFECT_CATEGORY/OIDCAUD").query(String.class).list())
+                .containsExactly("oidc:" + PROVIDER.issuer() + "#" + MockOidcProvider.SUBJECT);
     }
 
     @Test

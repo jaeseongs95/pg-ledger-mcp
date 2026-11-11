@@ -60,7 +60,8 @@ import org.springframework.core.NestedExceptionUtils;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 
-/** DRV-002 .. DRV-009, DRV-011, DRV-012, DRV-017 .. DRV-019, DRV-021: the driver boundary and its registration. */
+/** DRV-002 .. DRV-009, DRV-011, DRV-012, DRV-017 .. DRV-019, DRV-021, DRV-025 .. DRV-027, DRV-029: the driver boundary and its
+ * registration (DRV-028, the owner refusal, is NOT_RUN: it needs a file of another owner). */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @ExtendWith(LedgerDatabaseExtension.class)
 class DriverBoundaryTest {
@@ -288,6 +289,104 @@ class DriverBoundaryTest {
         }
         Files.delete(copy);
         assertThat(copy).doesNotExist();
+    }
+
+    private static final Path TEMPORARY_DIRECTORY = Path.of(System.getProperty("java.io.tmpdir"));
+
+    /** The files of the temporary-file directory that look like a jar: the private copy of the loader is one of them. */
+    private static Set<Path> temporaryJars() throws IOException {
+        try (Stream<Path> files = Files.list(TEMPORARY_DIRECTORY)) {
+            return files.filter(file -> file.getFileName().toString().endsWith(".jar")).collect(Collectors.toSet());
+        }
+    }
+
+    @Test
+    void drv025_theClassesComeFromAPrivateCopyOfTheBytesThatWereHashed() throws Exception {
+        Path registered = Files.copy(fakeJar, temp.resolve("swapped-after-load.jar"));
+        DriverRegistration registration = DriverLoader.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
+                NOW);
+        try (RegisteredDriver driver = DriverLoader.load(registration)) {
+            Path source = Path.of(driver.driver().getClass().getProtectionDomain().getCodeSource().getLocation()
+                    .toURI());
+            assertThat(Files.isSameFile(source, registered)).as("the classes are not read from the registered file")
+                    .isFalse();
+            Files.write(registered, Files.readAllBytes(h2Jar()));
+            Class<?> notLoadedYet = driver.driver().getClass().getClassLoader().loadClass(FakeDriverB.class.getName());
+            assertThat(notLoadedYet.getName()).as("still the old bytes after the file was overwritten")
+                    .isEqualTo(FakeDriverB.class.getName());
+        }
+    }
+
+    @Test
+    void drv026_theRegisteredFileCanBeDeletedWhileTheDriverIsOpen() throws Exception {
+        Path registered = Files.copy(fakeJar, temp.resolve("deleted-while-open.jar"));
+        DriverRegistration registration = DriverLoader.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
+                NOW);
+        try (RegisteredDriver driver = DriverLoader.load(registration)) {
+            Files.delete(registered);
+            assertThat(registered).doesNotExist();
+            assertThat(driver.driver().acceptsURL("jdbc:fake:y")).isTrue();
+            assertThat(driver.driver().getClass().getClassLoader().loadClass(FakeDriverB.class.getName()))
+                    .isNotNull();
+        }
+    }
+
+    @Test
+    void drv027_thePrivateCopyExistsWhileTheDriverIsOpenAndIsGoneAfterwards() throws Exception {
+        Path registered = Files.copy(fakeJar, temp.resolve("lifecycle.jar"));
+        Set<Path> before = temporaryJars();
+
+        DriverRegistration registration = DriverLoader.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
+                NOW);
+        assertThat(temporaryJars()).as("describe closes its driver and leaves no copy").isEqualTo(before);
+
+        try (RegisteredDriver driver = DriverLoader.load(registration)) {
+            Set<Path> added = temporaryJars().stream().filter(file -> !before.contains(file))
+                    .collect(Collectors.toSet());
+            assertThat(added).as("one private copy while the driver is open").hasSize(1);
+            if (temp.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+                assertThat(Files.getPosixFilePermissions(added.iterator().next()))
+                        .isEqualTo(PosixFilePermissions.fromString("rw-------"));
+            }
+            assertThat(driver.driver()).isNotNull();
+        }
+        assertThat(temporaryJars()).as("closing the driver removes the copy").isEqualTo(before);
+    }
+
+    @Test
+    void drv027_aRefusedLoadLeavesNoCopy() throws IOException {
+        Path registered = Files.copy(fakeJar, temp.resolve("refused.jar"));
+        Path notAnArchive = Files.writeString(temp.resolve("refused-text.jar"), "this is not an archive");
+        Set<Path> before = temporaryJars();
+
+        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> DriverLoader.load(
+                new DriverRegistration(registered, FakeDriverA.class.getName(), "0".repeat(64), NOW)))))
+                .isEqualTo(InfrastructureCode.DRIVER_INVALID);
+        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> DriverLoader.load(
+                new DriverRegistration(notAnArchive, FakeDriverA.class.getName(), sha(notAnArchive), NOW)))))
+                .isEqualTo(InfrastructureCode.DRIVER_INVALID);
+        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> DriverLoader.load(
+                new DriverRegistration(registered, "org.pgledger.database.fake.Missing", sha(registered), NOW)))))
+                .isEqualTo(InfrastructureCode.DRIVER_INVALID);
+
+        assertThat(temporaryJars()).isEqualTo(before);
+    }
+
+    @Test
+    void drv029_aJarPathWithAPlaceholderIsRefusedByTheLoader() throws IOException {
+        Path directory = Files.createDirectory(temp.resolve("${x}"));
+        Path jar = Files.copy(h2Jar(), directory.resolve("h2.jar"));
+
+        InfrastructureException described = describing(jar, "org.h2.Driver", "jdbc:h2:mem:p");
+        InfrastructureException loaded = catchThrowableOfType(InfrastructureException.class,
+                () -> DriverLoader.load(new DriverRegistration(jar, "org.h2.Driver", sha(jar), NOW)));
+
+        assertThat(described).as("describe refuses a path with ${").isNotNull();
+        assertThat(codeOf(described)).isEqualTo(InfrastructureCode.DRIVER_INVALID);
+        assertThat(described.args().getFirst()).contains("${");
+        assertThat(loaded).as("load refuses a path with ${").isNotNull();
+        assertThat(codeOf(loaded)).isEqualTo(InfrastructureCode.DRIVER_INVALID);
+        assertThat(loaded.args().getFirst()).contains("${");
     }
 
     /** A registration file and what starting an application from it must do. */

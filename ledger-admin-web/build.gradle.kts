@@ -28,6 +28,8 @@ dependencies {
     implementation("tools.jackson.dataformat:jackson-dataformat-yaml")
 
     testImplementation(testFixtures(project(":ledger-domain")))
+    // The tests play the client hook of an author: they make an Ed25519 key pair and sign as the hook does (JDK only).
+    testImplementation(project(":ledger-attestation"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // MockMvc and @AutoConfigureMockMvc (Boot 4 keeps the MVC test support in its own starter).
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")

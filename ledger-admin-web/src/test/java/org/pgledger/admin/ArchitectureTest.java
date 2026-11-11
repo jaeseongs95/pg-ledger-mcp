@@ -138,6 +138,17 @@ class ArchitectureTest {
     }
 
     @Test
+    @DisplayName("ADM-068: LoginAttempts cites the Spring Security events documentation as the reason it is self-built, and "
+            + "no longer says it is as remembered or unverified")
+    void adm068_lockoutCitation() throws IOException {
+        String source = Files.readString(MAIN_JAVA.resolve(Path.of("org", "pgledger", "admin", "security",
+                "LoginAttempts.java")));
+
+        assertThat(source).contains("https://docs.spring.io/spring-security/reference/servlet/authentication/events.html")
+                .doesNotContain("as remembered").doesNotContain("unverified");
+    }
+
+    @Test
     @DisplayName("ARC-036 catch rules: no empty catch, no broad catch")
     void arc036_catchRules() {
         assertThat(CodingScan.catchProblems(Set.of(), null, MAIN_JAVA, TEST_JAVA)).isEmpty();

@@ -41,7 +41,7 @@ class SchemaCatalogTest {
             java.util.regex.Pattern.compile("CURRENT_|LOCALTIME|NOW|SYSDATE");
 
     static final Set<String> TABLES = Set.of("project", "task", "defect", "defect_fix", "defect_case", "defect_task",
-            "defect_relation", "release_condition", "condition_link", "session_grant", "session_key", "history",
+            "defect_relation", "release_condition", "condition_link", "session_grant", "session_key", "owner_audit", "history",
             "request_receipt", "common_code", "code_revision", "id_counter", "schema_history");
 
     /** The timestamp columns of the schema, exactly as the catalogue lists them (SCH-018). */
@@ -49,7 +49,8 @@ class SchemaCatalogTest {
             "task.updated_at", "defect_fix.ci_completed_at", "defect_fix.recorded_at", "defect_case.observed_at",
             "defect_case.recorded_at", "session_grant.granted_at", "session_grant.expires_at",
             "session_grant.revoked_at", "session_grant.last_used_at", "session_key.registered_at",
-            "session_key.revoked_at", "history.at", "request_receipt.created_at", "schema_history.applied_at");
+            "session_key.revoked_at", "owner_audit.at", "history.at", "request_receipt.created_at",
+            "schema_history.applied_at");
 
     private LedgerTestContext ctx;
     private JdbcClient jdbc;
@@ -155,6 +156,8 @@ class SchemaCatalogTest {
                 "INSERT INTO session_grant (id, author_id, project_id, scope, granted_by, granted_at, active_key) "
                         + "VALUES (900002, 'claude:a', :project, 'ADMIN', 'user:owner', "
                         + "TIMESTAMP '2026-11-05 10:00:00', 'k900002')",
+                "INSERT INTO owner_audit (id, at, actor, operation, subject) VALUES (900004, "
+                        + "TIMESTAMP '2026-11-05 10:00:00', 'owner', 'OTHER', 'claude:a|p')",
                 "INSERT INTO schema_history (version, file_name, sha256, applied_at, outcome) VALUES (99, 'V99__x.sql', "
                         + "'aa', TIMESTAMP '2026-11-05 10:00:00', 'MAYBE')");
     }
@@ -212,7 +215,7 @@ class SchemaCatalogTest {
     @Test
     void sch017_countersAndRevisionRow() {
         assertThat(jdbc.sql("SELECT name FROM id_counter ORDER BY name").query(String.class).list())
-                .containsExactly("DEFECT_CASE", "DEFECT_FIX", "HISTORY", "SESSION_GRANT", "SESSION_KEY");
+                .containsExactly("DEFECT_CASE", "DEFECT_FIX", "HISTORY", "OWNER_AUDIT", "SESSION_GRANT", "SESSION_KEY");
         assertThat(jdbc.sql("SELECT COUNT(*) FROM code_revision").query(Integer.class).single()).isEqualTo(1);
         Project fresh = new Seed(ctx).project();
         assertThat(jdbc.sql("SELECT next_defect_no + next_task_no FROM project WHERE id = :id")

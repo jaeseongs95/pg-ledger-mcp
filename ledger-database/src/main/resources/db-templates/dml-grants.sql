@@ -18,5 +18,6 @@ GRANT SELECT, INSERT, DELETE ON condition_link TO ${dml_account};
 GRANT SELECT, INSERT, UPDATE ON session_grant TO ${dml_account};
 GRANT SELECT, INSERT, UPDATE ON session_key TO ${dml_account};
 GRANT SELECT, INSERT ON history TO ${dml_account};
+GRANT SELECT, INSERT ON owner_audit TO ${dml_account};
 GRANT SELECT, INSERT, UPDATE ON request_receipt TO ${dml_account};
 GRANT SELECT ON schema_history TO ${dml_account};

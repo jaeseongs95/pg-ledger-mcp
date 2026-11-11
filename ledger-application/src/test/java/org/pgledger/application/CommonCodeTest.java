@@ -2,6 +2,7 @@ package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.pgledger.testing.TestOwners;
 
 import java.util.Arrays;
 import java.util.List;
@@ -51,13 +52,13 @@ class CommonCodeTest {
     @DisplayName("SVC-CC-01: the three code groups are accepted")
     void cc01_validGroups(String group, Scenario s) {
         CodeCommand inactive = new CodeCommand(group, "CC01_" + s.code(), "이름", "Name", null, null, 25, "INACTIVE");
-        assertThat(s.bean(CommonCodeService.class).set(inactive).code().group().name()).isEqualTo(group);
+        assertThat(s.bean(CommonCodeService.class).set(inactive, TestOwners.OWNER).code().group().name()).isEqualTo(group);
     }
 
     @Test
     @DisplayName("SVC-CC-01: any other group is refused")
     void cc01_otherGroup(Scenario s) {
-        Expect.failure(() -> s.bean(CommonCodeService.class).set(code("X", "CC01")), ValidationCode.VALIDATION_FAILED);
+        Expect.failure(() -> s.bean(CommonCodeService.class).set(code("X", "CC01"), TestOwners.OWNER), ValidationCode.VALIDATION_FAILED);
     }
 
     @Test
@@ -66,7 +67,7 @@ class CommonCodeTest {
         long before = revision(s);
         String category = "UI_" + s.code();
         var result = s.bean(CommonCodeService.class).set(new CodeCommand("DEFECT_CATEGORY", category, "화면", "UI",
-                null, null, 25, null));
+                null, null, 25, null), TestOwners.OWNER);
         assertThat(result.code().state()).isEqualTo(CodeState.ACTIVE);
         assertThat(result.revision()).isEqualTo(before + 1);
         var fields = s.defectFields("d");
@@ -80,12 +81,12 @@ class CommonCodeTest {
     void cc03_inactive(Scenario s) {
         String category = "OLD_" + s.code();
         s.bean(CommonCodeService.class).set(new CodeCommand("DEFECT_CATEGORY", category, "옛", "Old", null, null, 30,
-                null));
+                null), TestOwners.OWNER);
         var fields = s.defectFields("d");
         fields.put("category", category);
         var defect = s.bean(SaveService.class).save(Scenario.AUTHOR, s.create("defect", null, fields));
         s.bean(CommonCodeService.class).set(new CodeCommand("DEFECT_CATEGORY", category, "옛", "Old", null, null, 30,
-                "INACTIVE"));
+                "INACTIVE"), TestOwners.OWNER);
         assertThat(s.bean(CommonCodeRepository.class).find(CodeGroup.DEFECT_CATEGORY, CodeValue.of(category)))
                 .isPresent();
         Expect.failure(() -> s.bean(SaveService.class).save(Scenario.AUTHOR, s.create("defect", null, fields)),
@@ -99,9 +100,9 @@ class CommonCodeTest {
     @DisplayName("SVC-CC-04: the same key updates text and state; the service has no delete and no rename")
     void cc04_neverDeleted(Scenario s) {
         String name = "CC04_" + s.code();
-        s.bean(CommonCodeService.class).set(code("RELATION_KIND", name));
+        s.bean(CommonCodeService.class).set(code("RELATION_KIND", name), TestOwners.OWNER);
         var updated = s.bean(CommonCodeService.class).set(new CodeCommand("RELATION_KIND", name, "바뀜", "Changed",
-                null, null, 26, null));
+                null, null, 26, null), TestOwners.OWNER);
         assertThat(updated.code().nameEn()).isEqualTo("Changed");
         assertThat(updated.code().createdBy().value()).isEqualTo("user:owner");
         assertThat(Arrays.stream(CommonCodeService.class.getMethods()).map(m -> m.getName()))
@@ -141,7 +142,7 @@ class CommonCodeTest {
     @MethodSource("limits")
     @DisplayName("SVC-CC-05: text and code limits")
     void cc05_limits(Limit limit, Scenario s) {
-        assertThat(Expect.outcome(() -> s.bean(CommonCodeService.class).set(limit.command())))
+        assertThat(Expect.outcome(() -> s.bean(CommonCodeService.class).set(limit.command(), TestOwners.OWNER)))
                 .isEqualTo(Optional.ofNullable(limit.expected()));
     }
 
@@ -149,7 +150,7 @@ class CommonCodeTest {
     @DisplayName("SVC-CC-06: an omitted English text falls back to the Korean text")
     void cc06_englishFallback(Scenario s) {
         var result = s.bean(CommonCodeService.class).set(new CodeCommand("RELATION_KIND", "CC06_" + s.code(), "한글",
-                null, "설명", null, 41, null));
+                null, "설명", null, 41, null), TestOwners.OWNER);
         assertThat(result.code().nameEn()).isEqualTo("한글");
         assertThat(result.code().descriptionEn()).isEqualTo("설명");
     }
@@ -158,9 +159,9 @@ class CommonCodeTest {
     @DisplayName("SVC-CC-07: setting a code to what it already is does not bump the revision")
     void cc07_noSpuriousRevision(Scenario s) {
         String name = "CC07_" + s.code();
-        s.bean(CommonCodeService.class).set(code("RELATION_KIND", name));
+        s.bean(CommonCodeService.class).set(code("RELATION_KIND", name), TestOwners.OWNER);
         long before = revision(s);
-        s.bean(CommonCodeService.class).set(code("RELATION_KIND", name));
+        s.bean(CommonCodeService.class).set(code("RELATION_KIND", name), TestOwners.OWNER);
         assertThat(revision(s)).isEqualTo(before);
     }
 
@@ -170,7 +171,7 @@ class CommonCodeTest {
         long before = revision(s);
         String name = "CC08_" + s.code();
         assertThatThrownBy(() -> s.ctx().tx(() -> {
-            s.bean(CommonCodeService.class).set(code("RELATION_KIND", name));
+            s.bean(CommonCodeService.class).set(code("RELATION_KIND", name), TestOwners.OWNER);
             throw new IllegalStateException("rolled back");
         })).isInstanceOf(IllegalStateException.class);
         assertThat(revision(s)).isEqualTo(before);
@@ -206,7 +207,7 @@ class CommonCodeTest {
     @ValueSource(strings = {"1LEADING", "WITH SPACE"})
     @DisplayName("SVC-CC-05: a code that does not match the pattern is refused")
     void cc05_codePattern(String code, Scenario s) {
-        Expect.failure(() -> s.bean(CommonCodeService.class).set(code("RELATION_KIND", code)),
+        Expect.failure(() -> s.bean(CommonCodeService.class).set(code("RELATION_KIND", code), TestOwners.OWNER),
                 ValidationCode.VALIDATION_FAILED);
     }
 }

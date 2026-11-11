@@ -27,6 +27,7 @@ import org.pgledger.database.repository.DefectRepository;
 import org.pgledger.database.repository.GrantStateRepository;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.database.repository.IdAllocator;
+import org.pgledger.database.repository.OwnerAuditRepository;
 import org.pgledger.database.repository.ReceiptRepository;
 import org.pgledger.database.repository.SessionGrantRepository;
 import org.pgledger.database.repository.SessionKeyRepository;
@@ -175,6 +176,7 @@ class TimeZoneTest {
             expected.put("session_grant.last_used_at", I.plusSeconds(4));
             expected.put("session_key.registered_at", I);
             expected.put("session_key.revoked_at", I.plusSeconds(6));
+            expected.put("owner_audit.at", I);
             expected.put("history.at", I);
             expected.put("request_receipt.created_at", I);
             expected.put("schema_history.applied_at", LedgerTestContext.START);
@@ -215,6 +217,9 @@ class TimeZoneTest {
                 ids.next(Counter.SESSION_KEY), Seed.ALICE, "MCowBQYDK2VwAyEA" + "A".repeat(43), "c".repeat(64),
                 AuthorId.OWNER, I, null)));
         ctx.tx(() -> ctx.bean(SessionKeyStateRepository.class).close(key.id(), I.plusSeconds(6)));
+        ctx.tx(() -> ctx.bean(OwnerAuditRepository.class).insert(new org.pgledger.domain.model.OwnerAuditEntry(
+                ids.next(Counter.OWNER_AUDIT), I, "owner", org.pgledger.domain.rule.OwnerAction.GRANT_ISSUED,
+                "claude:a|p", null)));
         ctx.tx(() -> ctx.bean(HistoryRepository.class).insert(new HistoryEntry(ids.next(Counter.HISTORY), I,
                 Seed.ALICE, Channel.AUTHOR.login(), ActorAssurance.DECLARED, HistoryEntity.DEFECT,
                 defect.id().value(), HistoryOp.CREATE, null, null, JsonDocument.EMPTY_OBJECT, null,

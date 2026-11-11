@@ -1,6 +1,7 @@
 package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -191,7 +192,7 @@ class IdsTest {
             String author = "claude:grant" + i;
             calls.add(() -> {
                 s.bean(GrantService.class).grant(new GrantService.GrantCommand(author, s.projectId(),
-                        List.of("defect"), null, null));
+                        List.of("defect"), null, null), TestOwners.OWNER);
                 return null;
             });
         }

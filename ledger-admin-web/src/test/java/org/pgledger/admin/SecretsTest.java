@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.github.benmanes.caffeine.cache.Ticker;
-import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
@@ -19,6 +18,7 @@ import org.pgledger.admin.security.LoginAttempts;
 import org.pgledger.admin.support.AdminTest;
 import org.pgledger.admin.support.AdminTestSettings;
 import org.pgledger.admin.support.Browser;
+import org.pgledger.admin.support.FailureText;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -86,18 +86,13 @@ class SecretsTest {
     static class TokenConfiguration {
 
         @Bean
-        Clock clock() {
-            return Clock.systemUTC();
-        }
-
-        @Bean
         Ticker ticker() {
             return Ticker.systemTicker();
         }
 
         @Bean
-        LoginAttempts loginAttempts(LedgerAdminProperties properties, Ticker ticker, Clock clock) {
-            return new LoginAttempts(properties, ticker, clock);
+        LoginAttempts loginAttempts(LedgerAdminProperties properties, Ticker ticker) {
+            return new LoginAttempts(properties, ticker);
         }
 
         @Bean
@@ -115,15 +110,12 @@ class SecretsTest {
     @DisplayName("MCC-027 (admin): a token that is too short or blank stops the start, names the key and prints no token")
     void anUnusableTokenStopsTheStartWithoutPrintingIt(String token, CapturedOutput output) {
         new ApplicationContextRunner().withUserConfiguration(TokenConfiguration.class)
-                .withPropertyValues("ledger.admin.token=" + token).run(context -> {
+                .withPropertyValues("ledger.admin.token=" + token, AdminTestSettings.AGENT_TOKEN_PROPERTY).run(context -> {
                     assertThat(context).hasFailed();
-                    StringBuilder shown = new StringBuilder();
-                    for (Throwable cause = context.getStartupFailure(); cause != null; cause = cause.getCause()) {
-                        shown.append(cause.getMessage()).append('\n');
-                    }
-                    assertThat(shown.toString()).contains("ledger.admin.token").doesNotContain("Value: ");
+                    String shown = FailureText.of(context.getStartupFailure());
+                    assertThat(shown).contains("ledger.admin.token").doesNotContain("Value: ");
                     if (!token.isBlank()) {
-                        assertThat(shown.toString()).doesNotContain(token);
+                        assertThat(shown).doesNotContain(token);
                         assertThat(output.getAll()).doesNotContain(token);
                     }
                 });
@@ -132,17 +124,18 @@ class SecretsTest {
     @Test
     @DisplayName("MCC-027 (admin): a missing token stops the start naming the key; a token equal to the agent token too")
     void missingOrSharedTokenStopsTheStart() {
-        new ApplicationContextRunner().withUserConfiguration(TokenConfiguration.class).run(context -> {
-            assertThat(context).hasFailed();
-            assertThat(String.valueOf(NestedExceptionUtils.getMostSpecificCause(context.getStartupFailure()).getMessage()))
-                    .contains("ledger.admin.token");
-        });
+        new ApplicationContextRunner().withUserConfiguration(TokenConfiguration.class)
+                .withPropertyValues(AdminTestSettings.AGENT_TOKEN_PROPERTY).run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(String.valueOf(NestedExceptionUtils.getMostSpecificCause(context.getStartupFailure())
+                            .getMessage())).contains("ledger.admin.token");
+                });
         new ApplicationContextRunner().withUserConfiguration(TokenConfiguration.class)
                 .withPropertyValues("ledger.admin.token=" + AdminTestSettings.TOKEN,
                         "ledger.admin.agent-token=" + AdminTestSettings.TOKEN)
                 .run(context -> {
                     assertThat(context).hasFailed();
-                    String shown = NestedExceptionUtils.getMostSpecificCause(context.getStartupFailure()).getMessage();
+                    String shown = FailureText.of(context.getStartupFailure());
                     assertThat(shown).contains("ledger.admin.agent-token").doesNotContain(AdminTestSettings.TOKEN);
                 });
     }
@@ -151,7 +144,8 @@ class SecretsTest {
     @DisplayName("MCC-027 (admin): a token of 16 characters starts")
     void aTokenOfTheLeastLengthStarts() {
         new ApplicationContextRunner().withUserConfiguration(TokenConfiguration.class)
-                .withPropertyValues("ledger.admin.token=" + AdminTestSettings.TOKEN.substring(0, 16))
+                .withPropertyValues("ledger.admin.token=" + AdminTestSettings.TOKEN.substring(0, 16),
+                        AdminTestSettings.AGENT_TOKEN_PROPERTY)
                 .run(context -> assertThat(context).hasNotFailed());
     }
 }

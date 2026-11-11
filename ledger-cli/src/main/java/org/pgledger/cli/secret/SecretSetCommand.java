@@ -11,6 +11,7 @@ import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
+import org.springframework.boot.ApplicationArguments;
 import org.springframework.stereotype.Component;
 
 /** {@code secret-set <name>}: the value is typed on the terminal and never appears in arguments, output or logs. */
@@ -35,7 +36,7 @@ public class SecretSetCommand implements Command {
     }
 
     @Override
-    public void run(List<String> operands) {
+    public void run(List<String> operands, ApplicationArguments arguments) {
         if (operands.isEmpty()) {
             throw new UsageException(ErrorCode.MISSING_ARGUMENT);
         }

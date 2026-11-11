@@ -6,6 +6,7 @@ import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.ProjectService;
 import org.pgledger.application.admin.ProjectService.ProjectCommand;
 import org.springframework.context.ApplicationContext;
+import org.pgledger.testing.TestOwners;
 
 /**
  * A project of its own with the actors of the catalogue: an author with the defect, task, fix and verify grants, a
@@ -38,7 +39,7 @@ public final class Scenario {
 
     /** Gives the author the scopes on the project of this scenario. */
     public void grant(String author, String... scopes) {
-        context.getBean(GrantService.class).grant(new GrantCommand(author, projectId, List.of(scopes), null, null));
+        context.getBean(GrantService.class).grant(new GrantCommand(author, projectId, List.of(scopes), null, null), TestOwners.OWNER);
     }
 
     /**
