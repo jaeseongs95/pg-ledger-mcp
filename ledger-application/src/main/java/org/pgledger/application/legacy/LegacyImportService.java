@@ -28,6 +28,7 @@ import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.OwnerAction;
 import org.pgledger.domain.value.OwnerIdentity;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,9 +59,13 @@ import org.springframework.transaction.annotation.Transactional;
  * <li>One audit row {@link OwnerAction#IMPORT} names the actor.</li>
  * </ol>
  *
+ * <p>The import is an operator command, so the service exists only where {@code ledger.cli.enabled=true} (the command line
+ * tool sets it in its own {@code application.properties}); the MCP server and the admin web have no such bean.
+ *
  * <p>{@link #verify()} runs the validation and the comparison alone, against what the new schema holds now.
  */
 @Service
+@ConditionalOnProperty(prefix = "ledger.cli", name = "enabled", havingValue = "true")
 @Transactional
 public class LegacyImportService {
 

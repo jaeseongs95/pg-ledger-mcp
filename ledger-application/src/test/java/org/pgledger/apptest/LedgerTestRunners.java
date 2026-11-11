@@ -58,6 +58,8 @@ public final class LedgerTestRunners {
         run(application(LedgerTestSettings.newUrl(), LedgerTestSettings.session("UTC"))
                 .withUserConfiguration(LedgerTestInfrastructure.class)
                 .withUserConfiguration(configurations)
+                // the import service exists only in the command line tool, which sets this in its application.properties
+                .withPropertyValues("ledger.cli.enabled=true")
                 .withBean(LegacySourceRepository.class,
                         () -> new LegacySourceRepository(source, LegacyLedger.SCHEMA)), test);
     }

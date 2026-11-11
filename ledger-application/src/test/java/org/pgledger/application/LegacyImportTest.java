@@ -976,7 +976,6 @@ class LegacyImportTest {
     @Test
     @DisplayName("MIG-033 the service says whether the legacy connection is configured (sourceConfigured), and the legacy schema name must be an identifier")
     void sourceNotConfigured() {
-        LedgerTestRunners.withoutCategories(ctx -> assertThat(ctx.bean(LegacyImportService.class).sourceConfigured()).isFalse());
         LegacyLedger legacy = LegacyFixtures.rich();
         withRig(legacy, rig -> assertThat(rig.service().sourceConfigured()).isTrue());
         assertThat(new LegacySourceRepository(LegacyLedger.create().admin(), "ledger").schema()).isEqualTo("ledger");

@@ -81,6 +81,16 @@ class DriverAuditTest {
     @Autowired
     private JdbcClient jdbc;
 
+    @Autowired
+    private org.springframework.context.ApplicationContext context;
+
+    @Test
+    @DisplayName("MIG-034 the legacy import is an operator command, so the admin web context has no LegacyImportService bean")
+    void adm077_theConsoleHasNoLegacyImport() {
+        assertThat(context.getBeansOfType(org.pgledger.application.legacy.LegacyImportService.class)).isEmpty();
+        assertThat(context.getBeansOfType(org.pgledger.database.repository.LegacySourceRepository.class)).isEmpty();
+    }
+
     @Test
     @DisplayName("ADM-072: registering a driver is an owner_audit row DRIVER_REGISTERED with token:owner, the class as subject, the jar and its digest in the detail; a refused registration leaves no row")
     void adm072_aRegistrationIsAudited() throws Exception {

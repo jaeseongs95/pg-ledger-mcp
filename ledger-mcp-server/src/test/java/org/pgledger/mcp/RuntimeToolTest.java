@@ -98,6 +98,13 @@ class RuntimeToolTest {
     }
 
     @Test
+    @DisplayName("MIG-034 the legacy import is an operator command, so the server context has no LegacyImportService bean")
+    void theServerHasNoLegacyImport(ApplicationContext context) {
+        assertThat(context.getBeansOfType(org.pgledger.application.legacy.LegacyImportService.class)).isEmpty();
+        assertThat(context.getBeansOfType(org.pgledger.database.repository.LegacySourceRepository.class)).isEmpty();
+    }
+
+    @Test
     @DisplayName("MCC-010: the database is gone for a poll, then back: the error is logged, the server keeps "
             + "serving, a later change is still announced")
     void aPollWithoutDatabaseIsSurvived(McpSession session, ApplicationContext context, CapturedOutput output) {
