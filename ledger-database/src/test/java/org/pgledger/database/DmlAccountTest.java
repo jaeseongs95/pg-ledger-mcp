@@ -12,12 +12,13 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.Parameter;
@@ -79,12 +80,16 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 class DmlAccountTest {
 
     private static final String PASSWORD = "pw-for-the-test";
+    private static final String PERMISSION_DENIED_POSTGRESQL = "42501";
+    private static final String PERMISSION_DENIED_H2 = "90096";
+    /** H2 refuses to truncate a table that a foreign key refers to (history refers to itself) before it asks for rights. */
+    private static final String H2_CANNOT_TRUNCATE = "90106";
 
     @Parameter
     Dbms dbms;
 
     private String account;
-    private Env shared;
+    private final Map<Dbms, Env> shared = new EnumMap<>(Dbms.class);
 
     private record Env(String url, HikariDataSource owner, HikariDataSource app) implements AutoCloseable {
         @Override
@@ -109,7 +114,8 @@ class DmlAccountTest {
     /** A new database, owned by the owner account, with a restricted account; the schema is applied when asked. */
     private Env environment(boolean migrate, boolean grant) throws SQLException, IOException {
         String ownerUrl = dbms.newUrl();
-        String appUrl = dbms == Dbms.POSTGRESQL ? ownerUrl.substring(0, ownerUrl.indexOf('?')) : ownerUrl;
+        // the connection settings of the URL (PostgreSQL user and password, H2 database options) are the owner's
+        String appUrl = ownerUrl.substring(0, ownerUrl.indexOf(dbms == Dbms.POSTGRESQL ? '?' : ';'));
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         account = (dbms == Dbms.H2 ? "APP_" + suffix.toUpperCase(Locale.ROOT) : "app_" + suffix);
         HikariDataSource owner = pool(ownerUrl, null, null);
@@ -141,7 +147,9 @@ class DmlAccountTest {
             try (Connection c = app.getConnection(); Statement s = c.createStatement()) {
                 s.execute(sql);
             }
-        }).as(sql).isInstanceOf(SQLException.class);
+        }).as(sql).isInstanceOfSatisfying(SQLException.class,
+                e -> assertThat(e.getSQLState()).as("a refusal for a missing right, not a mistake in the statement")
+                        .isIn(PERMISSION_DENIED_POSTGRESQL, PERMISSION_DENIED_H2, H2_CANNOT_TRUNCATE));
     }
 
     private static void allowed(HikariDataSource app, String sql) throws SQLException {
@@ -172,26 +180,31 @@ class DmlAccountTest {
 
     @ParameterizedTest
     @MethodSource("statementsTheApplicationAccountMayRun")
-    void repo023_theApplicationAccountMayAppendToTheHistoryAndReadTheSchemaHistory(String sql) throws SQLException {
-        allowed(shared.app(), sql);
+    void repo023_theApplicationAccountMayAppendToTheHistoryAndReadTheSchemaHistory(String sql) throws Exception {
+        allowed(shared().app(), sql);
     }
 
     @ParameterizedTest
     @MethodSource("statementsTheApplicationAccountMustNotRun")
-    void repo023_024_038_theApplicationAccountCannotChangeHistoryOrTheSchema(String sql) throws SQLException {
-        refused(shared.app(), sql);
+    void repo023_024_038_theApplicationAccountCannotChangeHistoryOrTheSchema(String sql) throws Exception {
+        refused(shared().app(), sql);
         // the owner can run the DDL, which shows the refusal is about the right and not about the statement
-        assertThat(shared.owner()).isNotNull();
+        assertThat(shared().owner()).isNotNull();
     }
 
-    @BeforeAll
-    void createSharedEnvironment() throws Exception {
-        shared = environment(true, true);
+    /** One environment per DBMS, built on first use: the parameter field is set after @BeforeAll ran, and one instance serves both DBMS runs. */
+    private synchronized Env shared() throws SQLException, IOException {
+        Env env = shared.get(dbms);
+        if (env == null) {
+            env = environment(true, true);
+            shared.put(dbms, env);
+        }
+        return env;
     }
 
     @AfterAll
     void closeSharedEnvironment() {
-        shared.close();
+        shared.values().forEach(Env::close);
     }
 
     @Test

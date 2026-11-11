@@ -50,7 +50,8 @@ class AnsiRulesTest {
 
     private static List<Path> files(Path directory, String glob) {
         try (Stream<Path> walk = Files.walk(directory)) {
-            return walk.filter(p -> p.getFileName().toString().matches(glob)).sorted().toList();
+            return walk.filter(Files::isRegularFile).filter(p -> p.getFileName().toString().matches(glob)).sorted()
+                    .toList();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -70,6 +71,11 @@ class AnsiRulesTest {
 
     static Stream<SqlText> schemaFiles() {
         return files(SCHEMA, "V\\d+__.*\\.sql").stream().map(AnsiRulesTest::schemaFile);
+    }
+
+    /** The schema files that create tables (the seed file holds rows only, so it has no identifiers to check). */
+    static Stream<SqlText> tableDefiningFiles() {
+        return schemaFiles().filter(s -> !DdlModel.parse(s.stripped()).tables().isEmpty());
     }
 
     static Stream<SqlText> schemaAndTemplateFiles() {
@@ -126,7 +132,7 @@ class AnsiRulesTest {
     }
 
     @ParameterizedTest
-    @MethodSource("schemaFiles")
+    @MethodSource("tableDefiningFiles")
     @DisplayName("ANSI-005: identifiers are lower case, at most 30 characters, unquoted and not reserved")
     void identifiers(SqlText sql) {
         List<String> names = DdlModel.parse(sql.stripped()).identifiers();
