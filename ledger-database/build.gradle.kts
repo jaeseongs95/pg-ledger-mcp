@@ -12,6 +12,8 @@ dependencies {
 
     testImplementation(testFixtures(project(":ledger-domain")))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // JSON test data is written as records and serialised with Jackson 3 (Boot BOM)
+    testImplementation("tools.jackson.core:jackson-databind")
     // zonky and ArchUnit: not in the Boot BOM, see gradle/libs.versions.toml
     testImplementation(libs.embedded.postgres)
     testImplementation(libs.archunit)

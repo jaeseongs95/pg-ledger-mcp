@@ -4,7 +4,9 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 
+import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.CliMessages;
+import org.pgledger.cli.Command;
 import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
@@ -13,7 +15,7 @@ import org.springframework.stereotype.Component;
 
 /** {@code secret-set <name>}: the value is typed on the terminal and never appears in arguments, output or logs. */
 @Component
-public class SecretSetCommand {
+public class SecretSetCommand implements Command {
 
     private final SecretStore store;
     private final SecretInput input;
@@ -27,6 +29,12 @@ public class SecretSetCommand {
         this.messages = messages;
     }
 
+    @Override
+    public CliCommand name() {
+        return CliCommand.SECRET_SET;
+    }
+
+    @Override
     public void run(List<String> operands) {
         if (operands.isEmpty()) {
             throw new UsageException(ErrorCode.MISSING_ARGUMENT);
