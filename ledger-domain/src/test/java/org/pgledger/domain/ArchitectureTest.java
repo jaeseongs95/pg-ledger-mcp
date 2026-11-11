@@ -74,7 +74,9 @@ class ArchitectureTest {
 
     @Test
     void negativeControl_theOperatingSystemRuleDetectsTheOsName(@TempDir Path dir) throws IOException {
-        Files.writeString(dir.resolve("Bad.java"), "class Bad { String s = System.getProperty(\"os.name\"); }");
+        // the token is joined at run time so that this source file does not trip the rule it tests
+        String key = String.join(".", "os", "name");
+        Files.writeString(dir.resolve("Bad.java"), "class Bad { String s = System.getProperty(\"" + key + "\"); }");
 
         assertThat(SourceRules.operatingSystemDetection(dir)).hasSize(1);
     }

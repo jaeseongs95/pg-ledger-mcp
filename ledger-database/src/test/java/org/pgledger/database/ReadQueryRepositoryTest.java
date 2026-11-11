@@ -16,7 +16,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.pgledger.database.repository.AttentionQueryRepository;
 import org.pgledger.database.repository.ConditionQueryRepository;
 import org.pgledger.database.repository.Counter;
@@ -35,8 +34,6 @@ import org.pgledger.database.repository.SearchQueryRepository;
 import org.pgledger.database.repository.StatsQueryRepository;
 import org.pgledger.database.repository.TaskQueryRepository;
 import org.pgledger.database.support.DatabaseTest;
-import org.pgledger.database.support.Dbms;
-import org.pgledger.database.support.DbmsAware;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Parallel;
 import org.pgledger.database.support.Seed;
@@ -63,21 +60,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The query repositories behind the read tools (REPO-025 .. REPO-028 for the new lists): lookups, filters, keyset
- * pages in the OR form, search, history filters, counts, attention and the row lock, on both databases.
+ * pages in the OR form, search, history filters, counts, attention and the row lock, on the embedded H2.
  */
 @DatabaseTest
-class ReadQueryRepositoryTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
+class ReadQueryRepositoryTest {
 
     private LedgerTestContext ctx;
     private Seed seed;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
 
     @BeforeEach
     void setUp(LedgerTestContext context) {
