@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(#{defects.title})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('defects')}"></th:block>
+<main id="main">
+  <h1 th:text="#{defects.title}">Defects</h1>
+
+  <p th:if="${choice.selected() == null}" th:text="#{common.noProject}">Add a project first.</p>
+  <th:block th:if="${choice.selected() != null}">
+  <form method="get" th:action="@{/defects}" class="filters">
+    <label for="project" th:text="#{common.project}">Project</label>
+    <select id="project" name="project">
+      <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.id()}" th:selected="${p.id() == choice.selected()}">p1</option>
+    </select>
+    <label for="status" th:text="#{common.status}">Status</label>
+    <select id="status" name="status">
+      <option value="" th:text="#{common.any}">Any</option>
+      <option th:each="s : ${statuses}" th:value="${s.token()}" th:text="${s.token()}" th:selected="${s.token() == filter.status()}">OPEN</option>
+    </select>
+    <label for="severity" th:text="#{common.severity}">Severity</label>
+    <select id="severity" name="severity">
+      <option value="" th:text="#{common.any}">Any</option>
+      <option th:each="c : ${severities}" th:value="${c.code()}" th:text="${c.code()}" th:selected="${c.code() == filter.severity()}">P1</option>
+    </select>
+    <label for="category" th:text="#{common.category}">Category</label>
+    <select id="category" name="category">
+      <option value="" th:text="#{common.any}">Any</option>
+      <option th:each="c : ${categories}" th:value="${c.code()}" th:text="${c.code()}" th:selected="${c.code() == filter.category()}">ARC</option>
+    </select>
+    <label for="attention" th:text="#{common.attention}">Attention</label>
+    <select id="attention" name="attention">
+      <option value="" th:text="#{common.any}">Any</option>
+      <option th:each="a : ${attentions}" th:value="${a}" th:text="#{'attention.' + ${a}}" th:selected="${#strings.toString(a) == filter.attention()}">kind</option>
+    </select>
+    <label for="owner" th:text="#{common.owner}">Owner</label>
+    <input id="owner" name="owner" type="text" th:value="${filter.owner()}" maxlength="200">
+    <label for="limit" th:text="#{paging.size}">Rows per page</label>
+    <select id="limit" name="limit">
+      <option th:each="n : ${sizes}" th:value="${n}" th:text="${n}" th:selected="${n == paging.limit()}">50</option>
+    </select>
+    <button type="submit" th:text="#{common.apply}">Apply</button>
+  </form>
+
+  <table th:if="${!#lists.isEmpty(page.items())}">
+    <caption class="sr-only" th:text="#{defects.title}">Defects</caption>
+    <thead><tr>
+      <th scope="col" th:text="#{col.id}">ID</th><th scope="col" th:text="#{common.severity}">Severity</th><th scope="col" th:text="#{common.category}">Category</th>
+      <th scope="col" th:text="#{common.status}">Status</th><th scope="col" th:text="#{col.title}">Title</th><th scope="col" th:text="#{common.owner}">Owner</th><th scope="col" th:text="#{col.updated}">Updated</th>
+    </tr></thead>
+    <tbody>
+      <tr th:each="d : ${page.items()}">
+        <td><a th:href="@{/defects/{id}(id=${d.id()})}" th:text="${d.id()}">ID</a></td>
+        <td th:text="${d.severity()}">P1</td><td th:text="${d.category()}">ARC</td>
+        <td><span th:class="'badge badge-' + ${d.status()}" th:text="${d.status()}">OPEN</span></td>
+        <td th:text="${d.title()}">Title</td><td th:text="${d.owner()}">owner</td>
+        <td><time th:replace="~{fragments :: time(${d.updatedAt()})}">t</time></td>
+      </tr>
+    </tbody>
+  </table>
+  <p th:if="${#lists.isEmpty(page.items())}" th:text="#{common.noRows}">No rows.</p>
+  <nav th:replace="~{fragments :: pager(${paging}, ${total})}"></nav>
+  </th:block>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

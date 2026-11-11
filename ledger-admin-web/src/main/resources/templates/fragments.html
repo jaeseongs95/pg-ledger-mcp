@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:fragment="head(title)">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="${title} + ' - ' + #{app.name}">Ledger admin</title>
+  <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
+<body>
+<th:block th:fragment="header(active)">
+  <a class="skip-link" href="#main" th:text="#{nav.skip}">Skip to the content</a>
+  <header class="site-header">
+    <span class="brand" th:text="#{app.name}">Ledger admin</span>
+    <nav th:attr="aria-label=#{nav.label}">
+      <ul th:if="${@ui.console()}">
+        <li><a th:href="@{/}" th:attr="aria-current=${active == 'overview'} ? 'page'" th:text="#{nav.overview}">Overview</a></li>
+        <li><a th:href="@{/projects}" th:attr="aria-current=${active == 'projects'} ? 'page'" th:text="#{nav.projects}">Projects</a></li>
+        <li><a th:href="@{/defects}" th:attr="aria-current=${active == 'defects'} ? 'page'" th:text="#{nav.defects}">Defects</a></li>
+        <li><a th:href="@{/tasks}" th:attr="aria-current=${active == 'tasks'} ? 'page'" th:text="#{nav.tasks}">Tasks</a></li>
+        <li><a th:href="@{/conditions}" th:attr="aria-current=${active == 'conditions'} ? 'page'" th:text="#{nav.conditions}">Conditions</a></li>
+        <li><a th:href="@{/history}" th:attr="aria-current=${active == 'history'} ? 'page'" th:text="#{nav.history}">History</a></li>
+        <li><a th:href="@{/grants}" th:attr="aria-current=${active == 'grants'} ? 'page'" th:text="#{nav.grants}">Grants</a></li>
+        <li><a th:href="@{/codes}" th:attr="aria-current=${active == 'codes'} ? 'page'" th:text="#{nav.codes}">Codes</a></li>
+        <li><a th:href="@{/driver}" th:attr="aria-current=${active == 'driver'} ? 'page'" th:text="#{nav.driver}">JDBC driver</a></li>
+      </ul>
+    </nav>
+    <form th:if="${active != 'login'}" method="post" th:action="@{/logout}" class="logout">
+      <button type="submit" class="secondary" th:text="#{nav.logout}">Sign out</button>
+    </form>
+  </header>
+  <p th:if="${@ui.setup() and active != 'login'}" class="notice" role="status" th:text="#{setup.notice}">Setup mode.</p>
+</th:block>
+
+<th:block th:fragment="footer">
+  <script th:src="@{/js/local-time.js}" defer></script>
+</th:block>
+
+<!-- an instant: UTC in the markup (ISO-8601 with Z), shown in the zone of the browser by the script -->
+<time th:fragment="time(instant)" th:if="${instant != null}" th:attr="datetime=${instant}" th:text="${instant}">2026-01-01T00:00:00Z</time>
+
+<!-- a link for an evidence address: only http and https become links, anything else stays plain text -->
+<th:block th:fragment="evidence(address)">
+  <a th:if="${@links.isHttp(address)}" th:href="${address}" rel="noopener noreferrer" th:text="${address}">https://example.invalid</a>
+  <span th:if="${address != null and !@links.isHttp(address)}" th:text="${address}">text</span>
+</th:block>
+
+<!-- previous and next of a paged list; page-size is part of the filter form of the page -->
+<nav th:fragment="pager(paging, total)" class="pager" th:attr="aria-label=#{paging.label}">
+  <p class="page-info" th:text="#{paging.info(${paging.number()}, ${paging.limit()})}">Page 1, 50 rows per page</p>
+  <p class="page-info" th:if="${total != null}" th:text="#{paging.total(${total})}">Total: 0</p>
+  <a th:if="${paging.hasPrevious()}" th:href="${paging.previousHref()}" rel="prev" th:text="#{paging.previous}">Previous</a>
+  <span th:unless="${paging.hasPrevious()}" class="disabled" aria-disabled="true" th:text="#{paging.previous}">Previous</span>
+  <a th:if="${paging.hasNext()}" th:href="${paging.nextHref()}" rel="next" th:text="#{paging.next}">Next</a>
+  <span th:unless="${paging.hasNext()}" class="disabled" aria-disabled="true" th:text="#{paging.next}">Next</span>
+</nav>
+</body>
+</html>

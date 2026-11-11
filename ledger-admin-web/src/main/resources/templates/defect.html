@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(${defect.id()})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('defects')}"></th:block>
+<main id="main">
+  <p><a th:href="@{/defects(project=${defect.projectId()})}" th:text="#{defect.back}">Back to the defects</a></p>
+  <h1 th:text="${defect.id()} + ' - ' + ${defect.title()}">Defect</h1>
+  <dl class="facts">
+    <dt th:text="#{common.project}">Project</dt><dd th:text="${defect.projectId()}">p1</dd>
+    <dt th:text="#{common.status}">Status</dt><dd><span th:class="'badge badge-' + ${defect.status()}" th:text="${defect.status()}">OPEN</span></dd>
+    <dt th:text="#{common.severity}">Severity</dt><dd th:text="${defect.severity()}">P1</dd>
+    <dt th:text="#{common.category}">Category</dt><dd th:text="${defect.category()}">ARC</dd>
+    <dt th:text="#{common.owner}">Owner</dt><dd th:text="${defect.ownerActorId()}">owner</dd>
+    <dt th:text="#{defect.createdBy}">Created by</dt><dd th:text="${defect.createdBy()}">author</dd>
+    <dt th:if="${defect.mergedInto() != null}" th:text="#{defect.mergedInto}">Merged into</dt><dd th:if="${defect.mergedInto() != null}"><a th:href="@{/defects/{id}(id=${defect.mergedInto()})}" th:text="${defect.mergedInto()}">ID</a></dd>
+    <dt th:text="#{col.version}">Version</dt><dd th:text="${defect.version()}">1</dd>
+    <dt th:text="#{col.updated}">Updated</dt><dd><time th:replace="~{fragments :: time(${defect.updatedAt()})}">t</time></dd>
+  </dl>
+
+  <section><h2 th:text="#{defect.behavior}">Behavior</h2><p class="prewrap" th:text="${defect.behavior()}">behavior</p></section>
+  <section><h2 th:text="#{defect.rootCause}">Root cause</h2><p class="prewrap" th:text="${defect.rootCause()}">cause</p></section>
+
+  <section th:if="${!#lists.isEmpty(defect.fixes())}">
+    <h2 th:text="#{defect.fixes}">Fixes</h2>
+    <table><thead><tr><th scope="col" th:text="#{defect.commit}">Commit</th><th scope="col" th:text="#{defect.repo}">Repository</th><th scope="col" th:text="#{defect.branch}">Branch</th><th scope="col" th:text="#{defect.ci}">CI</th><th scope="col" th:text="#{defect.by}">By</th></tr></thead>
+    <tbody><tr th:each="f : ${defect.fixes()}"><td class="code" th:text="${f.commit()}">sha</td><td th:text="${f.repo()}">repo</td><td th:text="${f.branch()}">main</td><td th:text="${f.ci()} + ' ' + ${f.ciConclusion()}">ci</td><td th:text="${f.by()}">by</td></tr></tbody></table>
+  </section>
+
+  <section th:if="${!#lists.isEmpty(defect.cases())}">
+    <h2 th:text="#{defect.cases}">Observed cases</h2>
+    <ul class="cases"><li th:each="c : ${defect.cases()}">
+      <p class="prewrap" th:text="${c.observation()}">observation</p>
+      <p><span th:text="${c.by()}">by</span> <time th:replace="~{fragments :: time(${c.observedAt()})}">t</time>
+        <th:block th:replace="~{fragments :: evidence(${c.evidence()})}"></th:block></p>
+    </li></ul>
+  </section>
+
+  <section th:if="${!#lists.isEmpty(defect.tasks()) or !#lists.isEmpty(defect.conditions()) or !#lists.isEmpty(defect.relations())}">
+    <h2 th:text="#{defect.links}">Links</h2>
+    <ul>
+      <li th:each="t : ${defect.tasks()}"><a th:href="@{/tasks/{id}(id=${t.task()})}" th:text="${t.task()}">task</a> <span th:text="${t.state()}">state</span></li>
+      <li th:each="c : ${defect.conditions()}" th:text="${c}">condition</li>
+      <li th:each="r : ${defect.relations()}"><span th:text="${r.kind()}">kind</span> <a th:href="@{/defects/{id}(id=${r.other()})}" th:text="${r.other()}">ID</a></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2 th:text="#{defect.recent}">Recent changes</h2>
+    <table th:if="${!#lists.isEmpty(defect.recentChanges())}">
+      <thead><tr><th scope="col" th:text="#{col.id}">ID</th><th scope="col" th:text="#{col.at}">At</th><th scope="col" th:text="#{history.op}">Operation</th><th scope="col" th:text="#{history.author}">Author</th><th scope="col" th:text="#{history.reason}">Reason</th></tr></thead>
+      <tbody><tr th:each="h : ${defect.recentChanges()}"><td th:text="${h.id()}">1</td><td><time th:replace="~{fragments :: time(${h.at()})}">t</time></td><td th:text="${h.op()}">CREATE</td><td th:text="${h.author()}">author</td><td th:text="${h.reason()}">reason</td></tr></tbody>
+    </table>
+    <p><a th:href="@{/history(project=${defect.projectId()}, entity='defect', entityId=${defect.id()})}" th:text="#{defect.fullHistory}">Full history</a></p>
+  </section>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

@@ -8,6 +8,7 @@ import org.pgledger.domain.model.SessionGrant;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.ProjectId;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -77,17 +78,31 @@ public class GrantStateRepository {
 
     /** The live grants of an author at {@code now}, ordered by project and scope. */
     public List<SessionGrant> findLive(AuthorId author, Instant now) {
-        return new ArrayList<>(jdbc.sql("SELECT id, author_id, project_id, scope, granted_by, granted_at, "
-                + "expires_at, revoked_at, last_used_at, note, active_key FROM session_grant "
+        return new ArrayList<>(jdbc.sql(LIVE_COLUMNS
                 + "WHERE author_id = :author AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > :now) "
                 + "ORDER BY project_id, scope")
                 .param("author", author.value())
                 .param("now", UtcTime.toDb(now))
-                .query((rs, n) -> new SessionGrant(rs.getLong("id"), AuthorId.of(rs.getString("author_id")),
-                        ProjectId.of(rs.getString("project_id")), Scope.valueOf(rs.getString("scope")),
-                        AuthorId.of(rs.getString("granted_by")), UtcTime.read(rs, "granted_at"),
-                        UtcTime.read(rs, "expires_at"), UtcTime.read(rs, "revoked_at"),
-                        UtcTime.read(rs, "last_used_at"), rs.getString("note"), rs.getString("active_key")))
+                .query(GRANT_ROW)
                 .list());
     }
+
+    /** The live grants of every author at {@code now}, ordered by author, project and scope (the admin list). */
+    public List<SessionGrant> findAllLive(Instant now) {
+        return new ArrayList<>(jdbc.sql(LIVE_COLUMNS
+                + "WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > :now) "
+                + "ORDER BY author_id, project_id, scope")
+                .param("now", UtcTime.toDb(now))
+                .query(GRANT_ROW)
+                .list());
+    }
+
+    private static final String LIVE_COLUMNS = "SELECT id, author_id, project_id, scope, granted_by, granted_at, "
+            + "expires_at, revoked_at, last_used_at, note, active_key FROM session_grant ";
+
+    private static final RowMapper<SessionGrant> GRANT_ROW = (rs, n) -> new SessionGrant(rs.getLong("id"),
+            AuthorId.of(rs.getString("author_id")), ProjectId.of(rs.getString("project_id")),
+            Scope.valueOf(rs.getString("scope")), AuthorId.of(rs.getString("granted_by")),
+            UtcTime.read(rs, "granted_at"), UtcTime.read(rs, "expires_at"), UtcTime.read(rs, "revoked_at"),
+            UtcTime.read(rs, "last_used_at"), rs.getString("note"), rs.getString("active_key"));
 }

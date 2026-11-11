@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(#{codes.title})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('codes')}"></th:block>
+<main id="main">
+  <h1 th:text="#{codes.title}">Common codes</h1>
+  <p th:text="#{codes.intro}">Codes are never deleted; a code that is not used any more is set to INACTIVE.</p>
+
+  <table th:if="${!#lists.isEmpty(codes)}">
+    <caption class="sr-only" th:text="#{codes.title}">Common codes</caption>
+    <thead><tr>
+      <th scope="col" th:text="#{codes.group}">Group</th><th scope="col" th:text="#{codes.code}">Code</th><th scope="col" th:text="#{codes.nameKo}">Name (ko)</th>
+      <th scope="col" th:text="#{codes.nameEn}">Name (en)</th><th scope="col" th:text="#{codes.sort}">Order</th><th scope="col" th:text="#{common.state}">State</th>
+    </tr></thead>
+    <tbody>
+      <tr th:each="c : ${codes}">
+        <td th:text="${c.group()}">DEFECT_CATEGORY</td><td th:text="${c.code()}">ARC</td><td th:text="${c.nameKo()}">name</td><td th:text="${c.nameEn()}">name</td>
+        <td th:text="${c.sortOrder()}">1</td><td><span th:class="'badge badge-' + ${c.state()}" th:text="${c.state()}">ACTIVE</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <section>
+    <h2 th:text="#{codes.set}">Add or change a code</h2>
+    <form method="post" th:action="@{/codes}">
+      <label for="group" th:text="#{codes.group}">Group</label>
+      <select id="group" name="group" required>
+        <option th:each="g : ${groups}" th:value="${g.token()}" th:text="${g.token()}">DEFECT_CATEGORY</option>
+      </select>
+      <label for="code" th:text="#{codes.code}">Code</label>
+      <input id="code" name="code" type="text" required autocomplete="off">
+      <label for="nameKo" th:text="#{codes.nameKo}">Name (ko)</label>
+      <input id="nameKo" name="nameKo" type="text" required maxlength="200" autocomplete="off">
+      <label for="nameEn" th:text="#{codes.nameEn}">Name (en)</label>
+      <input id="nameEn" name="nameEn" type="text" maxlength="200" autocomplete="off">
+      <label for="descriptionKo" th:text="#{codes.descriptionKo}">Description (ko)</label>
+      <input id="descriptionKo" name="descriptionKo" type="text" maxlength="500" autocomplete="off">
+      <label for="descriptionEn" th:text="#{codes.descriptionEn}">Description (en)</label>
+      <input id="descriptionEn" name="descriptionEn" type="text" maxlength="500" autocomplete="off">
+      <label for="sortOrder" th:text="#{codes.sort}">Order</label>
+      <input id="sortOrder" name="sortOrder" type="number" min="0" max="100000">
+      <label for="state" th:text="#{common.state}">State</label>
+      <select id="state" name="state">
+        <option th:each="s : ${states}" th:value="${s.token()}" th:text="${s.token()}">ACTIVE</option>
+      </select>
+      <label class="check"><input type="checkbox" name="confirmReactivation" value="yes"> <span th:text="#{codes.confirmReactivation}">I confirm that a retired code becomes active again.</span></label>
+      <button type="submit" th:text="#{codes.submit}">Save</button>
+    </form>
+  </section>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

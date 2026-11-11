@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(#{overview.title})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('overview')}"></th:block>
+<main id="main">
+  <h1 th:text="#{overview.title}">Overview</h1>
+
+  <form method="get" th:action="@{/}" class="filters">
+    <label for="project" th:text="#{common.project}">Project</label>
+    <select id="project" name="project">
+      <option value="" th:text="#{common.allProjects}">All projects</option>
+      <option th:each="p : ${overview.projects()}" th:value="${p.id()}" th:text="${p.id()} + ' (' + ${p.code()} + ')'" th:selected="${p.id() == overview.project()}">p1</option>
+    </select>
+    <button type="submit" th:text="#{common.apply}">Apply</button>
+  </form>
+
+  <section id="mcp-status" th:attr="aria-label=#{overview.mcp}">
+    <h2 th:text="#{overview.mcp}">MCP server</h2>
+    <p th:class="'status status-' + ${overview.mcp().state()}">
+      <span th:text="#{'mcp.state.' + ${overview.mcp().state()}}">Up</span>
+      <span th:if="${overview.mcp().reason().name() != 'NONE'}" th:text="'- ' + #{'mcp.reason.' + ${overview.mcp().reason()}}">reason</span>
+    </p>
+  </section>
+
+  <section id="attention">
+    <h2 th:text="#{overview.attention}">Needs attention</h2>
+    <ul class="counts">
+      <li th:each="c : ${overview.attentionCounts()}">
+        <span th:text="#{'attention.' + ${c.kind()}}">kind</span>:
+        <strong th:text="${c.count()} + (${c.atLeast()} ? '+' : '')">0</strong>
+      </li>
+    </ul>
+    <table th:if="${!#lists.isEmpty(overview.attention())}">
+      <caption class="sr-only" th:text="#{overview.attention}">Needs attention</caption>
+      <thead><tr><th scope="col" th:text="#{col.kind}">Kind</th><th scope="col" th:text="#{col.entity}">Entity</th><th scope="col" th:text="#{col.id}">ID</th><th scope="col" th:text="#{col.project}">Project</th></tr></thead>
+      <tbody>
+        <tr th:each="item : ${overview.attention()}">
+          <td th:text="#{'attention.' + ${item.kind()}}">kind</td>
+          <td th:text="${item.entity()}">defect</td>
+          <td><a th:href="${item.entity() == 'defect'} ? @{/defects/{id}(id=${item.id()})} : @{/tasks/{id}(id=${item.id()})}" th:text="${item.id()}">ID</a></td>
+          <td th:text="${item.projectId()}">p1</td>
+        </tr>
+      </tbody>
+    </table>
+    <p th:if="${#lists.isEmpty(overview.attention())}" th:text="#{overview.attention.none}">Nothing needs attention.</p>
+  </section>
+
+  <section id="stats">
+    <h2 th:text="#{overview.stats}">Counts</h2>
+    <p th:text="#{overview.totals(${overview.stats().defects()}, ${overview.stats().tasks()}, ${overview.stats().conditions()})}">Totals</p>
+    <div class="cards">
+      <article><h3 th:text="#{overview.defectsByStatus}">Defects by status</h3>
+        <dl><th:block th:each="e : ${overview.stats().defectsByStatus()}"><dt th:text="${e.key}">OPEN</dt><dd th:text="${e.value}">0</dd></th:block></dl></article>
+      <article><h3 th:text="#{overview.defectsBySeverity}">Defects by severity</h3>
+        <dl><th:block th:each="e : ${overview.stats().defectsBySeverity()}"><dt th:text="${e.key}">P1</dt><dd th:text="${e.value}">0</dd></th:block></dl></article>
+      <article><h3 th:text="#{overview.tasksByState}">Tasks by state</h3>
+        <dl><th:block th:each="e : ${overview.stats().tasksByState()}"><dt th:text="${e.key}">ACTIVE</dt><dd th:text="${e.value}">0</dd></th:block></dl></article>
+    </div>
+  </section>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

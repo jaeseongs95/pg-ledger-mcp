@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(#{error.page.title})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('error')}"></th:block>
+<main id="main" class="narrow">
+  <h1 th:text="#{error.page.title}">Something went wrong</h1>
+  <p class="error" role="alert"><span class="code" th:text="${status}">400</span></p>
+  <p th:if="${code != null and code != ''}"><span class="code" th:text="${code}">CODE</span></p>
+  <p th:text="${detail}">Detail</p>
+  <p th:if="${traceId != null}" th:text="#{error.page.trace(${traceId})}">Trace</p>
+  <p><a th:href="@{/}" th:text="#{error.page.home}">Back to the start</a></p>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

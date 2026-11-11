@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(#{login.title})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('login')}"></th:block>
+<main id="main" class="narrow">
+  <h1 th:text="#{login.title}">Sign in</h1>
+  <p th:if="${errorKey != null}" class="error" role="alert" th:text="#{${errorKey}}">Sign-in failed.</p>
+  <p th:if="${loggedOut}" class="notice" role="status" th:text="#{login.loggedOut}">You are signed out.</p>
+  <form method="post" th:action="@{/login}">
+    <input type="hidden" name="username" value="owner">
+    <label for="token" th:text="#{login.token}">Admin token</label>
+    <input id="token" name="token" type="password" autocomplete="current-password" required autofocus>
+    <button type="submit" th:text="#{login.submit}">Sign in</button>
+  </form>
+  <section th:if="${!#lists.isEmpty(providers)}" class="providers" th:attr="aria-label=#{login.providers}">
+    <h2 th:text="#{login.providers}">Or sign in with</h2>
+    <ul>
+      <li th:each="provider : ${providers}"><a class="button" th:href="@{/oauth2/authorization/{id}(id=${provider.id()})}" th:text="#{login.oidc(${provider.name()})}">Provider</a></li>
+    </ul>
+  </section>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(#{driver.title})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('driver')}"></th:block>
+<main id="main">
+  <h1 th:text="#{driver.title}">JDBC driver</h1>
+  <p th:text="#{driver.intro}">The product ships no JDBC driver.</p>
+  <p th:if="${justRegistered}" class="notice" role="status" th:text="#{driver.registered}">Registered.</p>
+  <p th:if="${restartRequired}" class="notice" role="status" th:text="#{driver.restartRequired}">Restart required.</p>
+
+  <section>
+    <h2 th:text="#{driver.registeredFile}">Registered driver</h2>
+    <dl th:if="${registered != null}">
+      <dt th:text="#{driver.jar}">Jar</dt><dd th:text="${registered.jar()}">/path/driver.jar</dd>
+      <dt th:text="#{driver.class}">Driver class</dt><dd th:text="${registered.className()}">Driver</dd>
+      <dt th:text="#{driver.sha256}">SHA-256</dt><dd class="code" th:text="${registered.sha256()}">digest</dd>
+      <dt th:text="#{driver.registeredAt}">Registered at</dt><dd><time th:replace="~{fragments :: time(${registered.registeredAt()})}">t</time></dd>
+    </dl>
+    <p th:unless="${registered != null}" th:text="#{driver.none}">No driver is registered.</p>
+  </section>
+
+  <section>
+    <h2 th:text="#{driver.effective}">Driver in use</h2>
+    <dl th:if="${effective.jar() != null}">
+      <dt th:text="#{driver.jar}">Jar</dt><dd th:text="${effective.jar()}">/path/driver.jar</dd>
+      <dt th:text="#{driver.class}">Driver class</dt><dd th:text="${effective.className()}">Driver</dd>
+      <dt th:text="#{driver.sha256}">SHA-256</dt><dd class="code" th:text="${effective.sha256()}">digest</dd>
+    </dl>
+    <p th:unless="${effective.jar() != null}" th:text="#{driver.noneInUse}">No driver is in use.</p>
+  </section>
+
+  <section>
+    <h2 th:text="#{driver.register}">Register a driver</h2>
+    <form method="post" th:action="@{/driver}">
+      <label for="jar" th:text="#{driver.jar.label}">Absolute path of the driver jar</label>
+      <input id="jar" name="jar" type="text" required autocomplete="off">
+      <label for="className" th:text="#{driver.class.label}">Driver class (java.sql.Driver)</label>
+      <input id="className" name="className" type="text" required autocomplete="off">
+      <button type="submit" th:text="#{driver.submit}">Register</button>
+    </form>
+    <p class="hint" th:text="#{driver.hint}">The new driver is used after the next start.</p>
+  </section>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>

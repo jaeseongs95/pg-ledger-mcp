@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" th:lang="${#locale.language}">
+<head th:replace="~{fragments :: head(#{history.title})}"></head>
+<body>
+<th:block th:replace="~{fragments :: header('history')}"></th:block>
+<main id="main">
+  <h1 th:text="#{history.title}">History</h1>
+  <form method="get" th:action="@{/history}" class="filters">
+    <label for="project" th:text="#{common.project}">Project</label>
+    <select id="project" name="project">
+      <option value="" th:text="#{common.allProjects}">All projects</option>
+      <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.id()}" th:selected="${p.id() == filter.project()}">p1</option>
+    </select>
+    <label for="entity" th:text="#{history.entity}">Entity</label>
+    <select id="entity" name="entity">
+      <option value="" th:text="#{common.any}">Any</option>
+      <option th:each="e : ${entities}" th:value="${e.token()}" th:text="${e.token()}" th:selected="${e.token() == filter.entity()}">defect</option>
+    </select>
+    <label for="entityId" th:text="#{history.entityId}">Entity id</label>
+    <input id="entityId" name="entityId" type="text" th:value="${filter.entityId()}" maxlength="100">
+    <label for="op" th:text="#{history.op}">Operation</label>
+    <select id="op" name="op">
+      <option value="" th:text="#{common.any}">Any</option>
+      <option th:each="o : ${ops}" th:value="${o.token()}" th:text="${o.token()}" th:selected="${o.token() == filter.op()}">CREATE</option>
+    </select>
+    <label for="authorId" th:text="#{history.author}">Author</label>
+    <input id="authorId" name="authorId" type="text" th:value="${filter.authorId()}" maxlength="200">
+    <label for="limit" th:text="#{paging.size}">Rows per page</label>
+    <select id="limit" name="limit">
+      <option th:each="n : ${sizes}" th:value="${n}" th:text="${n}" th:selected="${n == paging.limit()}">50</option>
+    </select>
+    <button type="submit" th:text="#{common.apply}">Apply</button>
+  </form>
+
+  <table th:if="${!#lists.isEmpty(page.items())}">
+    <caption class="sr-only" th:text="#{history.title}">History</caption>
+    <thead><tr>
+      <th scope="col" th:text="#{col.id}">ID</th><th scope="col" th:text="#{col.at}">At</th><th scope="col" th:text="#{history.target}">Target</th>
+      <th scope="col" th:text="#{history.op}">Operation</th><th scope="col" th:text="#{history.states}">States</th><th scope="col" th:text="#{history.author}">Author</th>
+      <th scope="col" th:text="#{history.reason}">Reason</th><th scope="col" th:text="#{history.changes}">Changes</th>
+    </tr></thead>
+    <tbody>
+      <tr th:each="h : ${page.items()}">
+        <td th:text="${h.id()}">1</td>
+        <td><time th:replace="~{fragments :: time(${h.at()})}">t</time></td>
+        <td><span th:text="${h.entity()}">defect</span> <span th:text="${h.entityId()}">ID</span></td>
+        <td th:text="${h.op()}">CREATE</td>
+        <td th:text="${h.fromState()} + ' > ' + ${h.toState()}" th:if="${h.fromState() != null or h.toState() != null}">a > b</td>
+        <td th:unless="${h.fromState() != null or h.toState() != null}"></td>
+        <td th:text="${h.authorId()}">author</td>
+        <td><span th:text="${h.reason()}">reason</span> <th:block th:replace="~{fragments :: evidence(${h.evidenceUri()})}"></th:block></td>
+        <td class="code" th:text="${h.changes() == null} ? '' : ${h.changes().text()}">{}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p th:if="${#lists.isEmpty(page.items())}" th:text="#{common.noRows}">No rows.</p>
+  <nav th:replace="~{fragments :: pager(${paging}, ${null})}"></nav>
+</main>
+<th:block th:replace="~{fragments :: footer}"></th:block>
+</body>
+</html>
