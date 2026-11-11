@@ -45,8 +45,22 @@ class KeyAuditTest {
     private static final String SERVER = "ledger";
     private static final String AUTHOR = "claude:audit-session";
     private static final JsonNode EMPTY = Json.of("{}");
-    /** The well-known SID of the group Everyone; a SID text is understood by the lookup whatever the language of the system. */
-    private static final String EVERYONE = "S-1-1-0";
+    private static final String EVERYONE = "Everyone";
+
+    /**
+     * A principal other than the current user: the group Everyone (the lookup of a SID text is not supported by the JDK,
+     * the red run of the first version of this test showed UserPrincipalNotFoundException), or the group Users.
+     */
+    private static UserPrincipal anotherPrincipal() throws IOException {
+        for (String name : List.of(EVERYONE, "BUILTIN\\Users", "Users")) {
+            try {
+                return FileSystems.getDefault().getUserPrincipalLookupService().lookupPrincipalByName(name);
+            } catch (java.nio.file.attribute.UserPrincipalNotFoundException unknown) {
+                continue;
+            }
+        }
+        throw new AssertionError("no group to widen the ACL with");
+    }
 
     private static boolean acl() {
         return FileSystems.getDefault().supportedFileAttributeViews().contains("acl");
@@ -204,7 +218,7 @@ class KeyAuditTest {
             file = files.findFirst().orElseThrow();
         }
         Path target = folder ? directory : file;
-        UserPrincipal everyone = FileSystems.getDefault().getUserPrincipalLookupService().lookupPrincipalByName(EVERYONE);
+        UserPrincipal everyone = anotherPrincipal();
         AclFileAttributeView view = Files.getFileAttributeView(target, AclFileAttributeView.class);
         List<AclEntry> widened = new ArrayList<>(view.getAcl());
         widened.add(AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(everyone)

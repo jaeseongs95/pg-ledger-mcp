@@ -473,7 +473,7 @@ class AttestationGateTest {
         String keyed = s.actorWith("defect");
         String keyless = "claude:nokey" + UUID.randomUUID().toString().substring(0, 8);
         s.bean(org.pgledger.application.admin.GrantService.class).grant(new org.pgledger.application.admin.GrantService
-                .GrantCommand(keyless, s.projectId(), List.of("defect"), null, null));
+                .GrantCommand(keyless, s.projectId(), List.of("defect"), null, null), TestOwners.OWNER);
         Instant at = s.ctx().clock().instant();
         List<LedgerException> failures = new java.util.ArrayList<>();
         for (String author : List.of(keyed, keyless)) {
