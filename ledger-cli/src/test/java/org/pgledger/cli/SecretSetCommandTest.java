@@ -9,7 +9,9 @@ import java.io.Console;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Arrays;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,18 +19,45 @@ import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pgledger.cli.support.CliHarness;
+import org.pgledger.cli.support.CliExtension;
+import org.pgledger.cli.support.CliExtension.Cli;
+import org.pgledger.cli.support.CliExtension.Outcome;
 import org.pgledger.cli.support.RecordingOutput;
 import org.pgledger.cli.support.ScriptedSecretInput;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.util.ClassUtils;
 
-@ExtendWith(OutputCaptureExtension.class)
+@ExtendWith({ OutputCaptureExtension.class, CliExtension.class })
 class SecretSetCommandTest {
 
     private static final String VALUE = "Zq9-unique-secret-value-é한";
+    private static final String NAME = "cloudflare-api-token";
+    private static final String[] COMMAND_NAMES = Arrays.stream(CliCommand.values()).map(CliCommand::cliName).toArray(String[]::new);
+
+    /** One command line and what the standard path must make of it. */
+    record Refusal(String label, String[] line, ExitStatus status, ErrorCode code) {
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
+    static Stream<Refusal> usageErrors() {
+        return Stream.of(
+                new Refusal("no argument", new String[0], ExitStatus.USAGE, ErrorCode.MISSING_COMMAND),
+                new Refusal("secret-get", new String[] { "secret-get", NAME }, ExitStatus.USAGE, ErrorCode.UNKNOWN_COMMAND),
+                new Refusal("secret-show", new String[] { "secret-show", NAME }, ExitStatus.USAGE, ErrorCode.UNKNOWN_COMMAND),
+                new Refusal("secret-list", new String[] { "secret-list", NAME }, ExitStatus.USAGE, ErrorCode.UNKNOWN_COMMAND),
+                new Refusal("category-add", new String[] { "category-add", NAME }, ExitStatus.USAGE, ErrorCode.UNKNOWN_COMMAND),
+                new Refusal("SECRET-SET", new String[] { "SECRET-SET", NAME }, ExitStatus.USAGE, ErrorCode.UNKNOWN_COMMAND),
+                new Refusal("secret-set without a name", new String[] { "secret-set" }, ExitStatus.USAGE, ErrorCode.MISSING_ARGUMENT),
+                new Refusal("secret-set with a surplus argument", new String[] { "secret-set", NAME, "extra" },
+                        ExitStatus.USAGE, ErrorCode.TOO_MANY_ARGUMENTS));
+    }
 
     @TempDir
     Path tmp;
@@ -49,138 +78,138 @@ class SecretSetCommandTest {
     @Test
     @EnabledOnOs(LINUX)
     @DisplayName("SEC-001 secret-set stores the hidden input, prints only the name and path, and clears the char array")
-    void sec001_secretSetStoresAndPrintsNameAndPathOnly() throws IOException {
+    void sec001_secretSetStoresAndPrintsNameAndPathOnly(Cli cli) throws IOException {
         char[] typed = VALUE.toCharArray();
         ScriptedSecretInput input = new ScriptedSecretInput(typed);
         RecordingOutput output = new RecordingOutput();
 
-        CliHarness.Result result = CliHarness.run(directory(), input, output, "secret-set", "cloudflare-api-token");
+        Outcome result = cli.run(directory(), input, output, "secret-set", NAME);
 
-        Path file = directory().resolve("cloudflare-api-token");
+        Path file = directory().resolve(NAME);
         assertThat(result.exitCode()).isZero();
+        assertThat(result.failure()).isNull();
         assertThat(Files.readString(file)).isEqualTo(VALUE);
         assertThat(input.reads()).isEqualTo(1);
-        assertThat(input.lastPrompt()).contains("cloudflare-api-token");
-        assertThat(output.info()).contains("cloudflare-api-token").contains(file.toString()).doesNotContain(VALUE);
-        assertThat(output.error()).isEmpty();
+        assertThat(input.lastPrompt()).contains(NAME);
+        assertThat(output.info()).contains(NAME).contains(file.toString()).doesNotContain(VALUE);
         assertThat(allZero(typed)).as("the char array is wiped after use").isTrue();
     }
 
     @Test
     @EnabledOnOs(LINUX)
     @DisplayName("SEC-003 the value never reaches the console output or the log, on success")
-    void sec003_valueIsNotEchoedOnSuccess(CapturedOutput captured) {
+    void sec003_valueIsNotEchoedOnSuccess(Cli cli, CapturedOutput captured) {
         ScriptedSecretInput input = new ScriptedSecretInput(VALUE.toCharArray());
 
-        CliHarness.Result result = CliHarness.run(directory(), input, null, "secret-set", "cloudflare-api-token");
+        Outcome result = cli.run(directory(), input, null, "secret-set", NAME);
 
         assertThat(result.exitCode()).isZero();
-        assertThat(captured.getAll()).contains("cloudflare-api-token").doesNotContain(VALUE);
+        assertThat(captured.getAll()).contains(NAME).doesNotContain(VALUE);
     }
 
     @Test
     @EnabledOnOs(LINUX)
     @DisplayName("SEC-003 the value never reaches the console output or the log, on failure")
-    void sec003_valueIsNotEchoedOnFailure(CapturedOutput captured) {
+    void sec003_valueIsNotEchoedOnFailure(Cli cli, CapturedOutput captured) {
         char[] unencodable = (VALUE + '\ud800').toCharArray();
         ScriptedSecretInput input = new ScriptedSecretInput(unencodable);
 
-        CliHarness.Result result = CliHarness.run(directory(), input, null, "secret-set", "cloudflare-api-token");
+        Outcome result = cli.run(directory(), input, null, "secret-set", NAME);
 
-        assertThat(result.exitCode()).isEqualTo(1);
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.INVALID_ENCODING);
         assertThat(captured.getAll()).doesNotContain(VALUE).doesNotContain("Zq9");
         assertThat(allZero(unencodable)).isTrue();
     }
 
     @Test
+    @EnabledOnOs(LINUX)
     @DisplayName("SEC-003 without a terminal the real Console input refuses (exit 1) and creates nothing")
-    void sec003_refusesWithoutTerminal() {
+    void sec003_refusesWithoutTerminal(Cli cli) {
         Console console = System.console();
         assumeFalse(console != null && console.isTerminal(), "test JVM is attached to a terminal");
-        RecordingOutput output = new RecordingOutput();
 
-        CliHarness.Result result = CliHarness.run(directory(), null, output, "secret-set", "cloudflare-api-token");
+        Outcome result = cli.run(directory(), null, new RecordingOutput(), "secret-set", NAME);
 
-        assertThat(result.exitCode()).isEqualTo(1);
-        assertThat(output.error()).isNotBlank();
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.NO_CONSOLE);
         assertThat(Files.exists(directory())).isFalse();
     }
 
     @ParameterizedTest(name = "[{index}] empty input")
-    @ValueSource(ints = {0, 1})
+    @ValueSource(ints = { 0, 1 })
     @EnabledOnOs(LINUX)
     @DisplayName("SEC-003 an empty or missing input is refused (exit 1) and stores nothing")
-    void sec003_refusesEmptyInput(int variant) {
+    void sec003_refusesEmptyInput(int variant, Cli cli) {
         ScriptedSecretInput input = new ScriptedSecretInput(variant == 0 ? new char[0] : null);
-        RecordingOutput output = new RecordingOutput();
 
-        CliHarness.Result result = CliHarness.run(directory(), input, output, "secret-set", "cloudflare-api-token");
+        Outcome result = cli.run(directory(), input, new RecordingOutput(), "secret-set", NAME);
 
-        assertThat(result.exitCode()).isEqualTo(1);
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.EMPTY_SECRET);
         assertThat(input.reads()).isEqualTo(1);
-        assertThat(Files.exists(directory().resolve("cloudflare-api-token"))).isFalse();
+        assertThat(Files.exists(directory().resolve(NAME))).isFalse();
     }
 
     @Test
     @DisplayName("SEC-005 an invalid name is refused (exit 1) before any prompt and is not echoed")
-    void sec005_invalidNameIsRefusedBeforePrompt() {
+    void sec005_invalidNameIsRefusedBeforePrompt(Cli cli, CapturedOutput captured) {
         ScriptedSecretInput input = new ScriptedSecretInput(VALUE.toCharArray());
-        RecordingOutput output = new RecordingOutput();
 
-        CliHarness.Result result = CliHarness.run(directory(), input, output, "secret-set", "../x");
+        Outcome result = cli.run(directory(), input, new RecordingOutput(), "secret-set", "../x");
 
-        assertThat(result.exitCode()).isEqualTo(1);
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.INVALID_SECRET_NAME);
         assertThat(input.reads()).isZero();
-        assertThat(output.error()).doesNotContain("../x");
+        assertThat(captured.getAll()).doesNotContain("../x");
         assertThat(Files.exists(directory())).isFalse();
     }
 
     @Test
     @EnabledOnOs(WINDOWS)
-    @DisplayName("SEC-012 on Windows secret-set fails with an explicit message before reading any input")
-    void sec012_windowsRefusesBeforePrompt() {
+    @DisplayName("SEC-012 on a file system without POSIX permissions secret-set fails with an explicit message before reading any input")
+    void sec012_nonPosixRefusesBeforePrompt(Cli cli, CapturedOutput captured) {
         ScriptedSecretInput input = new ScriptedSecretInput(VALUE.toCharArray());
-        RecordingOutput output = new RecordingOutput();
 
-        CliHarness.Result result = CliHarness.run(directory(), input, output, "secret-set", "cloudflare-api-token");
+        Outcome result = cli.run(directory(), input, new RecordingOutput(), "secret-set", NAME);
 
-        assertThat(result.exitCode()).isEqualTo(1);
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.NON_POSIX_FILESYSTEM);
         assertThat(input.reads()).isZero();
-        assertThat(output.error()).isNotBlank();
+        assertThat(captured.getAll()).contains(directory().toString());
         assertThat(Files.exists(directory())).isFalse();
     }
 
     @Test
     @EnabledOnOs(LINUX)
     @DisplayName("SEC-006 secret-set refuses a loose existing directory (exit 1) naming path and mode, before any prompt")
-    void sec006_looseDirectoryIsRefusedBeforePrompt() throws IOException {
+    void sec006_looseDirectoryIsRefusedBeforePrompt(Cli cli, CapturedOutput captured) throws IOException {
         Files.createDirectory(directory());
-        Files.setPosixFilePermissions(directory(), java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"));
+        Files.setPosixFilePermissions(directory(), PosixFilePermissions.fromString("rwxr-xr-x"));
         ScriptedSecretInput input = new ScriptedSecretInput(VALUE.toCharArray());
-        RecordingOutput output = new RecordingOutput();
 
-        CliHarness.Result result = CliHarness.run(directory(), input, output, "secret-set", "cloudflare-api-token");
+        Outcome result = cli.run(directory(), input, new RecordingOutput(), "secret-set", NAME);
 
-        assertThat(result.exitCode()).isEqualTo(1);
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.LOOSE_PERMISSIONS);
         assertThat(input.reads()).isZero();
-        assertThat(output.error()).contains(directory().toString()).contains("rwxr-xr-x");
+        assertThat(captured.getAll()).contains(directory().toString()).contains("rwxr-xr-x");
     }
 
     @ParameterizedTest(name = "[{index}] {0}")
-    @ValueSource(strings = {"secret-get", "secret-show", "secret-list", "category-add", "SECRET-SET"})
-    @DisplayName("SEC-004 / CLI-001 read-back and unknown commands are rejected (exit 2) with the usage text")
-    void sec004_unknownCommandIsAUsageError(String command) {
+    @MethodSource("usageErrors")
+    @DisplayName("SEC-004 / CLI-001 read-back, unknown commands and wrong argument counts are usage errors (exit 2) with the usage text, before any prompt")
+    void usageErrorsExitWithTwoAndPrintTheUsage(Refusal refusal, Cli cli, CapturedOutput captured) {
         ScriptedSecretInput input = new ScriptedSecretInput(VALUE.toCharArray());
         RecordingOutput output = new RecordingOutput();
 
-        CliHarness.Result result = CliHarness.run(directory(), input, output, command, "cloudflare-api-token");
+        Outcome result = cli.run(directory(), input, output, refusal.line());
 
-        assertThat(result.exitCode()).isEqualTo(2);
+        assertThat(result.exitCode()).isEqualTo(refusal.status().code());
+        assertThat(result.code()).contains(refusal.code());
         assertThat(input.reads()).isZero();
         assertThat(output.info()).isEmpty();
-        for (CliCommand known : CliCommand.values()) {
-            assertThat(output.error()).contains(known.cliName());
-        }
+        assertThat(captured.getAll()).contains(COMMAND_NAMES);
         assertThat(Files.exists(directory())).isFalse();
     }
 
@@ -192,42 +221,15 @@ class SecretSetCommandTest {
     }
 
     @Test
-    @DisplayName("CLI-001 no argument is a usage error (exit 2) and the usage lists every command")
-    void cli001_noArgumentIsAUsageError() {
-        RecordingOutput output = new RecordingOutput();
-
-        CliHarness.Result result = CliHarness.run(directory(), new ScriptedSecretInput(null), output);
-
-        assertThat(result.exitCode()).isEqualTo(2);
-        for (CliCommand known : CliCommand.values()) {
-            assertThat(output.error()).contains(known.cliName());
-        }
-    }
-
-    @ParameterizedTest(name = "[{index}] {0}")
-    @ValueSource(strings = {"secret-set", "secret-set cloudflare-api-token extra"})
-    @DisplayName("CLI-001 a missing or surplus argument is a usage error (exit 2) before any prompt")
-    void cli001_wrongArgumentCountIsAUsageError(String line) {
-        ScriptedSecretInput input = new ScriptedSecretInput(VALUE.toCharArray());
-        RecordingOutput output = new RecordingOutput();
-
-        CliHarness.Result result = CliHarness.run(directory(), input, output, line.split(" "));
-
-        assertThat(result.exitCode()).isEqualTo(2);
-        assertThat(input.reads()).isZero();
-        assertThat(output.error()).contains("secret-set");
-    }
-
-    @Test
     @DisplayName("CLI-002 the application is web-less: no web application type, no servlet or reactive classes, context closed on exit")
-    void cli002_applicationIsWebLess() {
-        CliHarness.Result result = CliHarness.run(directory(), new ScriptedSecretInput(null), new RecordingOutput(), "secret-get");
+    void cli002_applicationIsWebLess(Cli cli) {
+        Outcome result = cli.run(directory(), new ScriptedSecretInput(null), new RecordingOutput(), "secret-get");
 
-        assertThat(result.exitCode()).isEqualTo(2);
-        assertThat(result.closedContext().getEnvironment().getProperty("spring.main.web-application-type")).isEqualTo("none");
-        assertThat(result.closedContext().getClass().getName()).doesNotContain("Web");
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+        assertThat(result.context().getEnvironment().getProperty("spring.main.web-application-type")).isEqualTo("none");
+        assertThat(result.context().getClass().getName()).doesNotContain("Web");
         assertThat(ClassUtils.isPresent("jakarta.servlet.Servlet", null)).isFalse();
         assertThat(ClassUtils.isPresent("org.springframework.web.reactive.DispatcherHandler", null)).isFalse();
-        assertThat(result.closedContext().isActive()).isFalse();
+        assertThat(result.context().isActive()).isFalse();
     }
 }

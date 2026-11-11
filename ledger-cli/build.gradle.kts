@@ -11,9 +11,6 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: see gradle/libs.versions.toml
     testImplementation(libs.archunit)
-    // Jimfs 1.3.2 (latest GA, not in the Boot BOM): a pure Java in-memory file system with POSIX modes and owners, so the
-    // permission, owner and atomic-replace tests run on every OS without a shell or a second machine.
-    testImplementation("com.google.jimfs:jimfs:1.3.2")
 }
 
 tasks.bootJar {
