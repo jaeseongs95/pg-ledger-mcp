@@ -1,11 +1,14 @@
 package org.pgledger.cli.support;
 
 import java.nio.file.Path;
+import java.nio.file.attribute.UserPrincipal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import javax.sql.DataSource;
 
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.ParameterContext;
@@ -15,6 +18,7 @@ import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.LedgerCliApplication;
 import org.pgledger.cli.key.SessionKeyRegistry;
+import org.pgledger.cli.secret.ProcessUser;
 import org.pgledger.cli.secret.SecretInput;
 import org.springframework.boot.ExitCodeEvent;
 import org.springframework.boot.SpringApplication;
@@ -22,6 +26,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
 
 /**
  * JUnit extension that hands a test a {@link Cli} to start the real application the way {@code main} does. Only the input and
@@ -34,18 +39,59 @@ public final class CliExtension implements ParameterResolver {
     /** @param failure what {@code SpringApplication.run} threw, or null; @param context closed by the time the run returns */
     public record Outcome(int exitCode, RuntimeException failure, ConfigurableApplicationContext context) {
 
-        /** The error code of the refusal in the failure chain, if the run was refused. */
-        public Optional<ErrorCode> code() {
+        /** The refusal in the failure chain, if the run was refused. */
+        public Optional<CliException> refusal() {
             for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
                 if (cause instanceof CliException refusal) {
-                    return Optional.of(refusal.code());
+                    return Optional.of(refusal);
                 }
             }
             return Optional.empty();
         }
+
+        /** The error code of the refusal in the failure chain, if the run was refused. */
+        public Optional<ErrorCode> code() {
+            return refusal().map(CliException::code);
+        }
     }
 
     public static final class Cli {
+
+        private final DataSource database;
+        private final String processUser;
+        private final List<String> extraArguments;
+
+        Cli() {
+            this(null, null, List.of());
+        }
+
+        private Cli(DataSource database, String processUser, List<String> extraArguments) {
+            this.database = database;
+            this.processUser = processUser;
+            this.extraArguments = extraArguments;
+        }
+
+        /**
+         * A Cli whose application runs on the {@code embedded} profile (the way the admin web tests do): the ledger beans
+         * (the real services, repositories and transaction manager) are created over this database, which the test has
+         * built with the real migrator, instead of over the DataSource of a registered driver. The DataSource is handed
+         * in without a close method, so it is still open when the run has closed the context and the test reads the rows.
+         */
+        public Cli withDatabase(DataSource dataSource) {
+            return new Cli(dataSource, processUser, extraArguments);
+        }
+
+        /** A Cli that runs as this process user (the account name that the audit trail records as {@code cli:<name>}). */
+        public Cli asProcessUser(String name) {
+            return new Cli(database, name, extraArguments);
+        }
+
+        /** A Cli that also gets these command line arguments (for example {@code --spring.config.import=...}). */
+        public Cli withArguments(String... arguments) {
+            List<String> all = new ArrayList<>(extraArguments);
+            all.addAll(List.of(arguments));
+            return new Cli(database, processUser, List.copyOf(all));
+        }
 
         /** @param input null keeps the product Console input; @param output null keeps the product stream output */
         public Outcome run(Path secretsDirectory, SecretInput input, CliOutput output, String... args) {
@@ -57,6 +103,7 @@ public final class CliExtension implements ParameterResolver {
                 String... args) {
             List<String> all = new ArrayList<>(List.of(args));
             all.add("--ledger.secrets.directory=" + secretsDirectory);
+            all.addAll(extraArguments);
             AtomicReference<ConfigurableApplicationContext> started = new AtomicReference<>();
             ExitCodes exitCodes = new ExitCodes();
             SpringApplicationBuilder builder = new SpringApplicationBuilder(LedgerCliApplication.class)
@@ -64,6 +111,14 @@ public final class CliExtension implements ParameterResolver {
                     .initializers(ctx -> {
                         started.set(ctx);
                         GenericApplicationContext generic = (GenericApplicationContext) ctx;
+                        if (database != null) {
+                            generic.registerBean("testDataSource", DataSource.class, () -> new DelegatingDataSource(database));
+                        }
+                        if (processUser != null) {
+                            UserPrincipal principal = () -> processUser;
+                            generic.registerBean("testProcessUser", ProcessUser.class, () -> fileSystem -> principal,
+                                    bd -> bd.setPrimary(true));
+                        }
                         if (input != null) {
                             generic.registerBean("testSecretInput", SecretInput.class, () -> input, bd -> bd.setPrimary(true));
                         }
@@ -74,6 +129,9 @@ public final class CliExtension implements ParameterResolver {
                             generic.registerBean("testCliOutput", CliOutput.class, () -> output, bd -> bd.setPrimary(true));
                         }
                     });
+            if (database != null) {
+                builder.profiles("embedded");
+            }
             try {
                 ConfigurableApplicationContext context = builder.run(all.toArray(String[]::new));
                 return new Outcome(SpringApplication.exit(context), null, context);

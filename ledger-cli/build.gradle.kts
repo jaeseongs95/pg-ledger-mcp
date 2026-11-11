@@ -4,9 +4,13 @@ plugins {
 }
 
 dependencies {
-    // Plain starter only (Spring Boot core, logging, MessageSource): no JDBC, no DataSource auto-configuration, because
-    // secret-set and driver-register must run before any JDBC driver exists on this machine.
+    // Spring Boot core, logging, MessageSource. The database beans exist only when a JDBC driver is registered (see
+    // org.pgledger.cli.database), because secret-set and driver-register must run before any JDBC driver exists on this
+    // machine; the application excludes DataSourceAutoConfiguration, the DataSource comes from the registered driver.
     implementation("org.springframework.boot:spring-boot-starter")
+    // The ledger services (key registration ...) with the database module (Spring Data JDBC, Hikari; no JDBC driver) and the
+    // domain: the same modules the admin web uses for its console.
+    implementation(project(":ledger-application"))
     // Bean Validation for the @Validated settings records: a bad value stops the startup (version from the Boot BOM)
     implementation("org.springframework.boot:spring-boot-starter-validation")
     // Reads and fingerprints the public key of a session key (JDK only, shared with the hook and the server).
@@ -17,6 +21,8 @@ dependencies {
     testImplementation(libs.archunit)
     // The shared architecture and source rules (ARC-033: no operating system detection) live in the domain test fixtures.
     testImplementation(testFixtures(project(":ledger-domain")))
+    // The test database is the embedded H2 in its default mode (a driver on the test classpath only; the product ships none).
+    testImplementation("com.h2database:h2")
 }
 
 tasks.bootJar {

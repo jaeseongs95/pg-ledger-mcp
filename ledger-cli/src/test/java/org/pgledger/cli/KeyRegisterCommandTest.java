@@ -8,6 +8,7 @@ import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,7 +22,10 @@ import org.pgledger.cli.support.RecordingOutput;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
-/** CLI-017 .. CLI-020: the owner registers the public key of a session with {@code key-register}. */
+/**
+ * CLI-017 .. CLI-020 and CLI-029: the owner registers the public key of a session with {@code key-register}; the command
+ * line is checked here against a recording stand-in of the registry (the database wiring is {@code KeyRegisterDatabaseTest}).
+ */
 @ExtendWith({ OutputCaptureExtension.class, CliExtension.class })
 class KeyRegisterCommandTest {
 
@@ -37,7 +41,12 @@ class KeyRegisterCommandTest {
 
         @Override
         public void register(String author, String publicKey) {
-            calls.add(author + " " + publicKey);
+            calls.add("register " + author + " " + publicKey);
+        }
+
+        @Override
+        public void registerReplacing(String author, String publicKey, String replacedFingerprint) {
+            calls.add("replace " + author + " " + publicKey + " " + replacedFingerprint);
         }
     }
 
@@ -54,7 +63,7 @@ class KeyRegisterCommandTest {
     }
 
     @Test
-    @DisplayName("CLI-017 key-register with the key and the fingerprint the session showed registers the canonical key for the author and prints the author and the fingerprint")
+    @DisplayName("CLI-017 key-register with the key and the fingerprint the session showed registers the canonical key for the author (no replacement) and prints the author and the fingerprint")
     void registers(Cli cli) {
         KeyPair pair = pair();
         String key = PublicKeys.encode(pair.getPublic());
@@ -63,12 +72,30 @@ class KeyRegisterCommandTest {
         RecordingOutput output = new RecordingOutput();
 
         Outcome result = cli.run(secrets(), null, output, registry, "key-register", AUTHOR, " " + key + " ",
-                fingerprint.toUpperCase(java.util.Locale.ROOT));
+                fingerprint.toUpperCase(Locale.ROOT));
 
         assertThat(result.exitCode()).isZero();
         assertThat(result.failure()).isNull();
-        assertThat(registry.calls).containsExactly(AUTHOR + " " + key);
+        assertThat(registry.calls).containsExactly("register " + AUTHOR + " " + key);
         assertThat(output.info()).contains(AUTHOR).contains(fingerprint);
+    }
+
+    @Test
+    @DisplayName("CLI-017 key-register with --replace=<fingerprint> asks the registry to replace exactly that live key (any letter case) and prints both fingerprints")
+    void registersReplacing(Cli cli) {
+        KeyPair pair = pair();
+        String key = PublicKeys.encode(pair.getPublic());
+        String fingerprint = PublicKeys.fingerprint(pair.getPublic());
+        String replaced = PublicKeys.fingerprint(pair().getPublic());
+        RecordingRegistry registry = new RecordingRegistry();
+        RecordingOutput output = new RecordingOutput();
+
+        Outcome result = cli.run(secrets(), null, output, registry, "key-register", AUTHOR, key, fingerprint,
+                "--replace=" + replaced.toUpperCase(Locale.ROOT));
+
+        assertThat(result.exitCode()).isZero();
+        assertThat(registry.calls).containsExactly("replace " + AUTHOR + " " + key + " " + replaced);
+        assertThat(output.info()).contains(AUTHOR).contains(fingerprint).contains(replaced);
     }
 
     @Test
@@ -101,8 +128,8 @@ class KeyRegisterCommandTest {
     }
 
     @Test
-    @DisplayName("CLI-020 missing or surplus arguments are a usage error (exit 2); a tool without a connection to the ledger refuses with REGISTRY_NOT_CONFIGURED (exit 1)")
-    void usageAndNoRegistry(Cli cli) {
+    @DisplayName("CLI-020 missing or surplus arguments are a usage error (exit 2); with no driver registered there is no registry and the command refuses with DRIVER_NOT_CONFIGURED naming driver-register (exit 1)")
+    void usageAndNoRegistry(Cli cli, CapturedOutput captured) {
         KeyPair pair = pair();
         String key = PublicKeys.encode(pair.getPublic());
         String fingerprint = PublicKeys.fingerprint(pair.getPublic());
@@ -119,6 +146,43 @@ class KeyRegisterCommandTest {
         assertThat(four.exitCode()).isEqualTo(ExitStatus.USAGE.code());
         assertThat(four.code()).contains(ErrorCode.TOO_MANY_ARGUMENTS);
         assertThat(unconnected.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
-        assertThat(unconnected.code()).contains(ErrorCode.REGISTRY_NOT_CONFIGURED);
+        assertThat(unconnected.code()).contains(ErrorCode.DRIVER_NOT_CONFIGURED);
+        assertThat(captured.getAll()).contains("driver-register");
+    }
+
+    @Test
+    @DisplayName("CLI-029 --replace without a value or with a blank or a second value, an unknown single-word option and a surplus operand are usage errors (exit 2) and register nothing; dotted Spring options pass")
+    void optionsAreChecked(Cli cli) {
+        KeyPair pair = pair();
+        String key = PublicKeys.encode(pair.getPublic());
+        String fingerprint = PublicKeys.fingerprint(pair.getPublic());
+        String other = PublicKeys.fingerprint(pair().getPublic());
+        RecordingRegistry registry = new RecordingRegistry();
+
+        Outcome noValue = cli.run(secrets(), null, new RecordingOutput(), registry, "key-register", AUTHOR, key,
+                fingerprint, "--replace");
+        Outcome blank = cli.run(secrets(), null, new RecordingOutput(), registry, "key-register", AUTHOR, key,
+                fingerprint, "--replace=");
+        Outcome twice = cli.run(secrets(), null, new RecordingOutput(), registry, "key-register", AUTHOR, key,
+                fingerprint, "--replace=" + other, "--replace=" + fingerprint);
+        Outcome unknown = cli.run(secrets(), null, new RecordingOutput(), registry, "key-register", AUTHOR, key,
+                fingerprint, "--force");
+        Outcome separateWord = cli.run(secrets(), null, new RecordingOutput(), registry, "key-register", AUTHOR, key,
+                fingerprint, "--replace", other);
+        Outcome dotted = cli.run(secrets(), null, new RecordingOutput(), registry, "key-register", AUTHOR, key,
+                fingerprint, "--spring.main.log-startup-info=false");
+
+        assertThat(noValue.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+        assertThat(noValue.code()).contains(ErrorCode.MISSING_OPTION_VALUE);
+        assertThat(blank.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+        assertThat(blank.code()).contains(ErrorCode.MISSING_OPTION_VALUE);
+        assertThat(twice.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+        assertThat(twice.code()).contains(ErrorCode.TOO_MANY_ARGUMENTS);
+        assertThat(unknown.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+        assertThat(unknown.code()).contains(ErrorCode.UNKNOWN_OPTION);
+        assertThat(separateWord.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+        assertThat(separateWord.code()).contains(ErrorCode.TOO_MANY_ARGUMENTS);
+        assertThat(registry.calls).as("only the dotted Spring option was a valid command line").hasSize(1);
+        assertThat(dotted.exitCode()).isZero();
     }
 }
