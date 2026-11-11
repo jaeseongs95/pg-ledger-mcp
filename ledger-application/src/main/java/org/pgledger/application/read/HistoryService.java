@@ -5,8 +5,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.pgledger.application.history.ChangeSet;
-import org.pgledger.application.json.LedgerJson;
 import org.pgledger.database.repository.HistoryQueryRepository;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.domain.model.HistoryEntry;
@@ -38,11 +36,12 @@ public class HistoryService {
 
     /**
      * One history row as the tools show it. {@code beforeData} is null unless asked for and present; it is the JSON
-     * text as the row stores it (written by the ledger mapper, snake_case), which is passed on and not parsed.
+     * text as the row stores it (written by the ledger mapper, snake_case), which is passed on and not parsed; so is
+     * {@code changes}, the stored JSON object of field to [before, after].
      */
     public record HistoryView(long id, Instant at, String authorId, String vendor, String login,
             String actorAssurance, String entity, String entityId, String op, String fromState, String toState,
-            ChangeSet changes, JsonDocument beforeData, String reason, String evidenceUri, Long correctsId,
+            JsonDocument changes, JsonDocument beforeData, String reason, String evidenceUri, Long correctsId,
             String requestId, String legacyRef) {
     }
 
@@ -50,14 +49,11 @@ public class HistoryService {
 
     private final HistoryQueryRepository queries;
     private final HistoryRepository rows;
-    private final LedgerJson json;
     private final Cursors cursors;
 
-    public HistoryService(HistoryQueryRepository queries, HistoryRepository rows, LedgerJson json,
-            Cursors cursors) {
+    public HistoryService(HistoryQueryRepository queries, HistoryRepository rows, Cursors cursors) {
         this.queries = queries;
         this.rows = rows;
-        this.json = json;
         this.cursors = cursors;
     }
 
@@ -88,7 +84,7 @@ public class HistoryService {
         Matcher vendor = VENDOR.matcher(new SessionKey(row.authorId().value()).value());
         return new HistoryView(row.id(), row.at(), row.authorId().value(), vendor.matches() ? vendor.group(1) : null,
                 row.login(), row.actorAssurance().name(), row.entity().token(), row.entityId(), row.op().name(),
-                row.fromState(), row.toState(), json.read(row.changes(), ChangeSet.class), before, row.reason(),
+                row.fromState(), row.toState(), row.changes(), before, row.reason(),
                 row.evidenceUri(), row.correctsId(), row.requestId().toString(), row.legacyRef());
     }
 

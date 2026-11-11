@@ -128,7 +128,7 @@ public final class ReadOutputs {
             @JsonProperty("login") String login, @JsonProperty("actor_assurance") String actorAssurance,
             @JsonProperty("entity") String entity, @JsonProperty("entity_id") String entityId,
             @JsonProperty("op") String op, @JsonProperty("from_state") String fromState,
-            @JsonProperty("to_state") String toState, @JsonProperty("changes") Object changes,
+            @JsonProperty("to_state") String toState, @JsonRawValue @JsonProperty("changes") Object changes,
             @JsonInclude(JsonInclude.Include.NON_NULL) @JsonRawValue @JsonProperty("before_data") Object beforeData,
             @JsonProperty("reason") String reason,
             @JsonProperty("evidence_uri") String evidenceUri, @JsonProperty("corrects_id") Long correctsId,
@@ -231,7 +231,7 @@ public final class ReadOutputs {
     /** @param includeBefore whether the caller asked for {@code before_data}: when not, the key is left out */
     public static History history(HistoryService.HistoryView h, boolean includeBefore) {
         return new History(h.id(), h.at(), h.authorId(), h.vendor(), h.login(), h.actorAssurance(), h.entity(),
-                h.entityId(), h.op(), h.fromState(), h.toState(), h.changes(),
+                h.entityId(), h.op(), h.fromState(), h.toState(), h.changes().text(),
                 beforeData(h, includeBefore), h.reason(), h.evidenceUri(),
                 h.correctsId(), h.requestId(), h.legacyRef());
     }
