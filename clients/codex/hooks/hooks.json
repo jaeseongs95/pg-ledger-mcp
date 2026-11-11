@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${PLUGIN_ROOT}/scripts/ledger-host-attestation.mjs\"",
-            "commandWindows": "cmd.exe /d /c node \"%PLUGIN_ROOT%/scripts/ledger-host-attestation.mjs\"",
+            "command": "java -jar \"${PLUGIN_ROOT}/lib/ledger-client-hook.jar\" codex",
+            "commandWindows": "cmd.exe /d /c java -jar \"%PLUGIN_ROOT%/lib/ledger-client-hook.jar\" codex",
             "timeout": 10
           }
         ]
