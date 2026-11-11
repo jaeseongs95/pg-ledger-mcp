@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [{
       "matcher": "^mcp__.*ledger_(save|transition|record_fix|record_case|link|correct|batch|review|review_correct|whoami)$",
-      "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/host-attestation.mjs\"", "timeout": 10 }]
+      "hooks": [{ "type": "command", "command": "java -jar \"${CLAUDE_PLUGIN_ROOT}/lib/ledger-client-hook.jar\" claude", "timeout": 10 }]
     }]
   }
 }

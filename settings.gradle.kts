@@ -6,5 +6,5 @@ dependencyResolutionManagement {
     }
 }
 
-// Future modules (application, mcp-server, admin-web, cli, hooks, e2e) are listed here when they exist.
-include("ledger-domain", "ledger-database", "ledger-cli")
+// Future modules (application, mcp-server, admin-web, hooks, e2e) are listed here when they exist.
+include("ledger-domain", "ledger-database", "ledger-cli", "ledger-client-hook")
