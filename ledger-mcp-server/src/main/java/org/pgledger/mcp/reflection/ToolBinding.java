@@ -43,18 +43,22 @@ import tools.jackson.databind.json.JsonMapper;
  * schema violation as one free-text error result; it is switched off in {@code McpServerConfiguration} for that
  * reason, and no Spring AI property exists for it.</li>
  * </ul>
- * Documents: Spring AI "MCP Annotations - Server"
- * (https://docs.spring.io/spring-ai/reference/api/mcp/mcp-annotations-server.html), MCP Java SDK server documentation
- * and javadoc (https://modelcontextprotocol.io/sdk/java/mcp-server). UNVERIFIED: these pages were not opened in this
- * work (no outside request is allowed); the statements above rest on the bytecode of the two jars and on the spike
- * report, whose section c cites the Spring AI page as not describing a hook for validation or schema changes.
+ * Documents (read): Spring AI reference "MCP Annotations - Server"
+ * (https://docs.spring.io/spring-ai/reference/api/mcp/mcp-annotations-server.html). Its section "Exception Handling"
+ * says "A {@code RuntimeException} is converted to an error {@code CallToolResult} and conveyed to the model, which
+ * can reason about it or retry." and names no setting that changes the exception class, so a structured error token
+ * cannot be produced by that path. The page does not describe argument binding or conversion, input validation, or a
+ * customization of the input schema ({@code additionalProperties}, enumerations); the attributes of
+ * {@code @McpToolParam} are only {@code description} and {@code required}. For all of these the documentation has no
+ * feature. The MCP Java SDK javadoc and the Bean Validation documentation were not opened; the statements about the
+ * SDK rest on {@code javap} of the jars (spring-ai-mcp-annotations 2.0.2, mcp-core 2.1.0) and on the spike report.
  *
  * <p><b>Why the required-argument checks are not Jakarta constraints</b> (principle 2.2 category 9). The services
  * validate every field rule with Jakarta Validation. What is checked here happens before any object exists that a
  * constraint could sit on: a key that the tool does not declare, a declared key that is missing, a value of the wrong
  * type, and a value outside a closed set are facts about the call, and a Jakarta violation would carry the path of a
  * method parameter, not of the wire key. The checks are derived from the declarations ({@code @McpToolParam}
- * required, {@code @Choice}), not written per argument. UNVERIFIED: no Bean Validation page was opened for this.
+ * required, {@code @Choice}), not written per argument.
  */
 public final class ToolBinding {
 

@@ -229,7 +229,8 @@ public final class ReadOutputs {
     public static History history(HistoryService.HistoryView h, boolean includeBefore) {
         return new History(h.id(), h.at(), h.authorId(), h.vendor(), h.login(), h.actorAssurance(), h.entity(),
                 h.entityId(), h.op(), h.fromState(), h.toState(), h.changes(),
-                includeBefore ? Optional.ofNullable(h.beforeData()) : null, h.reason(), h.evidenceUri(),
+                includeBefore ? Optional.ofNullable(h.beforeData()).<Object>map(BeforeData::of) : null, h.reason(),
+                h.evidenceUri(),
                 h.correctsId(), h.requestId(), h.legacyRef());
     }
 

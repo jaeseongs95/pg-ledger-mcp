@@ -15,9 +15,10 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code @JsonInclude(ALWAYS)}, so a null stays a null whatever default inclusion the transport mapper has. The
  * JSON text of a successful result is the one serialization this class makes: the MCP specification (2025-06-18,
  * server/tools, "Structured Content") recommends that a tool that returns structured content also returns the
- * serialized JSON in a text content block for clients that read only the text, and the clients of this ledger do.
- * UNVERIFIED: that sentence of the specification (https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
- * is recalled, not read in this work, because no outside request is allowed; open the page and confirm it.
+ * serialized JSON in a text content block. Source: MCP specification 2025-06-18, server/tools, section "Structured
+ * Content" (https://modelcontextprotocol.io/specification/2025-06-18/server/tools#structured-content): "For
+ * backwards compatibility, a tool that returns structured content SHOULD also return the serialized JSON in a
+ * TextContent block." (confirmed by reading the page).
  */
 @Component
 public class ToolResults {

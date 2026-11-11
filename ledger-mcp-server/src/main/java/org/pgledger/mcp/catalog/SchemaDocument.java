@@ -24,11 +24,18 @@ import org.springframework.util.StringUtils;
  * texts. The MCP SDK (2.1.0) takes a tool definition as given; {@code McpSyncServerCustomizer} changes the server
  * specification, and the list filter ({@code McpSyncListFilter}) only decides whether a tool is visible. Evidence:
  * the bytecode of spring-ai-mcp-annotations 2.0.2, spring-ai-autoconfigure-mcp-server-common 2.0.2 and mcp-core
- * 2.1.0, and the spike report (SPIKE_REPORT.md, b and c). Documents: Spring AI "MCP Annotations - Server"
- * (https://docs.spring.io/spring-ai/reference/api/mcp/mcp-annotations-server.html) and the MCP Java SDK
- * documentation (https://modelcontextprotocol.io/sdk/java/mcp-server). UNVERIFIED: not opened in this work (no
- * outside request is allowed). The map form is the SDK's own type for a schema ({@code Tool.inputSchema()}); this
- * class and {@code LiveSchema} are the only places that hold it, and the edits are the minimum the catalog needs.
+ * 2.1.0 ({@code javap}), and the spike report (SPIKE_REPORT.md, b and c).
+ *
+ * <p>Document (read): Spring AI reference "MCP Annotations - Server"
+ * (https://docs.spring.io/spring-ai/reference/api/mcp/mcp-annotations-server.html). It does not describe a
+ * customization of the input schema ({@code additionalProperties}, enumerations); the attributes of
+ * {@code @McpToolParam} are only {@code description} and {@code required}: the documentation has no such feature.
+ * Its section on dynamic schemas says "Tools can accept {@code CallToolRequest} for runtime schema handling", that is
+ * the tool takes {@code request.arguments()} (a {@code Map<String, Object>}) and handles the arguments itself; a
+ * schema that changes while the server runs, like the common codes here, is handled at the arguments in the same way
+ * the official documentation shows. The MCP Java SDK javadoc was not opened; the SDK statements rest on {@code javap}.
+ * The map form is the SDK's own type for a schema ({@code Tool.inputSchema()}); this class and {@code LiveSchema} are
+ * the only places that hold it, and the edits are the minimum the catalog needs.
  */
 final class SchemaDocument {
 

@@ -599,6 +599,7 @@ Tools: `ledger_get, ledger_defect, ledger_task, ledger_history, ledger_search, l
 | MCR-H10 | MCP | imported legacy rows | read | IMPORT/LEGACY_NOTE/LEGACY_CHANGE rows visible with `legacy_ref`, `actor_assurance` | 10_tables | no |
 | MCR-H11 | MCP | EDIT, TRANSITION, UNLINK rows with `before_data` | `include_before=true` / `false` / absent | true: `before_data` returned as structured object equal to the stored record; false or absent: key omitted; CREATE, LINK, CORRECT, case rows and imported rows: null even with true | user decision 3 | no |
 | MCR-H12 | MCP | `include_before=true`, `max_rows=1000` | call | response is complete or truncated by `max_rows` rules (no silent cut), within configured response size | user decision 3 | no |
+| MCR-H13 | MCP | a defect created and then edited through the write tools (MCP Java SDK client, real server) | `ledger_history(project, include_before=true)` | the EDIT row's `before_data` is an object whose keys are snake_case like every other key of the contract (`project_id`, `root_cause`, `case_seq`, `created_at`, `created_by`, ...) and holds the row as it was before the edit (title of the CREATE, version 1); the CREATE row's `before_data` is null. A camelCase key (`projectId`) must not appear, whichever mapper writes the response | defect found in the MCP stage: the snapshot records were written with the default naming | no |
 
 ### 8.5 ledger_search
 | ID | Level | Given | When | Then | Source | DBMS |
