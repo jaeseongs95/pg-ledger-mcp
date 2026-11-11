@@ -124,11 +124,13 @@ class BatchAndErrorsTest {
     @Test
     void dom026_everyCodeMapsToOneExceptionSubtypeOfItsCategory() {
         List<ErrorCode> codes = allCodes();
-        assertThat(codes).hasSize(34);
+        assertThat(codes).hasSize(40);
         assertThat(codes.stream().map(ErrorCode::token)).doesNotHaveDuplicates();
         assertThat(codes.stream().map(ErrorCode::token)).contains("AUTHOR_ID_FORMAT", "SESSION_NOT_GRANTED",
                 "HOST_ATTESTATION_REQUIRED", "VERSION_CONFLICT", "SAME_SESSION", "MERGED_DEFECT", "CODE_REQUIRED",
-                "CODE_INVALID", "REQUEST_ID_LEGACY");
+                "CODE_INVALID", "REQUEST_ID_LEGACY", "ATTESTATION_UNSIGNED", "ATTESTATION_MALFORMED",
+                "SESSION_KEY_NOT_REGISTERED", "ATTESTATION_SIGNATURE_INVALID", "ATTESTATION_BINDING_MISMATCH",
+                "ATTESTATION_TIME_WINDOW");
         for (ErrorCode code : codes) {
             LedgerException e = exceptionFor(code);
             assertThat(e.code()).isEqualTo(code);
