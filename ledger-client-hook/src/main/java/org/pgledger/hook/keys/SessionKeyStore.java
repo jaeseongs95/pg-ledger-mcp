@@ -90,7 +90,7 @@ import org.pgledger.hook.keys.SessionKeyException.Reason;
  *     {@link Files#createDirectories(Path, FileAttribute[])} and {@link Files#newByteChannel(Path, java.util.Set,
  *     FileAttribute[])}), an ACL with one ALLOW entry that grants the current user everything and nothing else; the ACL
  *     is read back before any key material is written, and replaced by that ACL if the system added inherited entries.
- *     An existing folder or file whose ACL allows anything beyond reading its attributes and its ACL to a principal
+ *     An existing folder or file whose ACL has no entry at all (an empty ACL; a NULL DACL may read the same) or allows anything beyond reading its attributes and its ACL to a principal
  *     other than the current user is refused ({@link Reason#TOO_OPEN}). SYSTEM and Administrators are not exempt: an
  *     administrator can take ownership of any file whatever its ACL, so this protects against the other accounts of the
  *     machine that are not administrators, and an entry for them would add nothing but exposure.
@@ -334,7 +334,13 @@ public final class SessionKeyStore {
         public void requireOwnerOnly(Path path, LinkOption... options) throws IOException {
             requireOwner(path, List.of(current), options);
             AclFileAttributeView view = Files.getFileAttributeView(path, AclFileAttributeView.class, options);
-            for (AclEntry entry : view.getAcl()) {
+            List<AclEntry> acl = view.getAcl();
+            if (acl.isEmpty()) {
+                // an ACL without any entry grants the current user nothing, and a NULL DACL (which grants everybody
+                // everything) may be reported the same way: neither is the "owner alone" that was asked for
+                throw new SessionKeyException(Reason.TOO_OPEN);
+            }
+            for (AclEntry entry : acl) {
                 // only an ALLOW entry grants anything; DENY, AUDIT and ALARM entries do not
                 boolean granting = entry.type() == AclEntryType.ALLOW && !entry.principal().equals(current)
                         && !HARMLESS.containsAll(entry.permissions());
