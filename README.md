@@ -1,83 +1,113 @@
 # pg-ledger-mcp
 
-A PostgreSQL ledger for work done by AI agents, served as one MCP endpoint.
-It records defects, tasks, fixes and their verification, along with who did each one and why.
+[한국어](README.ko.md)
 
-Agents read and write through MCP tools. They never get a database login of their own.
+A ledger for work done by AI agents, served as one MCP endpoint. It records defects, tasks, fixes and their verification,
+together with who did each one and why. Agents read and write through MCP tools; they never get a database login of their own.
 
-- **Role logins, not per-agent accounts.** There are three logins: `ledger_author`, `ledger_reviewer` and `ledger_reader`.
-  Each MCP tool is bound to the login it needs, and the caller never chooses one.
-- **The host hook signs every write and whoami.** Reserved `_hostAttestation` is a signed token
-  (`pgla2.<author>.<tool>.<request id>.<arguments digest>.<issued at>.<signature>`; `pgla1` tokens are refused)
-  for the author `<vendor>:<session-id>`, for example `claude:1f2e3d4c` or `codex:9a8b7c6d`. Models must omit this field.
-  The signature covers the exact arguments of the call (SHA-256 of their RFC 8785 canonical form, without `_hostAttestation`;
-  a batch: every operation, its content, its order and its request id), so a captured token cannot carry other content.
-  The hook keeps one Ed25519 key pair per MCP server name of the host and author in an owner-only folder (an absolute path:
-  `LEDGER_HOOK_KEY_DIR`, default `~/.pg-ledger-mcp/session-keys`; POSIX mode or, on Windows, an ACL that grants the owner alone);
-  it signs only `mcp__<server>__ledger_<op>` (or `mcp__<server>__<server>_ledger_<op>`) with a known operation, so a signature made
-  for one server (the test server, a look-alike server) never verifies on another. Codex Apps (`mcp__codex_apps__app_<app>_ledger_<op>`)
-  is keyed by the app: the server name for `session-key` is `codex_apps.<app>`, for example `codex_apps.ledger`.
-  `java -jar ledger-client-hook.jar session-key <server> <author>` prints the public key and its fingerprint. The owner registers each
-  server's key separately (`ledger-cli key-register <author> <public-key-or-block> <fingerprint>` on that server, after comparing the fingerprint; the block is the four lines the hook printed, and the admin web grants page takes it too and shows the server name next to the fingerprint; `ledger-cli key-revoke <author> --fingerprint=<fingerprint>` or the keys table of the grants page closes a key; the owner role `user:owner` gets no key);
-  the server verifies the signature (a missing key and a wrong signature are the same refusal, `ATTESTATION_SIGNATURE_INVALID`), the tool,
-  the request id, the arguments and the time (default window 5 minutes) before it looks at any grant. A bare `<vendor>:<session-id>` is refused.
-  Existing project/scope grants still apply. The ledger owner is `user:owner`. Legacy model `author_id` is ignored by the server.
-  Limit: another process of the same OS user can read the key file; separate OS accounts are needed for isolation inside one user.
-- **Writes need a live grant.** The owner grants an author a scope on a project with `ledger-cli grant <author> <project> <scope>... [--note=<text>] [--expires=<ISO-8601 with Z or an offset>]` (or on the grants page of the admin web); the author needs a registered session key first (`ledger-cli key-register`).
-  The scopes are `defect`, `task`, `fix` and `verify`. Writes without a matching grant are refused.
-- **Verification is separate.** `VERIFIED`, `MET` and `NOT_MET` can only be set through the reviewer login.
-  A fix must be verified by a session other than the one that recorded it.
-  `VERIFIED` needs an evidence link and at least one recorded fix from another session. CI results are optional metadata.
-  The developer supplies the source SHA, original failure reproduction and direct execution steps; the reviewer runs the actual program.
-  When a defect is registered by one session (`created_by`) and fixed by another, `ledger_record_fix` updates `owner_actor_id` to the fixing session and `ledger.v_defect` exposes `fixed_by` / `fixed_at`; verification feedback and rework requests go to the session that fixed the defect (`fixed_by`), not `created_by`.
-- **History is append-only.** Every write adds a `ledger.history` row: when, author, login, operation, state change and reason.
-  Mistakes are marked with a `CORRECT` row. Triggers refuse `UPDATE`, `DELETE` and `TRUNCATE` on history, even for the owner.
-- **Retries are safe.** Pass `request_id`, a UUID. Repeating the same request returns the stored result and does not write twice.
-- **Optimistic locking.** Edits and transitions carry `expected_version`.
-- **Projects.** Each defect belongs to a project and gets the id `<CODE>-D-0001`, `<CODE>-D-0002`, … automatically.
-- **One defect, one root cause; many observed cases.** Each observation of a defect (symptom, log, user report) is a row of
-  `ledger.defect_case` under it. Merging a defect (`MERGED`, `merged_into`) keeps its cases where they are; `ledger.v_defect`
-  shows them under the defect it was merged into, so nothing has to be copied. A MERGED defect takes no new cases.
-- **Common codes.** Category, severity and relation kind are the three groups in `ledger.common_code`, with Korean and English names and descriptions.
-  Active values are rendered into the MCP tool definitions. States, CI results and grant scopes keep their fixed CHECK constraints.
-  A retired code stays on existing rows and is refused when newly assigned.
-  **Severity is required:** P1/P2/P3 are active; an existing UNRATED defect must be rated on its next write.
-- **Creation provenance is immutable.** New project, task, defect, condition, link and common-code rows receive `created_by` automatically.
-  Existing `recorded_by`, history/receipt `author_id` and grant `granted_by` columns retain their meanings.
-  Existing rows are backfilled from first CREATE/IMPORT history (LINK for links), with `unknown:legacy` when no source exists; link creators come from the first LINK after the latest UNLINK;
-  projects and common codes use `user:owner`. Edits and reviewer transitions preserve the creator.
-  Parents remain responsible for child results, records and mistakes and must verify/correct their evidence directly.
+Version 2.0.0 is a rewrite in Java 25 and Spring Boot. It keeps the contract that clients rely on (the names and input keys
+of the write tools, the keys of the results, the `_hostAttestation` key) and changes what is stated in the
+[release notes](docs/release-notes/2.0.0.md); the format of release notes is in [docs/RELEASE_NOTES_FORMAT.md](docs/RELEASE_NOTES_FORMAT.md).
 
-PostgreSQL enforces grants, state rules, provenance and history through constraints, `SECURITY DEFINER` functions and triggers.
-Client hooks supply host identity; a direct MCP caller is not cryptographically authenticated as that host.
-The MCP layer is a thin configuration of [DBHub](https://github.com/bytebase/dbhub).
+## Contents
+
+- Concepts
+- MCP tools
+- Modules
+- Configuration
+- Installation
+- ledger-cli
+- Admin web
+- Client hooks
+- Migrating from 1.x
+- Build and test
+- Layout
+
+## Concepts
+
+- **Author identity is proved, not claimed.** Every write and every `ledger_whoami` carries the reserved key `_hostAttestation`,
+  which the host hook of the client fills in. Models must omit it. The author is `<vendor>:<session-id>`, for example
+  `claude:1f2e3d4c` or `codex:9a8b7c6d`; the owner of the ledger is `user:owner`. A legacy `author_id` is accepted and ignored.
+- **Writes need a live grant.** The owner grants an author a scope on a project with `ledger-cli grant` (or on the grants page of
+  the admin web). The scopes are `defect`, `task`, `fix` and `verify`. A write without a matching grant is refused.
+- **Verification is separate.** `VERIFIED`, `MET` and `NOT_MET` are set only through the reviewer tools `ledger_review` and
+  `ledger_review_correct`, which need the scope `verify`. A defect is verified only with an evidence link and at least one
+  recorded fix from another session than the verifier; the verification and rework requests go to the session that recorded
+  the fix (`fixed_by`), not to the one that registered the defect (`created_by`). CI results are optional metadata.
+- **History is append-only.** Every write adds a history row: when, author, channel, operation, state change and reason. The
+  application has no path that updates or deletes a history row, and the optional grant template of the database module gives the
+  application account no `UPDATE` or `DELETE` on it. A mistake is marked with a `CORRECT` row. An operation that changes an
+  existing row also stores the full row as it was before the change (`before_data`, returned by `ledger_history` with
+  `include_before`).
+- **Retries are safe.** Pass `request_id`, a UUID. Repeating the same request returns the stored result and writes nothing twice.
+  A receipt that was imported from the 1.x ledger answers `REQUEST_ID_LEGACY`: use a new request id.
+- **Optimistic locking.** Edits and transitions carry `expected_version`; a stale version is `VERSION_CONFLICT`.
+- **Projects and ids.** A defect belongs to a project and gets the id `<CODE>-D-0001`, `<CODE>-D-0002`, and so on. A task without
+  an id gets `<CODE>-T-0001`, and so on. The server assigns them.
+- **One defect, one root cause, many observed cases.** Each observation of a defect (symptom, log, user report) is a case under it
+  (`ledger_record_case`). A merged defect (`MERGED`, `merged_into`) keeps its cases; `ledger_defect` shows them under the defect it
+  was merged into, and a `MERGED` defect takes no new cases.
+- **Common codes.** Defect category, defect severity and relation kind are the three groups `DEFECT_CATEGORY`, `DEFECT_SEVERITY` and
+  `RELATION_KIND`, with Korean and English names. The active values are part of the tool definitions. A retired code stays on
+  existing rows and is refused when newly assigned. A severity is required on every defect.
+- **Creation provenance is immutable.** New rows receive `created_by` automatically; edits and reviewer transitions keep it.
+- **Time is UTC.** Timestamps are stored and transmitted in UTC (ISO-8601 with `Z`); the server converts no time zone. The JVM and
+  the database session must run in UTC, and a server that finds otherwise does not start (`ledger.schema.require-utc`).
+- **Database neutral.** The product does not bundle a JDBC driver: the user obtains the JDBC driver of the database of their choice
+  and registers it with `driver-register`. Only ANSI SQL is used and no DBMS-specific feature is used: the schema files have no
+  triggers, procedures, views, sequences, identity columns or boolean columns, and the rules that the database used to enforce are
+  enforced by the application services. No list of databases is published.
+
+A direct MCP caller is not authenticated as a host: the bearer token admits the caller, and the signed attestation proves the author.
 
 ## MCP tools
 
-| tool | login | what |
+The server speaks MCP over Streamable HTTP at `/mcp` (default `127.0.0.1:8765`) and answers `/healthz`. Callers present
+the bearer token `ledger.mcp.token`. The write tools keep their names and input keys. The results carry their keys at the top
+level of the result; the wrapping `rows[0].result` of 1.x is gone. Every tool input is closed: an unknown argument is refused.
+
+Write tools (a login, an attestation and a live grant are needed):
+
+| Tool | Channel | What |
 |---|---|---|
-| `execute_sql_reader` | reader | any read-only SQL (read-only transaction, at most 1000 rows) |
-| `search_objects_reader` | reader | list schemas, tables, columns |
-| `ledger_whoami` | author | is this author id well formed, which grants does it hold |
+| `ledger_whoami` | author | is this author well formed, which grants does it hold (read only) |
 | `ledger_save` | author | create or edit a defect, task or condition |
-| `ledger_transition` | author | change state (OPEN, SOURCE_FIXED, MERGED, ACTIVE, REPORTED_DONE, …) |
-| `ledger_record_fix` | author | record a fix commit and optional CI metadata; assigns `owner_actor_id` (`v_defect.fixed_by`) and moves OPEN → SOURCE_FIXED |
-| `ledger_record_case` | author | add an observed case under a defect (refused on a MERGED defect, naming its target) |
-| `ledger_link` | author | link defects, tasks and conditions |
+| `ledger_transition` | author | change state (`OPEN`, `SOURCE_FIXED`, `MERGED`, `ACTIVE`, `REPORTED_DONE`, and so on) |
+| `ledger_record_fix` | author | record a fix commit and optional CI metadata; the fixing session becomes `fixed_by` and an `OPEN` defect becomes `SOURCE_FIXED` |
+| `ledger_record_case` | author | add an observed case under a defect (a `MERGED` defect is refused and names its target) |
+| `ledger_link` | author | link defects, tasks and conditions, or remove a link |
 | `ledger_correct` | author | mark a history row as wrong |
 | `ledger_batch` | author | up to 200 of the operations above in one transaction: all commit or none |
-| `ledger_review` | reviewer | VERIFIED / MET / NOT_MET, and reopening them |
+| `ledger_review` | reviewer | `VERIFIED`, `MET`, `NOT_MET`, and reopening them; the evidence link is required |
 | `ledger_review_correct` | reviewer | mark a verification row as wrong |
 
-Useful views: `ledger.v_defect` (state, fixes, tasks, cases, last change), `ledger.v_history`, `ledger.v_attention`
-(rows that need a look, such as an OPEN defect that already has a fix or a fixed defect without a recorded commit).
+Read tools (no attestation and no grant; structured queries that replace the raw SQL tools of 1.x):
 
-`ledger_record_case` takes `defect_id`, `observation` (1..4000 characters) and `reason`, and optionally `evidence`
-(request id, `file:line`, log location), `user_quote` (verbatim) and `observed_at` (ISO 8601; omitted = not known).
-In `ledger_batch` the same arguments go in `{"op": "record_case", ...}`.
-`v_defect.cases` is a JSON array, oldest first, of the cases of the defect and of every defect merged into it, also
-through chains of merges. Each entry names its `defect`; `source` is `case` for a recorded case and `merged_behavior` for
-the `behavior` text of a merged defect, which counts as one more observation.
+| Tool | What |
+|---|---|
+| `ledger_get` | state and version of many ids at once (defects, tasks and conditions mixed); the check after a write and the source of `expected_version` |
+| `ledger_defect` | one defect with fixes, tasks, conditions, cases (also those of merged defects), relations, `fixed_by` and recent changes |
+| `ledger_task` | one task with purpose, success condition, origin, owner, the session that reported it done, defects and conditions |
+| `ledger_history` | the history and the receipt of every write, by ids, id range, entity, project, operation, author or time range; `include_before` adds `before_data` |
+| `ledger_search` | defects, tasks and conditions by keywords, case-insensitive, `match` is `ANY` (default) or `ALL` |
+| `ledger_defects` | the defects of a project, filtered by status, severity, category, attention kind and owner |
+| `ledger_tasks` | the tasks of a project, filtered by state, owner and attention kind |
+| `ledger_conditions` | the release conditions of a project, filtered by state and release |
+| `ledger_attention` | what needs a look: `OPEN_WITH_FIX`, `FIXED_WITHOUT_COMMIT`, `OPEN_NO_OWNER`, `TASK_UNKNOWN`, `DONE_NOT_VERIFIED` |
+| `ledger_stats` | counts per state and severity of one project or of all; `bucket` = `day` adds the new items per UTC day |
+| `ledger_projects` | the projects with id, code and title |
+| `ledger_codes` | the common codes; retired codes with `include_inactive` |
+
+The list read tools take `max_rows` (1 to 1000, default 50) and `cursor`; their answers carry `truncated` and `next_cursor`.
+The tools `execute_sql_reader` and `search_objects_reader` of 1.x were removed: use the read tools above.
+
+When a common code changes, the server sends `notifications/tools/list_changed`, so a connected client reloads the tool
+definitions without a restart. A change made by another process (the admin web, `ledger-cli`) is noticed within
+`ledger.mcp.code-poll-interval`. A new tool is registered when the server starts.
+
+`ledger_record_case` takes `defect_id`, `observation` (1 to 4000 characters) and `reason`, and optionally `evidence`,
+`user_quote` and `observed_at` (ISO-8601 with `Z` or an offset). In `ledger_batch` the same arguments go in an operation
+`{"op": "record_case", ...}`:
 
 ```json
 {"defect_id": "WEB-D-0007", "observation": "checkout returns 500 for a gift card",
@@ -85,211 +115,217 @@ the `behavior` text of a merged defect, which counts as one more observation.
  "observed_at": "2026-11-05T10:00:00Z", "reason": "second report of the same failure"}
 ```
 
-## Install
+## Modules
 
-Requirements: Linux with systemd, PostgreSQL 15+ (and its psql) on the same host, Node.js 22.5+ and npm, run as root.
-The ledger logins connect to `127.0.0.1` with a password, so `pg_hba.conf` must allow `host … 127.0.0.1/32 scram-sha-256`.
-The Debian and Ubuntu defaults already allow it.
+The build is a Gradle multi-module project.
 
-### One-Click Install
+| Module | What |
+|---|---|
+| `ledger-domain` | aggregates, value types, state rules, error codes and `ToolContract`, the list of tool names |
+| `ledger-attestation` | the `_hostAttestation` token, RFC 8785 canonical JSON and the Ed25519 key forms, shared by the hook and the server (JDK only) |
+| `ledger-database` | Spring Data JDBC repositories, the schema files `V{n}__*.sql` and their runner, the loader of the registered JDBC driver |
+| `ledger-application` | the application services: write gate, receipts, history, the write and read operations, grants, session keys, the legacy import |
+| `ledger-mcp-server` | the Spring Boot MCP server (`ledger-mcp-server.jar`) |
+| `ledger-admin-web` | the Spring Boot admin web for the owner (`ledger-admin-web.jar`) |
+| `ledger-cli` | the owner command line tool (`ledger-cli.jar`) |
+| `ledger-client-hook` | the one hook jar of all clients (`ledger-client-hook.jar`) |
 
-To provision the database (if missing), install the schema, start the MCP service (`127.0.0.1:8765`), and start the Admin Web Console (`127.0.0.1:8865`) in one step:
+## Configuration
 
-```sh
-sudo deploy/one-click-install.sh
-```
+Settings are Spring Boot properties: in a file, on the command line (`--name=value`) or from the secret store. Secrets are never
+put in a file or in an environment variable; `ledger-cli secret-set <name>` reads a secret with hidden input and stores it as one file
+of the secret directory, which the processes read as a Spring configuration tree. A secret is stored under the name of its property.
+There is no command that prints a stored secret.
 
-Or directly via `curl` on a target Linux host (automatically clones into `/opt/<name>/repo` when run outside a checkout):
+| Key | Used by | Meaning |
+|---|---|---|
+| `ledger.jdbc.url` | all | JDBC URL of the ledger database |
+| `ledger.jdbc.username` | all | database account |
+| `ledger.jdbc.password` | all | database password (secret) |
+| `ledger.jdbc.pool-size` | all | connection pool size, default 10 |
+| `ledger.jdbc.driver` | all | the registered driver, written by `driver-register` (jar, class, SHA-256), read at start |
+| `ledger.schema.name` | all | schema that holds the tables; created by `migrate` when missing; absent means the default schema of the account |
+| `ledger.schema.long-text-type` | all | the long text type of the schema files, the only per-database part of the DDL, default `TEXT` |
+| `ledger.schema.require-utc` | servers, CLI | refuse to start when the JVM or the database session is not UTC, default true |
+| `ledger.attestation.window` | servers | how far the time of an attestation may be from the server time, default `PT5M` |
+| `ledger.mcp.token` | MCP server, `mcp-check` | the bearer token of the agents, at least 16 characters (secret) |
+| `ledger.mcp.allowed-hosts` | MCP server | accepted `Host` values, default `127.0.0.1` and `localhost` |
+| `ledger.mcp.allowed-origins` | MCP server | accepted browser origins, default none |
+| `ledger.mcp.max-request-size` | MCP server | largest request body, default 1MB |
+| `ledger.mcp.code-poll-interval` | MCP server | how often a code change of another process is looked up, default 5s |
+| `ledger.admin.token` | admin web | the owner's admin token, at least 16 characters (secret) |
+| `ledger.admin.agent-token` | admin web | required: the agents' bearer token, equal to `ledger.mcp.token`, and distinct from `ledger.admin.token`; the admin web refuses it with `AGENT_TOKEN_FORBIDDEN` (secret) |
+| `ledger.admin.allowed-hosts` | admin web | accepted `Host` values (DNS rebinding guard), default `127.0.0.1` and `localhost` |
+| `ledger.admin.driver-file` | admin web | the driver registration file the driver page writes, default `/etc/pg-ledger-mcp/jdbc-driver.yaml` |
+| `ledger.admin.driver-directory` | admin web | the one directory a driver jar may be taken from, default `/etc/pg-ledger-mcp/drivers` |
+| `ledger.admin.oidc.owners` | admin web | who may sign in with OpenID Connect: a list of issuer with subject or e-mail; the provider itself is `spring.security.oauth2.client.*` |
+| `ledger.admin.lockout.max-failures` | admin web | failed token attempts of one client before it is locked, default 5 |
+| `ledger.admin.lockout.window` | admin web | the period in which failures are counted, default 60s |
+| `ledger.admin.lockout.lock-period` | admin web | how long a client stays locked, default 60s |
+| `ledger.admin.lockout.global-max-failures` | admin web | failed attempts of all clients together within the window before the global delay starts, default 50 |
+| `ledger.admin.lockout.global-delay` | admin web | the wait before a token is compared once the global budget is used, default 1s; it slows down and never locks |
+| `ledger.admin.mcp.health-url` | admin web | the `/healthz` URL of the MCP server shown on the overview; absent means not configured |
+| `ledger.admin.mcp.timeout` | admin web | timeout of that check, default 2s |
+| `ledger.import.source.url` | `import-legacy` | JDBC URL of the database that holds the 1.x ledger |
+| `ledger.import.source.username` | `import-legacy` | a read-only account of that database |
+| `ledger.import.source.password` | `import-legacy` | its password (secret) |
+| `ledger.import.source.schema` | `import-legacy` | the 1.x schema, default `ledger` |
+| `ledger.secrets.directory` | `ledger-cli` | the secret directory, default `/etc/pg-ledger-mcp/secrets` |
+| `ledger.secrets.instance` | `ledger-cli` | the instance name that the default paths follow, default `pg-ledger-mcp` |
+| `ledger.cli.driver.directory` | `ledger-cli` | the directory `driver-register` takes a jar from, default `/etc/pg-ledger-mcp/drivers` |
+| `ledger.cli.driver.file` | `ledger-cli` | the registration file `driver-register` writes, default `/etc/pg-ledger-mcp/jdbc-driver.yaml` |
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/jaeseongs95/pg-ledger-mcp/main/deploy/one-click-install.sh | sudo bash
-```
+The servers listen on loopback only (MCP `127.0.0.1:8765`, admin web `127.0.0.1:8865`); publish them through a reverse proxy
+that terminates HTTPS and list its public host name in the allowed hosts. The admin web trusts `X-Forwarded-For` and
+`X-Forwarded-Proto` from the loopback address only. The servers read the driver registration file and the secret directory
+through `spring.config.import`, which is part of the launch line (see Installation); `ledger-cli` reads them by default.
 
-### Custom Domain & Cloudflare Automation (e.g. `jaeseong.dev`)
+## Installation
 
-If you own a Cloudflare-managed domain (for example `jaeseong.dev`), `deploy/setup-domain.sh` (or `deploy/one-click-install.sh --domain <domain>`) automates `DBHUB_ALLOWED_HOSTS` and `PGLEDGER_ADMIN_ALLOWED_HOSTS`, generates a **10-year self-signed ECDSA P-256 Origin TLS certificate** (`/etc/<name>/tls/cert.pem` & `key.pem`) for Cloudflare `Full` SSL, and optionally configures **Google OAuth 2.0** login alongside token / `/?token=` URL login:
+An installer is planned and is not part of this release; the steps below are the manual ones. The build needs JDK 25.
 
-```sh
-# 1. One-click install + Cloudflare Origin TLS + Google OAuth 2.0 (recommended for jaeseong.dev)
-curl -fsSL https://raw.githubusercontent.com/jaeseongs95/pg-ledger-mcp/main/deploy/one-click-install.sh | sudo \
-  PGLEDGER_DOMAIN="jaeseong.dev" \
-  PGLEDGER_ADMIN_GOOGLE_CLIENT_ID="<google-oauth-client-id>" \
-  PGLEDGER_ADMIN_GOOGLE_CLIENT_SECRET="<google-oauth-client-secret>" \
-  PGLEDGER_ADMIN_ALLOWED_EMAIL="you@example.com" \
-  bash
-
-# Or from a local checkout:
-sudo deploy/one-click-install.sh \
-  --domain jaeseong.dev \
-  --domain-mode origin-tls \
-  --google-client-id "<google-oauth-client-id>" \
-  --google-client-secret "<google-oauth-client-secret>" \
-  --allowed-email "you@example.com"
-
-# 2. Cloudflare Tunnel API automation (updates remote tunnel ingress + creates proxied CNAME records)
-sudo CF_API_TOKEN="<cloudflare-api-token>" deploy/setup-domain.sh \
-  --name pg-ledger-mcp \
-  --domain jaeseong.dev \
-  --mode cloudflare-api \
-  --cf-tunnel-id "<tunnel-uuid>"
-
-# 3. Local cloudflared config.yml or Nginx reverse proxy automation
-sudo deploy/setup-domain.sh --name pg-ledger-mcp --domain jaeseong.dev --mode cloudflared-config
-sudo deploy/setup-domain.sh --name pg-ledger-mcp --domain jaeseong.dev --mode nginx --certbot-email admin@jaeseong.dev
-```
-
-When using `--domain-mode origin-tls` (the default when `cloudflared` is not active), finish in the Cloudflare Dashboard (`jaeseong.dev`):
-
-1. **DNS -> Records**: Add an `A` record for `ledger-admin` pointing to the server public IP with **Proxy status: Proxied (Orange Cloud ON)**.
-2. **SSL/TLS -> Overview**: Set encryption mode to **Full** (pairs with the generated 10-year ECDSA P-256 certificate in `/etc/<name>/tls/`).
-3. **Rules -> Origin Rules**: Match `Hostname equals ledger-admin.jaeseong.dev` -> **Rewrite Destination Port** to `8865` (so `https://ledger-admin.jaeseong.dev` connects without `:8865` in the URL or Nginx on port 80/443).
-
-By default, `--domain jaeseong.dev` maps `ledger-mcp.jaeseong.dev` and `ledger-admin.jaeseong.dev` (override with `--mcp-host` and `--admin-host`).
-
-### Standard Install & CLI Administration
-
-```sh
-sudo -u postgres createdb ledger
-sudo deploy/install.sh --db ledger --mcp-port 8765 --admin-port 8865 --allowed-hosts ledger-mcp.example.com --admin-allowed-hosts ledger-admin.example.com
-sudo -u ledger ledger-cli driver-register --jar=/etc/pg-ledger-mcp/drivers/<jdbc-driver>.jar --class=<driver-class>
-sudo -u ledger ledger-cli migrate
-sudo -u ledger ledger-cli project-add web WEB "Web shop"
-sudo -u ledger ledger-cli code-set DEFECT_CATEGORY BUG "결함" "명세와 다른 동작" --name-en=Bug --description-en="Behaviour differs from the specification"
-sudo -u ledger ledger-cli code-set RELATION_KIND duplicates "중복" "a가 b를 반복" --name-en=Duplicates --description-en="a repeats b" --sort=10
-sudo -u ledger ledger-cli key-register claude:1f2e3d4c <public-key-or-block> <fingerprint>
-sudo -u ledger ledger-cli grant claude:1f2e3d4c web defect fix --note="fix sprint" --expires=2026-12-31T00:00:00Z
-sudo -u ledger ledger-cli revoke claude:1f2e3d4c web fix
-sudo -u ledger ledger-cli codes DEFECT_CATEGORY
-sudo -u ledger ledger-cli grants
-sudo -u ledger ledger-cli mcp-check --url=http://127.0.0.1:8765/mcp
-# once, on the freshly migrated schema: copy the legacy ledger (the old schema `ledger`, read only) and compare every table (--verify-only repeats the comparison)
-sudo -u ledger ledger-cli secret-set ledger.import.source.password
-sudo -u ledger ledger-cli import-legacy --ledger.import.source.url=jdbc:<dbms>://<host>/<database> --ledger.import.source.username=ledger_reader
-```
-
-`import-legacy` refuses when the new schema already holds ledger data, copies everything in one transaction and rolls back on any failure. It copies the old grants without a session key, so after the import each session registers its key (`key-register`) and its grants work again; a value of the old data that the new schema cannot hold (for example an empty `purpose`) is listed and nothing is written.
-
-`install.sh` does the following:
-
-1. Creates the roles, the `ledger` schema and the functions.
-2. Generates passwords and two distinct bearer tokens (`DBHUB_AUTH_TOKEN` for MCP agents, `PGLEDGER_ADMIN_TOKEN` for the human owner) into `/etc/pg-ledger-mcp/env` (mode 0600, root).
-3. Installs DBHub 1.5.1 under `/opt/pg-ledger-mcp`.
-4. Starts `pg-ledger-mcp.service` on `127.0.0.1:<mcp-port>` and `pg-ledger-mcp-admin.service` on `127.0.0.1:<admin-port>` (unless `--skip-admin` is passed).
-5. Checks the tool list over MCP and verifies `/healthz` on the Admin Web Console.
-
-## Admin Web Console
-
-The Admin Web Console (`pg-ledger-mcp-admin.service`, or `sudo bin/ledger-admin serve`) runs on `127.0.0.1:8766` by default and provides a zero-dependency web interface for human ledger owners:
-
-- **Strict Privilege Separation**: Authenticates exclusively with `PGLEDGER_ADMIN_TOKEN` (`HttpOnly; SameSite=Strict` cookie or `Authorization: Bearer`) and explicitly rejects `DBHUB_AUTH_TOKEN` (`401 AGENT_TOKEN_FORBIDDEN`) so an AI agent holding the MCP token cannot self-grant permissions.
-- **CSRF & Browser Hardening**: Enforces loopback binding (`127.0.0.1`), `Host`/`Origin`/`Sec-Fetch-Site` validation, `X-Requested-With: pg-ledger-admin` on all mutations, strict Content Security Policy (`default-src 'self'`), and DOM `textContent` rendering.
-- **Owner Governance (Tier 1) & Read-Only Explorer (Tier 3)**:
-  - **Triage Overview**: Live `ledger.v_attention` anomaly cards with deep-link filtering and project health counters.
-  - **Session Grants**: 4-scope matrix (`defect`, `task`, `fix`, `verify`), expiration presets, and 2-step confirmation before revoking grants.
-  - **Projects & Common Codes**: Register projects and manage `DEFECT_CATEGORY`, `SEVERITY`, and `RELATION_KIND` with active/retire toggles (respecting `ledger._code_keep` no-delete rule) and a 3-stage DBHub synchronization indicator.
-  - **Ledger Explorer**: Read-only search and inspection across `ledger.v_defect` (with slide-out detail drawer), `ledger.task`, `ledger.condition`, and `ledger.v_history` (agent workflow mutations remain strictly in MCP tools with `_hostAttestation`).
-
-Re-running it applies tables, backfill, replacement constraints, functions, views and grants in one PostgreSQL transaction after a `pg_dump` of the schema to `/var/backups/pg-ledger-mcp/`.
-Existing ledger tables remain locked until the replacement constraints and triggers commit together. A schema-phase failure rolls the entire schema unit back; old concurrent writers see either the original constraints or their complete replacements.
-Filesystem/password/service operations occur after that schema transaction; a later install failure still leaves the complete DB constraints in force.
-It keeps data, passwords and the token. Tables added after the first release are created by the
-re-run on an existing database (`sql/15_defect_case.sql`, `sql/16_common_code.sql`, `sql/17_created_by.sql`); each runs once, recorded in `ledger._migration`.
-Existing semantic values are preserved; `created_by` is backfilled. Code changes through `category-add` / `code-set` rerender the tool definitions, restart the instance and wait up to 30 seconds for healthz.
-The English options default to the supplied Korean text when omitted. Only the three extensible groups are accepted. `--schema-only` stops before DBHub.
-
-The service listens on loopback only. To publish it, put an HTTPS reverse proxy or tunnel in front and list the public
-hostname in `--allowed-hosts`. Clients send `Authorization: Bearer <DBHUB_AUTH_TOKEN>`.
-
-The `ledger_*` roles are cluster-wide. Run one instance per PostgreSQL cluster. If the logins already have passwords,
-`install.sh` stops and asks for `--reset-passwords`.
-
-### Client configuration (example)
-
-```json
-{ "mcpServers": { "ledger": { "type": "http", "url": "https://ledger-mcp.example.com/mcp",
-  "headers": { "Authorization": "Bearer <token>" } } } }
-```
-
-Install a host hook before moving a server to this contract. Claude Code:
+1. Build the jars: `./gradlew build`. The jars are `ledger-cli/build/libs/ledger-cli.jar`, `ledger-mcp-server/build/libs/ledger-mcp-server.jar`,
+   `ledger-admin-web/build/libs/ledger-admin-web.jar` and `ledger-client-hook/build/libs/ledger-client-hook.jar`; the plugin directories of
+   the clients are `ledger-client-hook/build/client-plugins/<client>`. Place them on the host; a Java 25 runtime is needed there.
+2. Prepare the database: an empty database and an account for the ledger, with the session time zone UTC. An optional template of
+   least-privilege grants for the application account is `ledger-database/src/main/resources/db-templates/dml-grants.sql`.
+3. Obtain the JDBC driver of that database yourself and put its jar into the driver directory; it is not bundled. Register it with the
+   URL of the database (the driver class must accept it):
 
 ```sh
-claude plugin marketplace add jaeseongs95/pg-ledger-mcp
-claude plugin install pg-ledger-mcp@pg-ledger-mcp
+java -jar ledger-cli.jar driver-register --jar=/etc/pg-ledger-mcp/drivers/<driver>.jar --class=<driver-class> --ledger.jdbc.url=<jdbc-url>
 ```
 
-For a checkout, add its absolute repository path as the marketplace instead. For a temporary, session-scoped load:
+4. Store the secrets, each with hidden input, as the user that runs the services:
 
 ```sh
-claude --plugin-dir /absolute/path/to/pg-ledger-mcp/clients/claude
+java -jar ledger-cli.jar secret-set ledger.jdbc.password
+java -jar ledger-cli.jar secret-set ledger.mcp.token
+java -jar ledger-cli.jar secret-set ledger.admin.token
+java -jar ledger-cli.jar secret-set ledger.admin.agent-token
 ```
 
-The Claude plugin matches the ten ledger tools, rejects any model-supplied `_hostAttestation`, preserves legacy `author_id` for cached connector schemas,
-then returns the full `updatedInput` with `claude:<session_id>`. Missing/invalid host ids are refused. It reads only hook stdin.
-It omits `permissionDecision`, retaining Claude's permission policy. In auto mode Claude may deny a rewritten call;
-setting `allow` would skip permission prompts and is deliberately not part of this plugin.
-Official contract: [Claude hooks](https://code.claude.com/docs/en/hooks#pretooluse-decision-control).
-
-Codex: load the [Codex plugin](clients/codex/README.md) through the host's plugin mechanism, or merge its hook config into
-`<repo>/.codex/hooks.json`, set the script's absolute path and review/trust it with `/hooks`.
-Antigravity: load the [Antigravity plugin](clients/antigravity/README.md), or merge its named group into
-`<workspace>/.agents/hooks.json` with the script's absolute path. These are project configuration alternatives; preserve existing hooks.
-Codex and Claude use host `session_id`; Antigravity uses `conversationId`. All three preserve an existing legacy `author_id`
-for cached schemas, without adding an absent value. Only the host `_hostAttestation` determines the author on the server;
-the legacy field has no authority. No child-specific identity, permission or blocking layer is added.
-
-Roll out the three host hooks first, then migrate the server under its existing operator approval; otherwise writes without
-hooks fail with `HOST_ATTESTATION_REQUIRED`.
-
-## Test
-
-On a host where a throwaway PostgreSQL cluster may be created:
+5. Create the schema: `migrate` applies the files `V{n}__*.sql` in order and records every attempt, with the SHA-256 of the file, in the
+   table `schema_history`. A file that was changed after it was applied stops every process at start.
 
 ```sh
-sudo pg_createcluster 16 e2e --port 5544 --start
-sudo tests/e2e.sh --pg-port 5544 --disposable-cluster
+java -jar ledger-cli.jar migrate --ledger.jdbc.url=<jdbc-url> --ledger.jdbc.username=<account>
 ```
 
-The test drives the MCP tools through these cases:
+6. Set up the owner side: `project-add`, `code-set`, and, when you come from 1.x, `import-legacy` (see Migrating from 1.x).
+7. Start the MCP server and the admin web with the same settings (the url, the account, the allowed hosts) and with the driver
+   registration and the secrets as configuration sources:
 
-- grants, author format and request replay
-- id assignment and version conflicts
-- fix, then verify, including the same-session refusal
-- links, corrections and read-only access
-- batches: replay, rollback of the whole batch on one failure, the same grant and login rules
-- observed cases: replay, refusal on a MERGED defect (also when the merge commits while the case waits), the view over
-  merged defects and chains of merges
-- common codes: bilingual tools/list content, dynamic relation enum, escaped text, missing/retired severity and unknown category
-- fixed state, CI and grant CHECKs; host-attestation schemas and missing values; retained legacy `author_id` has no authority
-- immutable creators after save, link, batch, fix and review; forged fields/UPDATE refusal; synthetic Claude hook contracts
+```sh
+java -Duser.timezone=UTC -jar ledger-mcp-server.jar --spring.config.import=optional:file:/etc/pg-ledger-mcp/jdbc-driver.yaml,optional:configtree:/etc/pg-ledger-mcp/secrets/ --ledger.jdbc.url=<jdbc-url> --ledger.jdbc.username=<account>
+java -Duser.timezone=UTC -jar ledger-admin-web.jar --spring.config.import=optional:file:/etc/pg-ledger-mcp/jdbc-driver.yaml,optional:configtree:/etc/pg-ledger-mcp/secrets/ --ledger.jdbc.url=<jdbc-url> --ledger.jdbc.username=<account>
+```
 
-It also checks the database rules directly through the logins, then re-runs the installer.
+   Without a registered driver the MCP server stops and says why; the admin web starts in a setup mode that offers only the sign-in
+   and the driver page. `ledger-cli mcp-check` connects to the running MCP server and checks that every tool of the contract is listed.
+8. Install the client hooks (see Client hooks), register the key of each session with `key-register` and issue the grants with `grant`.
 
-`--upgrade-from <git-ref>` (for example `--upgrade-from 6d2d0e1`) installs that commit first, writes data with it,
-installs the checkout over it, checks that existing semantic values are unchanged (excluding newly added `created_by`) (categories move into `ledger.common_code`
-unchanged, and an `UNRATED` defect must be rated on its next write), and then runs the same scenario.
+## ledger-cli
+
+`java -jar ledger-cli.jar <command> [arguments]`. An option is written `--name=value`. A Spring property (a name with a dot, such as
+`--ledger.jdbc.url=...`) is passed the same way. The tool runs as the user that owns the secret directory, and every owner
+operation is recorded with that user.
+
+| Command | Syntax | What |
+|---|---|---|
+| `secret-set` | `secret-set <name>` | store a secret from hidden input |
+| `driver-register` | `driver-register --jar=<path> --class=<driver-class>` | register the JDBC driver; needs no database |
+| `migrate` | `migrate` | apply the pending schema files |
+| `import-legacy` | `import-legacy [--verify-only]` | copy the 1.x ledger into the new schema and compare every table |
+| `key-register` | `key-register <author> <public-key-or-block> <fingerprint> [--replace=<current-fingerprint>]` | bind the public key a session printed to its author; a live key is replaced only with `--replace` |
+| `key-revoke` | `key-revoke <author> --fingerprint=<fingerprint>` | close the live key of an author |
+| `project-add` | `project-add <id> <code> <title>` | add a project |
+| `code-set` | `code-set <group> <code> <name-ko> [<description-ko>] [--name-en=<text>] [--description-en=<text>] [--sort=<n>] [--inactive]` | add or update a common code |
+| `codes` | `codes [<group>]` | list the common codes |
+| `grant` | `grant <author> <project> <scope>... [--note=<text>] [--expires=<ISO-8601 with Z or an offset>]` | grant scopes on a project; the author needs a live session key first |
+| `revoke` | `revoke <author> [<project> [<scope>]]` | revoke live grants |
+| `grants` | `grants [<author>]` | list live grants |
+| `mcp-check` | `mcp-check [--url=<url>] [--ledger.mcp.token=<token>]` | connect to a running MCP server and check its tools |
+
+## Admin web
+
+The admin web (`ledger-admin-web.jar`) is a server-rendered console for the owner, on `127.0.0.1:8865` by default. It runs as
+an ordinary user and needs no root rights.
+
+- **Sign-in.** The admin token `ledger.admin.token`, or OpenID Connect for the people listed in `ledger.admin.oidc.owners`. The
+  agents' token is refused, so an agent that holds the MCP token cannot grant itself anything. Failed attempts lock the client and
+  slow down all clients (`ledger.admin.lockout.*`).
+- **Browser hardening.** Spring Security provides CSRF tokens, a `SameSite=Strict` session cookie that is `Secure` by default, the
+  `Host` allow list and a Content Security Policy.
+- **Pages.** Overview (attention counts and the state of the MCP server), projects, defects, tasks, conditions and history
+  (read only), common codes, grants with their session keys, and the JDBC driver page. Times are sent as UTC and shown in the local
+  time of the browser.
+- **Grants.** The owner pastes the public key a session printed, compares the fingerprint shown with the one the session showed, and
+  only then the key is registered and the grants are issued. A live key is replaced only on an explicit confirmation of that exact key.
+
+## Client hooks
+
+One executable jar, `ledger-client-hook.jar`, serves all clients; the first argument selects the client:
+`java -jar ledger-client-hook.jar claude`, `codex` or `antigravity`. The plugin directories are in `clients/claude`,
+`clients/codex` and `clients/antigravity` (see the README of each). The hook needs a Java 25 runtime on the `PATH` of the client
+host; with no hook, or a failing hook, a write is refused with `HOST_ATTESTATION_REQUIRED`.
+
+The hook signs only the ten write tools, named `mcp__<server>__ledger_<op>` or `mcp__<server>__<server>_ledger_<op>`
+(Codex Apps: `mcp__codex_apps__app_<app>_ledger_<op>`). The value of `_hostAttestation` is
+`pgla2.<author>.<tool>.<request id>.<arguments digest>.<issued at>.<signature>`: an Ed25519 signature over the author, the tool, the
+request id, the SHA-256 of the RFC 8785 canonical form of the arguments (without `_hostAttestation`; a batch: every operation, its
+content, its order and its request id) and the time. A captured token cannot carry other content. `pgla1` tokens are refused with
+`ATTESTATION_VERSION_UNSUPPORTED`.
+
+- The hook keeps one Ed25519 key per MCP server name and author in an owner-only folder: `~/.pg-ledger-mcp/session-keys`, or the
+  absolute path in `LEDGER_HOOK_KEY_DIR`. A signature made for one server never verifies on another. For Codex Apps the server name
+  is `codex_apps.<app>`.
+- `java -jar ledger-client-hook.jar session-key <server> <author>` prints the server, the author, the public key and its fingerprint.
+  The owner compares the fingerprint and registers the key on that server with `ledger-cli key-register` or on the grants page.
+- The server verifies the signature, the tool, the request id, the arguments and the time (`ledger.attestation.window`) before it
+  looks at any grant. A missing key and a wrong signature are the same refusal, `ATTESTATION_SIGNATURE_INVALID`; a different
+  content is `ATTESTATION_BINDING_MISMATCH`.
+- Limits: another process of the same operating system user can read the key file, so isolation inside one user needs separate
+  accounts; a hook that runs elevated (the key folder then belongs to another owner) is refused.
+
+## Migrating from 1.x
+
+1.x was a DBHub and Node implementation on PostgreSQL functions; 2.0.0 replaces all of it. Existing data is moved, not converted in
+place. The 1.x schema stays and can be used to go back. See the [release notes](docs/release-notes/2.0.0.md) for the contract changes.
+
+1. Register the driver, store the secrets and run `migrate` as above. When the new schema lives in the database of the 1.x ledger,
+   set `ledger.schema.name` to a schema other than the 1.x schema `ledger`.
+2. Store the password of a read-only account of the 1.x database: `secret-set ledger.import.source.password`, and run
+   `import-legacy --ledger.import.source.url=<jdbc-url> --ledger.import.source.username=<account>`.
+3. The import reads the 1.x schema read only, copies everything in one transaction and rolls back on any failure; then it compares the
+   number of rows and the SHA-256 digest of every table (`--verify-only` repeats the comparison). It refuses when the new schema
+   already holds data, and it lists every value of the old data that the new schema cannot hold; it never invents a value.
+4. The old grants are copied without a session key. Every author registers a session key with `key-register`; then its grants work.
+5. Clients: the tools `execute_sql_reader` and `search_objects_reader` were removed; the read tools replace them. The results of the write
+   tools keep their keys without the `rows[0].result` wrapping. Install the hook jar (a Java 25 runtime) before the server is switched.
+
+## Build and test
+
+JDK 25 and the Gradle wrapper are all that is needed; the wrapper downloads Gradle itself.
+
+```sh
+./gradlew build
+```
+
+The build compiles with warnings as errors, runs every module test against an embedded database (no external database
+is needed) and checks that no JDBC driver, JPA, migration tool or Lombok is on a runtime classpath. The documentation tests of
+`ledger-cli` (DOC-001 to DOC-029 in [docs/testing/TEST_CASES.md](docs/testing/TEST_CASES.md)) check this README, the Korean one and the
+release notes against the code.
 
 ## Layout
 
-```
-sql/10_tables.sql     roles, schema, tables, history triggers (fresh install)
-sql/15_defect_case.sql  observed cases table (run on every install; does nothing once applied)
-sql/16_common_code.sql  common codes table and the columns using them (same)
-sql/17_created_by.sql  creation provenance backfill (same)
-sql/20_api.sql        functions, views, grants (re-applied on every install)
-mcp/dbhub.toml        DBHub sources (one per login) and tool definitions
-deploy/apply-schema.sh  complete schema transaction and table locks
-deploy/render-tools.sh  active bilingual codes → DBHub tool definitions
-clients/claude/      Claude Code marketplace plugin (PreToolUse)
-deploy/install.sh     install / re-apply, passwords, DBHub, systemd units, smoke checks
-deploy/one-click-install.sh  zero-config one-click installer for PostgreSQL + MCP + Admin Console
-deploy/setup-domain.sh  custom domain allowlist + Cloudflare Tunnel / Nginx automation
-deploy/pg-ledger-mcp-admin.service  systemd unit for the Admin Web Console
-bin/ledger-admin      projects, common codes, grants, and 'serve' subcommand (owner operations)
-bin/ledger-admin-server.mjs  zero-dependency HTTP server for the Admin Web Console
-web/                  Admin Web Console static frontend (index.html, styles.css, app.js)
-bin/mcp-call.mjs      tiny MCP client: check, list, call
-tests/                end-to-end MCP, upgrade, and Admin Web Console tests
-```
+- `ledger-domain`, `ledger-attestation`, `ledger-database`, `ledger-application`, `ledger-mcp-server`, `ledger-admin-web`,
+  `ledger-cli`, `ledger-client-hook`: the modules above, each with `src/main` and `src/test`.
+- `clients/claude`, `clients/codex`, `clients/antigravity`: the manifests and README of each client plugin; the build stages them with
+  the hook jar into `ledger-client-hook/build/client-plugins`.
+- `docs/`: the test case catalogue, the release note format and the release notes.
+- `gradle/`, `build.gradle.kts`, `settings.gradle.kts`: the build.
+- `bin/`, `web/`, `mcp/`, `sql/`, `tests/*.mjs`, `deploy/*.sh`: the 1.x implementation (DBHub, Node and PostgreSQL functions), kept in the tree until a later stage removes it. It is not part of 2.x.
 
 ## License
 
