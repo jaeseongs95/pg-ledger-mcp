@@ -9,15 +9,12 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.pgledger.application.admin.GrantService;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
 import org.pgledger.application.support.Parallel;
 import org.pgledger.application.support.Parallel.Outcome;
 import org.pgledger.application.support.Scenario;
-import org.pgledger.application.support.ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.write.BatchOpInput;
 import org.pgledger.application.write.BatchResult;
 import org.pgledger.application.write.BatchService;
@@ -39,17 +36,9 @@ import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.Patch;
 import org.pgledger.domain.value.TaskId;
 
-/** SVC-IDS-01 .. SVC-IDS-13: server-assigned ids (H2 and PostgreSQL for the rows marked yes). */
-@ServiceTest
-class IdsTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+/** SVC-IDS-01 .. SVC-IDS-13: server-assigned ids (embedded H2). */
+@LedgerServiceTest
+class IdsTest {
 
     private static SaveCommand defect(Scenario s, String id, String title) {
         return s.create("defect", id, s.defectFields(title));

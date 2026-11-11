@@ -11,19 +11,15 @@ import java.util.function.BiFunction;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.history.Snapshot;
-import org.pgledger.application.support.Databases;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.LedgerAppContext;
 import org.pgledger.application.support.Scenario;
-import org.pgledger.application.support.ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
+import org.pgledger.apptest.LedgerTestRunners;
 import org.pgledger.application.write.RecordCaseCommand;
 import org.pgledger.application.write.RecordCaseService;
 import org.pgledger.application.write.RecordFixCommand;
@@ -42,36 +38,30 @@ import org.pgledger.domain.value.DefectId;
 import org.pgledger.domain.value.ProjectId;
 
 /** SVC-TZ-02 .. SVC-TZ-05 (SVC-TZ-01 is the startup guard of the database module; the read side of -03 is in the read test). */
-@ServiceTest
-class TimeZoneServiceTest implements DbmsAware {
+@LedgerServiceTest
+class TimeZoneServiceTest {
 
     private static final Instant NOON = Instant.parse("2026-11-05T10:00:00Z");
 
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
-
     @Test
     @DisplayName("SVC-TZ-02: with the JVM and the database session in Seoul the stored and returned instants are UTC")
-    void tz02_otherZones(Databases databases) {
+    void tz02_otherZones() {
         TimeZone saved = TimeZone.getDefault();
         TimeZone.setDefault(TimeZone.getTimeZone("Asia/Seoul"));
-        try (LedgerAppContext seoul = LedgerAppContext.createInZone(databases, dbms, "Asia/Seoul")) {
-            Scenario s = new Scenario(seoul);
-            SaveResult d = s.newDefect("d");
-            s.bean(RecordFixService.class).recordFix(Scenario.AUTHOR, new RecordFixCommand(null, d.id(), "repo/e2e",
-                    Scenario.commit('a'), Scenario.REASON, null, "ci", "success", "2026-11-05T19:00:00+09:00",
-                    null));
-            assertThat(s.defect(d.id()).createdAt()).isEqualTo(NOON);
-            assertThat(s.bean(DefectFixRepository.class).findByDefectIdAndRepoAndCommitSha(DefectId.of(d.id()),
-                    "repo/e2e", CommitSha.of(Scenario.commit('a'))).orElseThrow().ciCompletedAt()).isEqualTo(NOON);
-            LocalDateTime wall = seoul.jdbc().sql("SELECT created_at FROM defect WHERE id = ?").param(d.id())
-                    .query((rs, n) -> rs.getObject(1, LocalDateTime.class)).single();
-            assertThat(wall).isEqualTo(LocalDateTime.of(2026, 11, 5, 10, 0, 0));
+        try {
+            LedgerTestRunners.inZone("Asia/Seoul", seoul -> {
+                Scenario s = new Scenario(seoul);
+                SaveResult d = s.newDefect("d");
+                s.bean(RecordFixService.class).recordFix(Scenario.AUTHOR, new RecordFixCommand(null, d.id(), "repo/e2e",
+                        Scenario.commit('a'), Scenario.REASON, null, "ci", "success", "2026-11-05T19:00:00+09:00",
+                        null));
+                assertThat(s.defect(d.id()).createdAt()).isEqualTo(NOON);
+                assertThat(s.bean(DefectFixRepository.class).findByDefectIdAndRepoAndCommitSha(DefectId.of(d.id()),
+                        "repo/e2e", CommitSha.of(Scenario.commit('a'))).orElseThrow().ciCompletedAt()).isEqualTo(NOON);
+                LocalDateTime wall = seoul.jdbc().sql("SELECT created_at FROM defect WHERE id = ?").param(d.id())
+                        .query((rs, n) -> rs.getObject(1, LocalDateTime.class)).single();
+                assertThat(wall).isEqualTo(LocalDateTime.of(2026, 11, 5, 10, 0, 0));
+            });
         } finally {
             TimeZone.setDefault(saved);
         }

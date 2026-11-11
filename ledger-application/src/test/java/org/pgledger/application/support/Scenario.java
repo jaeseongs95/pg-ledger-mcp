@@ -49,7 +49,7 @@ public final class Scenario {
         int number = ctx.nextProjectNumber();
         this.projectId = "p" + number;
         this.code = "E2E" + number;
-        ctx.clock().set(LedgerAppContext.START);
+        ctx.clock().set(TestClock.START);
         ProjectService.ProjectCommand project = new ProjectCommand(projectId, code, "Project " + number);
         ctx.bean(ProjectService.class).add(project);
         GrantService grants = ctx.bean(GrantService.class);

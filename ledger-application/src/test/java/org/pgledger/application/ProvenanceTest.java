@@ -7,14 +7,11 @@ import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
 import org.pgledger.application.write.BatchService;
@@ -22,16 +19,8 @@ import org.pgledger.application.write.SaveService;
 import org.pgledger.application.write.WriteResult.SaveResult;
 
 /** SVC-PRV-01 .. SVC-PRV-03: who created what. */
-@H2ServiceTest
-class ProvenanceTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class ProvenanceTest {
 
     /** A table and the SQL that counts the rows of the scenario that carry the expected creator. */
     record Created(String name, String sql) {

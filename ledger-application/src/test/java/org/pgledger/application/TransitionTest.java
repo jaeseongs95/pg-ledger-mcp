@@ -8,15 +8,12 @@ import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.application.history.Change;
 import org.pgledger.application.json.LedgerJson;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.MergeFixture;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.ReviewService;
@@ -40,16 +37,8 @@ import org.pgledger.domain.rule.TaskState;
 import tools.jackson.databind.json.JsonMapper;
 
 /** SVC-TRN-01 .. SVC-TRN-18: transitions and review. */
-@H2ServiceTest
-class TransitionTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class TransitionTest {
 
     private TransitionResult author(Scenario s, String entity, String id, long version, String to, String evidence) {
         return s.bean(TransitionService.class).transition(Scenario.AUTHOR, s.move(entity, id, version, to, evidence));

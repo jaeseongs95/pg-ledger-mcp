@@ -12,7 +12,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -40,10 +39,8 @@ import org.pgledger.application.read.SearchService;
 import org.pgledger.application.read.SearchService.SearchQuery;
 import org.pgledger.application.read.StatsService;
 import org.pgledger.application.read.StatsService.StatsQuery;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.MergeFixture;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.CorrectCommand;
@@ -62,16 +59,8 @@ import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 
 /** MCR-H01 .. H12, MCR-S01 .. S07, MCR-L01 .. L05, MCR-ST01, ST02, MCR-P01, MCR-K01, MCR-010, MCR-012 and SVC-BEF-12. */
-@H2ServiceTest
-class ReadQueryTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class ReadQueryTest {
 
     private HistoryService history(Scenario s) {
         return s.bean(HistoryService.class);

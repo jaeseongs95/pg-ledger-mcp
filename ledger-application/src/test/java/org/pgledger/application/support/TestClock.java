@@ -8,6 +8,9 @@ import java.time.ZoneOffset;
 /** A UTC clock the test sets. */
 public final class TestClock extends Clock {
 
+    /** Where the clock of a test context starts. */
+    public static final Instant START = Instant.parse("2026-11-05T10:00:00Z");
+
     private volatile Instant now;
 
     public TestClock(Instant start) {

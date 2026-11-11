@@ -57,6 +57,8 @@ The module tests run on the embedded H2 in default mode only. Embedded PostgreSQ
 | SCH-001 .. SCH-011, SCH-015, SCH-020, SCH-021, REPO-001 .. REPO-038 (the rest) | H2 part kept; PostgreSQL run moved | the second run of every `yes` case on PostgreSQL |
 | E2E-014, MIG-025, ANSI-004, ANSI-013 | PostgreSQL run is a test server stage case | unchanged text; not run by the module tests |
 
+Test support of the application module (SERVICE level, §6 and §8): the service cases run in a Spring Boot test context (`@SpringBootTest` through the test annotation `LedgerServiceTest`) on an in-memory H2 database that Spring Boot configures from `spring.datasource.*`; the schema is built by the real `V{n}__*.sql` files and the real migrator before the first test, and Spring's test context cache shares the one context between the test classes. No transaction wraps a test method (the test classes are not `@Transactional`, and the parameter resolver refuses a test that would run in one), so the race cases (SVC-RACE, SVC-RCP-09..11, SVC-GATE-18, SVC-GRT-06, SVC-BEF-08/09) run real threads that commit. The variants that need another context (database session in another time zone: SVC-TZ-02; a fresh installation without categories: SVC-CC-10; a restart of the application on the same database: SVC-RCP-13) are combinations of configuration and properties of `ApplicationContextRunner`.
+
 ### 1.5 Error-token registry
 Tokens are the external contract (MCP tool error `code`, admin `ProblemDetail.code`). MCP tool errors return `isError=true`, `structuredContent{code,message,details}`, and the text content starts with `<CODE>: <message>` so that text-matching clients keep working.
 | Token | Origin | Used for |

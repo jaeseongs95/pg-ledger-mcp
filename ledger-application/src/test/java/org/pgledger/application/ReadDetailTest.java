@@ -10,17 +10,14 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.pgledger.application.read.AttentionService;
 import org.pgledger.application.read.AttentionService.AttentionQuery;
 import org.pgledger.application.read.DetailService;
 import org.pgledger.application.read.DetailService.CaseView;
 import org.pgledger.application.read.DetailService.DefectDetail;
 import org.pgledger.application.read.GetService;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.MergeFixture;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
@@ -48,16 +45,8 @@ import org.pgledger.domain.value.LegacyActorId;
 import org.pgledger.domain.value.RequestId;
 
 /** MCR-G01 .. MCR-G07, MCR-D01 .. MCR-D05, MCR-T01, MCR-T02 and the read side of SVC-CAS-12 .. -14, SVC-FIX-11, -12. */
-@H2ServiceTest
-class ReadDetailTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class ReadDetailTest {
 
     // ------------------------------------------------------------------- get
 

@@ -13,17 +13,14 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.GrantService.RevokeCommand;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Expect;
-import org.pgledger.application.support.H2ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Parallel;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.support.WriteCall;
@@ -57,16 +54,8 @@ import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.ProjectId;
 
 /** SVC-GATE-01 .. SVC-GATE-19: the write gate, in the order the catalogue fixes. */
-@H2ServiceTest
-class GateTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+@LedgerServiceTest
+class GateTest {
 
     // ------------------------------------------------------------------- 01 .. 03
 

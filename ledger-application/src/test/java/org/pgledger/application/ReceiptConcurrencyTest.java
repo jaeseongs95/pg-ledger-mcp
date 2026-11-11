@@ -9,13 +9,10 @@ import java.util.concurrent.Callable;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.Parameter;
-import org.pgledger.application.support.Dbms;
-import org.pgledger.application.support.DbmsAware;
 import org.pgledger.application.support.Parallel;
 import org.pgledger.application.support.Parallel.Outcome;
 import org.pgledger.application.support.Scenario;
-import org.pgledger.application.support.ServiceTest;
+import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.write.SaveCommand;
 import org.pgledger.application.write.SaveService;
 import org.pgledger.application.write.WriteResult.SaveResult;
@@ -23,17 +20,9 @@ import org.pgledger.domain.error.ConflictCode;
 import org.pgledger.domain.error.ErrorCode;
 import org.pgledger.domain.error.LedgerException;
 
-/** SVC-RCP-09 .. SVC-RCP-11: concurrent duplicates, on H2 and on PostgreSQL. */
-@ServiceTest
-class ReceiptConcurrencyTest implements DbmsAware {
-
-    @Parameter
-    Dbms dbms;
-
-    @Override
-    public Dbms dbms() {
-        return dbms;
-    }
+/** SVC-RCP-09 .. SVC-RCP-11: concurrent duplicates on the embedded H2, with real threads. */
+@LedgerServiceTest
+class ReceiptConcurrencyTest {
 
     private static SaveCommand create(Scenario s, String requestId, String title) {
         return new SaveCommand(requestId, "defect", null, 0L, s.defectFields(title), Scenario.REASON);

@@ -1,102 +1,37 @@
 package org.pgledger.application.support;
 
-import com.zaxxer.hikari.HikariDataSource;
-import java.time.Instant;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
-import org.pgledger.application.admin.CommonCodeService;
-import org.pgledger.application.admin.CommonCodeService.CodeCommand;
-import org.pgledger.database.schema.SchemaMigrator;
-import org.pgledger.database.schema.SchemaProperties;
-import org.springframework.boot.WebApplicationType;
-import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * One migrated database with the ledger services in a Spring context. The schema is built by the real
- * {@code db/V*.sql} files. {@link LedgerAppExtension} shares one per DBMS and test run; every test works in its
- * own project (see {@link Scenario}), so tests do not collide.
+ * The view a test has of a Spring test context: the services and repositories as beans, the test clock, the SQL
+ * recording of the data source, and a transaction of its own to run work in. The context itself comes from
+ * Spring Boot's test support ({@link LedgerServiceTest}, or the runners of {@link LedgerTestRunners}); this
+ * class assembles nothing. Every test works in its own project (see {@link Scenario}), so tests that share a
+ * context do not collide.
  */
-public final class LedgerAppContext implements AutoCloseable {
+public final class LedgerAppContext {
 
-    /** The injected UTC clock starts here. */
-    public static final Instant START = Instant.parse("2026-11-05T10:00:00Z");
+    private final ApplicationContext context;
 
-    private final Dbms dbms;
-    private final HikariDataSource pool;
-    private final RecordingDataSource spy;
-    private final TestClock clock = new TestClock(START);
-    private final ConfigurableApplicationContext context;
-    private final JdbcClient jdbc;
-    private final AtomicInteger projects = new AtomicInteger();
-    private final java.util.concurrent.ConcurrentHashMap<String, Object> fixtures =
-            new java.util.concurrent.ConcurrentHashMap<>();
-
-    private LedgerAppContext(Dbms dbms, HikariDataSource pool, boolean seedCategories) {
-        this.dbms = dbms;
-        this.pool = pool;
-        this.spy = new RecordingDataSource(pool);
-        new SchemaMigrator(spy, new PathMatchingResourcePatternResolver(),
-                new SchemaProperties(null, dbms.longText(), true, null), clock).migrate();
-        this.context = startApplication();
-        this.jdbc = JdbcClient.create(pool);
-        if (seedCategories) {
-            CommonCodeService codes = bean(CommonCodeService.class);
-            codes.set(new CodeCommand("DEFECT_CATEGORY", "ARC", "구조", "Architecture", null, null, 1, "ACTIVE"));
-            codes.set(new CodeCommand("DEFECT_CATEGORY", "RETIRED", "폐기", "Retired", null, null, 9, "INACTIVE"));
-        }
+    public LedgerAppContext(ApplicationContext context) {
+        this.context = context;
     }
 
-    /**
-     * Starts one more application (a restart of the server) on the same database and clock; the caller closes it.
-     * The database stays open.
-     */
-    public ConfigurableApplicationContext startApplication() {
-        return new SpringApplicationBuilder(TestApplication.class).web(WebApplicationType.NONE)
-                .properties("spring.main.banner-mode=off", "logging.level.root=WARN", "spring.jmx.enabled=false")
-                .initializers(ctx -> {
-                    ctx.getBeanFactory().registerSingleton("dataSource", spy);
-                    ctx.getBeanFactory().registerSingleton("clock", clock);
-                })
-                .run();
-    }
-
-    public static LedgerAppContext create(Databases databases, Dbms dbms) {
-        return new LedgerAppContext(dbms, databases.newDataSource(dbms, "UTC"), true);
-    }
-
-    /** A context whose database sessions run in {@code zone} (the guard is not part of this application). */
-    public static LedgerAppContext createInZone(Databases databases, Dbms dbms, String zone) {
-        return new LedgerAppContext(dbms, databases.newDataSource(dbms, zone), true);
-    }
-
-    /** A fresh installation: the category list is still empty. */
-    public static LedgerAppContext createWithoutCategories(Databases databases, Dbms dbms) {
-        return new LedgerAppContext(dbms, databases.newDataSource(dbms, "UTC"), false);
-    }
-
-    public Dbms dbms() {
-        return dbms;
-    }
-
-    public DataSource pool() {
-        return pool;
-    }
-
+    /** The data source of the context, which records every SQL text that passes through it. */
     public RecordingDataSource spy() {
-        return spy;
+        return (RecordingDataSource) context.getBean(DataSource.class);
     }
 
     public TestClock clock() {
-        return clock;
+        return context.getBean(TestClock.class);
     }
 
     public JdbcClient jdbc() {
-        return jdbc;
+        return context.getBean(JdbcClient.class);
     }
 
     public <T> T bean(Class<T> type) {
@@ -110,19 +45,11 @@ public final class LedgerAppContext implements AutoCloseable {
 
     /** Builds a fixture the first time it is asked for and returns the same one afterwards (for a whole test class). */
     public <T> T once(String key, Supplier<T> build) {
-        @SuppressWarnings("unchecked")
-        T value = (T) fixtures.computeIfAbsent(key, k -> build.get());
-        return value;
+        return bean(LedgerTestFixtures.class).once(key, build);
     }
 
-    /** A number no other scenario of this database has used. */
+    /** A number no other scenario of this context has used. */
     int nextProjectNumber() {
-        return projects.incrementAndGet();
-    }
-
-    @Override
-    public void close() {
-        context.close();
-        pool.close();
+        return bean(LedgerTestFixtures.class).nextProjectNumber();
     }
 }
