@@ -19,6 +19,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.history.HistoryWriter;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.testing.ArchitectureRules;
+import org.pgledger.testing.CodingScan;
 import org.pgledger.testing.SourceRules;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +29,7 @@ class ArchitectureTest {
 
     private static final JavaClasses MAIN = ArchitectureRules.productionClasses("org.pgledger.application");
     private static final Path MAIN_JAVA = Path.of("src", "main", "java");
+    private static final Path TEST_JAVA = Path.of("src", "test", "java");
 
     /** One rule of the catalogue under its ID. */
     private record Rule(String id, ArchRule rule) {
@@ -92,6 +94,23 @@ class ArchitectureTest {
     @DisplayName("ARC-013: every service declares its transaction once, at class level")
     void servicesAreTransactionalOnTheClass() {
         classes().that().areAnnotatedWith(Service.class).should().beAnnotatedWith(Transactional.class).check(MAIN);
+    }
+
+    @Test
+    @DisplayName("ARC-036 catch rules: no empty catch, no broad catch")
+    void arc036_catchRules() {
+        assertThat(CodingScan.catchProblems(Set.of(), null, MAIN_JAVA, TEST_JAVA)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ARC-037 string rules: literal first in equals, no == on strings, no string switch, no intern(), no new String(")
+    void arc037_stringRules() {
+        noClasses().should().callMethod(String.class, "intern")
+                .orShould().callConstructor(String.class, String.class)
+                .orShould().callConstructor(String.class, byte[].class)
+                .orShould().callConstructor(String.class, byte[].class, java.nio.charset.Charset.class)
+                .check(MAIN);
+        assertThat(CodingScan.stringProblems(Set.of(), MAIN_JAVA, TEST_JAVA)).isEmpty();
     }
 
     @Test
