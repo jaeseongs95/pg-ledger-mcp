@@ -7,7 +7,8 @@ import java.util.Optional;
 public enum CliCommand {
 
     SECRET_SET("secret-set"),
-    KEY_REGISTER("key-register");
+    KEY_REGISTER("key-register"),
+    KEY_REVOKE("key-revoke");
 
     private final String cliName;
 

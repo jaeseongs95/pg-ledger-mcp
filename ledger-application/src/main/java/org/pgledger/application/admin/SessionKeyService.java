@@ -8,6 +8,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import org.pgledger.attestation.AttestationException;
+import org.pgledger.attestation.KeyBlock;
 import org.pgledger.attestation.PublicKeys;
 import org.pgledger.database.repository.Counter;
 import org.pgledger.database.repository.IdAllocator;
@@ -15,6 +16,8 @@ import org.pgledger.database.repository.SessionKeyRepository;
 import org.pgledger.database.repository.SessionKeyStateRepository;
 import org.pgledger.domain.error.ConflictCode;
 import org.pgledger.domain.error.ConflictException;
+import org.pgledger.domain.error.LookupCode;
+import org.pgledger.domain.error.LookupException;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.SessionPublicKey;
@@ -30,7 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
  * The public keys that authors sign their writes with. Used by the admin web and the CLI, never by the MCP tools: only
  * the owner decides which key belongs to which author (the owner compares the fingerprint with the one the requesting
  * session printed). A key is bound to an author that has none; an author that has one gets another only by an explicit,
- * confirmed replacement, which closes the live key first; rows are never deleted, so the keys an
+ * confirmed replacement, which closes the live key first; the owner can close a key without replacing it
+ * ({@link #revokeConfirmed}); rows are never deleted, so the keys an
  * author had stay on record. Two registrations of one author at the same time end with exactly one live key, and a
  * key is live for one author only.
  */
@@ -93,6 +97,11 @@ public class SessionKeyService {
 
     private Registered bind(RegisterCommand command, OwnerIdentity actor, String replacedFingerprint) {
         AuthorId author = author(command.author());
+        if (AuthorId.OWNER.equals(author)) {
+            // the owner role is not a session: nothing signs as user:owner, and a key under that name would be a key
+            // that the grants and the audit of the owner could be mistaken for
+            throw ValidationException.invalid("author", ValidationReason.MUST_BE_A_SESSION_AUTHOR);
+        }
         PublicKey key = key(command.publicKey());
         String text = PublicKeys.encode(key);
         String fingerprint = PublicKeys.fingerprint(key);
@@ -133,6 +142,78 @@ public class SessionKeyService {
         return closed;
     }
 
+    /**
+     * The owner's action that closes the live key of an author: the same as {@link #revoke(String, OwnerIdentity)}, but
+     * only when the key that is live now is the one the owner compared (the fingerprint shown on the screen or by the
+     * command, any letter case), so that a key that was replaced meanwhile is not closed by a confirmation that was
+     * meant for the old one. The check and the close are one transaction. Closing leaves the author without a key, so
+     * its signed writes are refused until another key is registered; the grants stay.
+     *
+     * @throws LookupException NOT_FOUND when the author has no live key
+     * @throws ValidationException VALIDATION_FAILED path {@code fingerprint} (MUST_MATCH, naming the live fingerprint)
+     *         when the fingerprint is not that of the live key
+     */
+    public void revokeConfirmed(String author, String fingerprint, OwnerIdentity actor) {
+        if (fingerprint == null || fingerprint.isBlank()) {
+            throw ValidationException.invalid("fingerprint", ValidationReason.REQUIRED);
+        }
+        AuthorId id = author(author);
+        SessionPublicKey open = state.findLive(id)
+                .orElseThrow(() -> new LookupException(LookupCode.NOT_FOUND, List.of("session key", id.value())));
+        if (!Objects.equals(open.fingerprint(), fingerprint.strip().toLowerCase(Locale.ROOT))) {
+            throw ValidationException.invalid("fingerprint", ValidationReason.MUST_MATCH, open.fingerprint());
+        }
+        if (!state.close(open.id(), clock.instant())) {
+            // closed between the read and the update by another owner action: the same answer as no live key
+            throw new LookupException(LookupCode.NOT_FOUND, List.of("session key", id.value()));
+        }
+        audit.record(actor, OwnerAction.KEY_REVOKED, id.value(), "key=" + open.fingerprint());
+    }
+
+    /**
+     * A key as the owner pasted it, ready to compare and to register: the public key alone, or the whole block that the
+     * hook command {@code session-key <server> <author>} prints ({@link KeyBlock}). {@code server} is the server the
+     * key was made for when the owner pasted the block (to show it next to the fingerprint), {@code null} for the bare
+     * key.
+     */
+    public record PresentedKey(String publicKey, String fingerprint, String server) {
+    }
+
+    /**
+     * Reads what the owner pasted for the author: a bare public key, or the block of the hook command. A block must be
+     * for this very author (its author line equals {@code author}) and its fingerprint line must belong to its key.
+     * Nothing is stored.
+     *
+     * @throws ValidationException VALIDATION_FAILED path {@code public_key} (REQUIRED, MUST_BE_ED25519_PUBLIC_KEY,
+     *         MUST_BE_SESSION_KEY_BLOCK, KEY_BLOCK_FINGERPRINT_DIFFERS) or path {@code author} (KEY_BLOCK_AUTHOR_DIFFERS)
+     */
+    @Transactional(readOnly = true)
+    public PresentedKey present(String author, String text) {
+        AuthorId id = author(author);
+        if (text == null) {
+            throw ValidationException.invalid("public_key", ValidationReason.REQUIRED);
+        }
+        if (!KeyBlock.isBlock(text)) {
+            PublicKey key = key(text);
+            return new PresentedKey(PublicKeys.encode(key), PublicKeys.fingerprint(key), null);
+        }
+        KeyBlock block;
+        try {
+            block = KeyBlock.parse(text);
+        } catch (AttestationException failure) {
+            ValidationReason reason = switch (failure.reason()) {
+                case KEY_BLOCK_FINGERPRINT -> ValidationReason.KEY_BLOCK_FINGERPRINT_DIFFERS;
+                case KEY_INVALID -> ValidationReason.MUST_BE_ED25519_PUBLIC_KEY;
+                default -> ValidationReason.MUST_BE_SESSION_KEY_BLOCK;
+            };
+            throw ValidationException.invalid("public_key", reason, failure);
+        }
+        if (!Objects.equals(block.author(), id.value())) {
+            throw ValidationException.invalid("author", ValidationReason.KEY_BLOCK_AUTHOR_DIFFERS, block.author());
+        }
+        return new PresentedKey(block.publicKey(), block.fingerprint(), block.server());
+    }
+
     /** The fingerprint of a public key as the owner compares it (the validation of {@code register}, nothing stored). */
     @Transactional(readOnly = true)
     public String fingerprintOf(String publicKey) {
@@ -143,6 +224,12 @@ public class SessionKeyService {
     @Transactional(readOnly = true)
     public Optional<SessionPublicKey> live(String author) {
         return state.findLive(author(author));
+    }
+
+    /** Every live key of every author, by author (the keys screen). */
+    @Transactional(readOnly = true)
+    public List<SessionPublicKey> liveKeys() {
+        return state.findAllLive();
     }
 
     /** Every key row of the author, the live one and the closed ones, oldest first. */

@@ -61,6 +61,13 @@ public class SessionKeyStateRepository {
                 .list().stream().findFirst();
     }
 
+    /** Every live key, by author: what the keys screen lists. */
+    public List<SessionPublicKey> findAllLive() {
+        return jdbc.sql("SELECT " + COLUMNS + " FROM session_key WHERE revoked_at IS NULL ORDER BY author_id")
+                .query((rs, n) -> read(rs))
+                .list();
+    }
+
     /** Every key row of the author, oldest first: the live one and the closed ones. */
     public List<SessionPublicKey> findHistory(AuthorId author) {
         return jdbc.sql("SELECT " + COLUMNS + " FROM session_key WHERE author_id = :author ORDER BY id")

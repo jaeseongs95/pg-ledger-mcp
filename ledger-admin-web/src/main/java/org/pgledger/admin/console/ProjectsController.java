@@ -1,16 +1,18 @@
 package org.pgledger.admin.console;
 
+import org.pgledger.admin.security.OwnerActors;
 import org.pgledger.application.admin.ProjectService;
 import org.pgledger.application.admin.ProjectService.ProjectCommand;
 import org.pgledger.application.read.CatalogService;
 import org.pgledger.application.read.CatalogService.ProjectsQuery;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 
-/** The projects: the list and the form that adds one (stamped {@code user:owner} by the service). */
+/** The projects: the list and the form that adds one (stamped {@code user:owner} by the service, recorded with the signed-in owner). */
 @Controller
 public class ProjectsController {
 
@@ -31,8 +33,8 @@ public class ProjectsController {
     }
 
     @PostMapping("/projects")
-    String add(@ModelAttribute ProjectCommand command) {
-        projects.add(command);
+    String add(@ModelAttribute ProjectCommand command, Authentication authentication) {
+        projects.add(command, OwnerActors.of(authentication));
         return "redirect:/projects";
     }
 }

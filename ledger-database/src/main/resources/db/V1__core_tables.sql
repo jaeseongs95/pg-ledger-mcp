@@ -223,7 +223,8 @@ CREATE TABLE session_key (
 CREATE INDEX ix_session_key_author ON session_key (author_id, id);
 
 -- The owner's audit trail: who (the identity the owner signed in with at the admin web, or the command line tool) did
--- which owner operation (grant, revoke, key registration, replacement or revocation, code change) and when. Append-only:
+-- which owner operation (grant, revoke, key registration, replacement or revocation, code change, project creation, driver
+-- registration) and when. Append-only:
 -- the application only inserts, and the operator's GRANT gives the application account no UPDATE or DELETE on it.
 CREATE TABLE owner_audit (
   id BIGINT NOT NULL,
@@ -234,6 +235,6 @@ CREATE TABLE owner_audit (
   detail VARCHAR(1000),
   CONSTRAINT pk_owner_audit PRIMARY KEY (id),
   CONSTRAINT ck_owner_audit_operation CHECK (operation IN ('GRANT_ISSUED', 'GRANT_REVOKED', 'KEY_REGISTERED',
-    'KEY_REPLACED', 'KEY_REVOKED', 'CODE_SET'))
+    'KEY_REPLACED', 'KEY_REVOKED', 'CODE_SET', 'PROJECT_ADDED', 'DRIVER_REGISTERED'))
 );
 CREATE INDEX ix_owner_audit_subject ON owner_audit (subject, id);

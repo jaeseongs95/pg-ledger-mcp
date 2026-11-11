@@ -25,4 +25,12 @@ public interface SessionKeyRegistry {
      * @param replacedFingerprint the fingerprint of the live key that may be replaced
      */
     void registerReplacing(String author, String publicKey, String replacedFingerprint);
+
+    /**
+     * Closes the live key of the author when its fingerprint is {@code fingerprint} (the owner's confirmation); the
+     * author keeps its grants and cannot sign until another key is registered.
+     *
+     * @param fingerprint the fingerprint of the live key, any letter case
+     */
+    void revoke(String author, String fingerprint);
 }

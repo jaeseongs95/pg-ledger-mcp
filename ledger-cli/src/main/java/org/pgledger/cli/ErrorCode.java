@@ -28,7 +28,11 @@ public enum ErrorCode {
     LEDGER_REFUSED,
     DATABASE_FAILED,
     MISSING_OPTION_VALUE,
-    UNKNOWN_OPTION;
+    UNKNOWN_OPTION,
+    INVALID_KEY_BLOCK,
+    KEY_BLOCK_AUTHOR_MISMATCH,
+    NO_LIVE_KEY,
+    REVOKE_FINGERPRINT_MISMATCH;
 
     public String messageKey() {
         return "error." + name();

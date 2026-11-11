@@ -52,6 +52,7 @@
   <section th:if="${preview != null}" aria-labelledby="confirm-title">
     <h2 id="confirm-title" th:text="#{grants.confirm.title}">Compare the fingerprint</h2>
     <p><span th:text="#{grants.fingerprint}">Fingerprint of the pasted key</span>: <code class="fingerprint" th:text="${preview.fingerprint()}">0000</code></p>
+    <p th:if="${preview.server() != null}"><span th:text="#{grants.key.server}">Server the key was made for</span>: <code class="server" th:text="${preview.server()}">ledger</code></p>
     <p th:if="${preview.alreadyRegistered()}" th:text="#{grants.key.same}">The author already has this key.</p>
     <p th:if="${preview.currentFingerprint() != null}" class="notice" role="alert">
       <span th:text="#{grants.key.current(${preview.form().author()})}">The author already has another registered key</span>:
@@ -91,6 +92,32 @@
         <option th:each="s : ${scopes}" th:value="${s.token()}" th:text="${s.token()}">defect</option>
       </select>
       <button type="submit" class="danger" th:text="#{grants.revoke.submit}">Revoke</button>
+    </form>
+  </section>
+
+  <section aria-labelledby="keys-title">
+    <h2 id="keys-title" th:text="#{keys.title}">Registered session keys</h2>
+    <table th:if="${!#lists.isEmpty(keys)}">
+      <caption class="sr-only" th:text="#{keys.title}">Registered session keys</caption>
+      <thead><tr>
+        <th scope="col" th:text="#{grants.author}">Author</th><th scope="col" th:text="#{keys.fingerprint}">Fingerprint</th>
+        <th scope="col" th:text="#{grants.key.registeredAt}">registered at</th>
+      </tr></thead>
+      <tbody>
+        <tr th:each="k : ${keys}">
+          <td th:text="${k.authorId().value()}">claude:a</td><td><code class="fingerprint" th:text="${k.fingerprint()}">0000</code></td>
+          <td><time th:replace="~{fragments :: time(${k.registeredAt()})}">t</time></td>
+        </tr>
+      </tbody>
+    </table>
+    <p th:if="${#lists.isEmpty(keys)}" th:text="#{keys.none}">No live key.</p>
+    <p th:text="#{keys.revoke.help}">Closing a key ...</p>
+    <form method="post" th:action="@{/grants/keys/revoke}">
+      <label for="key-revoke-author" th:text="#{grants.author.label}">Author</label>
+      <input id="key-revoke-author" name="author" type="text" required autocomplete="off">
+      <label for="key-revoke-fingerprint" th:text="#{keys.revoke.fingerprint}">Fingerprint of the key to close</label>
+      <input id="key-revoke-fingerprint" name="fingerprint" type="text" required autocomplete="off" spellcheck="false">
+      <button type="submit" class="danger" th:text="#{keys.revoke.submit}">Close the key</button>
     </form>
   </section>
 </main>

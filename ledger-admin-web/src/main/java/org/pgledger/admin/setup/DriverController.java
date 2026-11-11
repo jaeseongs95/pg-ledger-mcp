@@ -1,5 +1,7 @@
 package org.pgledger.admin.setup;
 
+import org.pgledger.admin.security.OwnerActors;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -7,7 +9,10 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
-/** The driver page: what is registered, and the form that registers another (the owner only; also in setup mode). */
+/**
+ * The driver page: what is registered, and the form that registers another (the owner only; also in setup mode). A
+ * registration is recorded with the signed-in owner.
+ */
 @Controller
 public class DriverController {
 
@@ -32,8 +37,8 @@ public class DriverController {
     }
 
     @PostMapping("/driver")
-    String register(@ModelAttribute DriverForm form) {
-        registrations.register(form.jar(), form.className());
+    String register(@ModelAttribute DriverForm form, Authentication authentication) {
+        registrations.register(form.jar(), form.className(), OwnerActors.of(authentication));
         return "redirect:/driver?registered";
     }
 }

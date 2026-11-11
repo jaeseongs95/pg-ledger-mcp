@@ -80,7 +80,15 @@ public enum ValidationReason {
     /** {0} = the prefix the id must start with. */
     MUST_START_WITH,
     /** The text is not an Ed25519 public key in X.509 DER form in base64 (what the hook command session-key prints). */
-    MUST_BE_ED25519_PUBLIC_KEY;
+    MUST_BE_ED25519_PUBLIC_KEY,
+    /** The author is the owner role {@code user:owner}: only sessions sign, so no key is registered for it. */
+    MUST_BE_A_SESSION_AUTHOR,
+    /** The text is meant as the block of the hook command session-key (server, author, public-key, fingerprint) but is not one. */
+    MUST_BE_SESSION_KEY_BLOCK,
+    /** The fingerprint line of the pasted block is not the fingerprint of its public key. */
+    KEY_BLOCK_FINGERPRINT_DIFFERS,
+    /** {0} = the author the pasted block is for. */
+    KEY_BLOCK_AUTHOR_DIFFERS;
 
     private static final String PREFIX = "reason.";
 

@@ -17,7 +17,11 @@ public final class AttestationException extends RuntimeException {
         /** The signature does not belong to the claims and the key. */
         SIGNATURE_INVALID,
         /** The text is not an Ed25519 public key in X.509 form. */
-        KEY_INVALID
+        KEY_INVALID,
+        /** The text is meant as the block of the hook command session-key but is not one (a line is missing, repeated, unknown or empty, or the server is not a server name). */
+        KEY_BLOCK_INVALID,
+        /** The fingerprint line of the block is not the fingerprint of its public key: the block was changed or is made up. */
+        KEY_BLOCK_FINGERPRINT
     }
 
     private final Reason reason;

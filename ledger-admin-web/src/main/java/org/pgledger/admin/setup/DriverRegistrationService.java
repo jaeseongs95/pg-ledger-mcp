@@ -9,14 +9,20 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import org.pgledger.admin.app.LedgerAdminProperties;
+import org.pgledger.application.admin.OwnerAuditWriter;
 import org.pgledger.database.driver.DriverLoader;
 import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.database.driver.LedgerJdbcProperties;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
+import org.pgledger.domain.rule.OwnerAction;
+import org.pgledger.domain.value.OwnerIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Registers the JDBC driver the user supplies. Checking a jar runs code of it ({@link DriverLoader#describe} loads the
@@ -61,20 +67,35 @@ public class DriverRegistrationService {
     private final LedgerJdbcProperties jdbc;
     private final Clock clock;
     private final LedgerAdminProperties admin;
+    private final ObjectProvider<OwnerAuditWriter> audit;
+    private final ObjectProvider<PlatformTransactionManager> transactions;
 
+    /**
+     * @param audit        the writer of the owner's audit trail; absent in setup mode, where there is no database
+     * @param transactions the transaction manager of that database; absent in setup mode
+     */
     public DriverRegistrationService(DriverRegistrationFile file, LedgerJdbcProperties jdbc, Clock clock,
-            LedgerAdminProperties admin) {
+            LedgerAdminProperties admin, ObjectProvider<OwnerAuditWriter> audit,
+            ObjectProvider<PlatformTransactionManager> transactions) {
         this.file = file;
         this.jdbc = jdbc;
         this.clock = clock;
         this.admin = admin;
+        this.audit = audit;
+        this.transactions = transactions;
     }
 
     /**
+     * Registers the driver for the signed-in owner: after the checks, the audit row of the owner's trail and the
+     * replacement of the registration file are one unit (the file is written inside the transaction of the row, so a
+     * file that cannot be written leaves no row; a row that cannot be written leaves the file as it was). In setup mode
+     * there is no database and so no trail: the registration is logged at WARN with the owner and the digest instead.
+     *
+     * @param actor the owner who registers it ({@code token:owner}, or the OpenID Connect identity)
      * @throws InfrastructureException DRIVER_INVALID with the jar or the class missing from the form (naming the
      *         field), or with {@link #REFUSED_REASON} when the jar or the class cannot be used
      */
-    public DriverRegistration register(String jar, String className) {
+    public DriverRegistration register(String jar, String className, OwnerIdentity actor) {
         if (jar == null || jar.isBlank()) {
             throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID, List.of("the jar path is missing"));
         }
@@ -90,8 +111,25 @@ public class DriverRegistrationService {
             LOG.warn("the driver registration of {} was refused by the loader", printable(real.toString()), e);
             throw refused();
         }
-        file.write(registration);
+        write(registration, actor);
         return registration;
+    }
+
+    /** The audit row and the file in one transaction when there is a database; the file and a log line otherwise. */
+    private void write(DriverRegistration registration, OwnerIdentity actor) {
+        OwnerAuditWriter writer = audit.getIfAvailable();
+        PlatformTransactionManager manager = transactions.getIfAvailable();
+        String detail = "jar=" + registration.jar() + " sha256=" + registration.sha256();
+        if (writer == null || manager == null) {
+            LOG.warn("driver registered by {}: {} {} (setup mode has no database, so there is no row of the owner's audit "
+                    + "trail)", actor.value(), registration.className(), printable(detail));
+            file.write(registration);
+            return;
+        }
+        new TransactionTemplate(manager).executeWithoutResult(status -> {
+            writer.record(actor, OwnerAction.DRIVER_REGISTERED, registration.className(), detail);
+            file.write(registration);
+        });
     }
 
     /**

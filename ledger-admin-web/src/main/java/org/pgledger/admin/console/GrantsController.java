@@ -10,6 +10,7 @@ import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.GrantService.RevokeCommand;
 import org.pgledger.application.admin.SessionKeyService;
+import org.pgledger.application.admin.SessionKeyService.PresentedKey;
 import org.pgledger.application.admin.SessionKeyService.RegisterCommand;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
@@ -50,8 +51,12 @@ public class GrantsController {
      * What the owner compares before confirming: the fingerprint of the pasted key, and the key the author has now (if it
      * is another one) with its registration time.
      */
-    public record Preview(GrantForm form, String fingerprint, boolean alreadyRegistered, String currentFingerprint,
+    public record Preview(GrantForm form, String fingerprint, String server, boolean alreadyRegistered, String currentFingerprint,
             Instant currentRegisteredAt) {
+    }
+
+    /** The form that closes a key: the author and the fingerprint of its live key, typed by the owner. */
+    public record KeyRevokeForm(String author, String fingerprint) {
     }
 
     private final GrantService grants;
@@ -70,15 +75,25 @@ public class GrantsController {
         return "grants";
     }
 
-    /** Shows the fingerprint of the pasted key (and the key the author has now) before anything is stored. */
+    /**
+     * Shows the fingerprint of the pasted key (and the key the author has now) before anything is stored. The owner may
+     * paste the public key alone or the block that the hook prints; for a block the server it was made for is shown next
+     * to the fingerprint, and the block must be for the author of the form.
+     */
     @PostMapping("/grants/preview")
     String preview(@ModelAttribute GrantForm form, Model model) {
-        String fingerprint = keys.fingerprintOf(requireKey(form));
+        PresentedKey presented = keys.present(form.author(), requireKey(form));
         Optional<SessionPublicKey> current = keys.live(form.author());
-        boolean alreadyRegistered = current.filter(live -> Objects.equals(live.fingerprint(), fingerprint)).isPresent();
-        Optional<SessionPublicKey> other = current.filter(live -> !Objects.equals(live.fingerprint(), fingerprint));
+        boolean alreadyRegistered = current.filter(live -> Objects.equals(live.fingerprint(), presented.fingerprint()))
+                .isPresent();
+        Optional<SessionPublicKey> other = current
+                .filter(live -> !Objects.equals(live.fingerprint(), presented.fingerprint()));
         fill(model);
-        model.addAttribute("preview", new Preview(form, fingerprint, alreadyRegistered,
+        // the confirmation carries the bare key, whichever of the two forms was pasted
+        GrantForm shown = new GrantForm(form.author(), form.project(), form.scopes(), form.expiresAt(), form.note(),
+                presented.publicKey(), form.fingerprint(), form.confirmFingerprint(), form.replace(),
+                form.replaceFingerprint());
+        model.addAttribute("preview", new Preview(shown, presented.fingerprint(), presented.server(), alreadyRegistered,
                 other.map(SessionPublicKey::fingerprint).orElse(null),
                 other.map(SessionPublicKey::registeredAt).orElse(null)));
         return "grants";
@@ -87,9 +102,9 @@ public class GrantsController {
     @PostMapping("/grants")
     String grant(@ModelAttribute GrantForm form, Authentication authentication) {
         OwnerIdentity actor = OwnerActors.of(authentication);
-        String fingerprint = keys.fingerprintOf(requireKey(form));
-        requireComparison(form, fingerprint);
-        RegisterCommand key = new RegisterCommand(form.author(), form.publicKey(), null);
+        PresentedKey presented = keys.present(form.author(), requireKey(form));
+        requireComparison(form, presented.fingerprint());
+        RegisterCommand key = new RegisterCommand(form.author(), presented.publicKey(), null);
         if (form.replace() == null) {
             keys.register(key, actor);
         } else {
@@ -106,8 +121,20 @@ public class GrantsController {
         return "redirect:/grants";
     }
 
+    /**
+     * Closes the live key of an author: the owner names the author and types the fingerprint of the key (shown in the
+     * table of live keys) to confirm that exactly this key is meant. The author keeps its grants but cannot sign until
+     * another key is registered. Recorded with the signed-in owner.
+     */
+    @PostMapping("/grants/keys/revoke")
+    String revokeKey(@ModelAttribute KeyRevokeForm form, Authentication authentication) {
+        keys.revokeConfirmed(form.author(), form.fingerprint(), OwnerActors.of(authentication));
+        return "redirect:/grants";
+    }
+
     private void fill(Model model) {
         model.addAttribute("grants", grants.liveAll());
+        model.addAttribute("keys", keys.liveKeys());
         model.addAttribute("choice", choices.project(null));
         model.addAttribute("scopes", Scope.values());
     }

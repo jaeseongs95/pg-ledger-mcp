@@ -18,7 +18,7 @@ Agents read and write through MCP tools. They never get a database login of thei
   for one server (the test server, a look-alike server) never verifies on another. Codex Apps (`mcp__codex_apps__app_<app>_ledger_<op>`)
   is keyed by the app: the server name for `session-key` is `codex_apps.<app>`, for example `codex_apps.ledger`.
   `java -jar ledger-client-hook.jar session-key <server> <author>` prints the public key and its fingerprint. The owner registers each
-  server's key separately (`ledger-cli key-register <author> <public-key> <fingerprint>` on that server, after comparing the fingerprint);
+  server's key separately (`ledger-cli key-register <author> <public-key-or-block> <fingerprint>` on that server, after comparing the fingerprint; the block is the four lines the hook printed, and the admin web grants page takes it too and shows the server name next to the fingerprint; `ledger-cli key-revoke <author> --fingerprint=<fingerprint>` or the keys table of the grants page closes a key; the owner role `user:owner` gets no key);
   the server verifies the signature (a missing key and a wrong signature are the same refusal, `ATTESTATION_SIGNATURE_INVALID`), the tool,
   the request id, the arguments and the time (default window 5 minutes) before it looks at any grant. A bare `<vendor>:<session-id>` is refused.
   Existing project/scope grants still apply. The ledger owner is `user:owner`. Legacy model `author_id` is ignored by the server.

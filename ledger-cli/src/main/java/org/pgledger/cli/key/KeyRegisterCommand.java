@@ -3,9 +3,11 @@ package org.pgledger.cli.key;
 import java.security.PublicKey;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.pgledger.attestation.AttestationException;
+import org.pgledger.attestation.KeyBlock;
 import org.pgledger.attestation.PublicKeys;
 import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.CliMessages;
@@ -19,7 +21,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.stereotype.Component;
 
 /**
- * {@code key-register <author> <public-key> <fingerprint> [--replace=<current-fingerprint>]}: the owner binds the public
+ * {@code key-register <author> <public-key-or-block> <fingerprint> [--replace=<current-fingerprint>]}: the owner binds the public
  * key that a session printed (the hook command {@code session-key <server> <author>}; the keys are kept per server, so
  * this is the key printed for the server name of this ledger, for example {@code ledger}, or {@code codex_apps.<app>}
  * for Codex Apps; the owner registers each server's key on that server) to its author. The third operand is the fingerprint
@@ -71,10 +73,20 @@ public class KeyRegisterCommand implements Command {
         Optional<String> replaced = replaceOption(arguments);
         String author = operands.get(0);
         PublicKey key;
-        try {
-            key = PublicKeys.decode(operands.get(1));
-        } catch (AttestationException invalid) {
-            throw new FailureException(ErrorCode.INVALID_PUBLIC_KEY, invalid);
+        String server = null;
+        if (KeyBlock.isBlock(operands.get(1))) {
+            KeyBlock block = readBlock(operands.get(1));
+            if (!Objects.equals(block.author(), author)) {
+                throw new FailureException(ErrorCode.KEY_BLOCK_AUTHOR_MISMATCH, block.author(), author);
+            }
+            server = block.server();
+            key = PublicKeys.decode(block.publicKey());
+        } else {
+            try {
+                key = PublicKeys.decode(operands.get(1));
+            } catch (AttestationException invalid) {
+                throw new FailureException(ErrorCode.INVALID_PUBLIC_KEY, invalid);
+            }
         }
         String fingerprint = PublicKeys.fingerprint(key);
         if (!fingerprint.equals(operands.get(2).strip().toLowerCase(Locale.ROOT))) {
@@ -90,6 +102,20 @@ public class KeyRegisterCommand implements Command {
         } else {
             target.register(author, PublicKeys.encode(key));
             output.info(messages.get("key-register.registered", author, fingerprint));
+        }
+        if (server != null) {
+            // the owner compares the server next to the fingerprint: the key was made for this server's name
+            output.info(messages.get("key-register.server", server, fingerprint));
+        }
+    }
+
+    /** The block the hook command printed, or the failure that names what is wrong with it. */
+    private static KeyBlock readBlock(String text) {
+        try {
+            return KeyBlock.parse(text);
+        } catch (AttestationException invalid) {
+            throw new FailureException(invalid.reason() == AttestationException.Reason.KEY_INVALID
+                    ? ErrorCode.INVALID_PUBLIC_KEY : ErrorCode.INVALID_KEY_BLOCK, invalid);
         }
     }
 
