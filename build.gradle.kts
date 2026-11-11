@@ -32,7 +32,7 @@ subprojects {
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
         // All time is UTC: the JVM default zone is pinned for the tests as well.
-        jvmArgs("-Duser.timezone=UTC", "-Dfile.encoding=UTF-8")
+        jvmArgs("-Duser.timezone=UTC", "-Dfile.encoding=UTF-8", "-XX:ActiveProcessorCount=1")
         maxParallelForks = 1
         testLogging {
             events("passed", "failed", "skipped")

@@ -69,7 +69,7 @@ public class CatalogService {
         }
         Predicate<CommonCode> shown = c -> inactive || c.state() == CodeState.ACTIVE;
         return slice(all.stream().filter(shown).toList(), maxRows, position, PageCursor.Kind.CODES, criteria,
-                c -> c.group().name() + ":" + String.format("%06d", c.sortOrder()) + ":" + c.code().value(),
+                c -> c.group().name() + ":" + c.code().value(),
                 c -> new CodeView(c.group().name(), c.code().value(), c.nameKo(), c.nameEn(), c.descriptionKo(),
                         c.descriptionEn(), c.sortOrder(), c.state().name()));
     }

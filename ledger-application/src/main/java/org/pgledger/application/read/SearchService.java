@@ -83,10 +83,13 @@ public class SearchService {
         Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.SEARCH, criteria);
         SearchQueryRepository.Position after = null;
         if (position != null) {
-            String[] id = position.id().split(":", 2);
+            int colon = position.id().indexOf(':');
+            if (colon < 0) {
+                throw ValidationException.invalid("cursor", "is damaged");
+            }
             after = new SearchQueryRepository.Position(position.sortKey() == null ? Instant.EPOCH
-                    : UtcInstant.parse("cursor", position.sortKey()).value(), EnumParser.parse("cursor", id[0],
-                    Kind.values()), id.length == 2 ? id[1] : "");
+                    : UtcInstant.parse("cursor", position.sortKey()).value(), EnumParser.parse("cursor",
+                    position.id().substring(0, colon), Kind.values()), position.id().substring(colon + 1));
         }
         var page = search.page(filter, maxRows, after);
         return cursors.page(page, PageCursor.Kind.SEARCH, criteria,
