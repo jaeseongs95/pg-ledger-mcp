@@ -1,5 +1,7 @@
 package org.pgledger.application.gate;
 
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.time.Clock;
 import java.util.List;
@@ -33,13 +35,13 @@ public class SignedAttestationVerifier implements AttestationVerifier {
     private static final Logger LOG = LoggerFactory.getLogger(SignedAttestationVerifier.class);
 
     /**
-     * A valid Ed25519 public key (X.509 SubjectPublicKeyInfo as RFC 8410 section 4 defines it, https://www.rfc-editor.org/rfc/rfc8410#section-4)
-     * of a key pair that was generated once and whose private key was discarded at once, so nobody can sign for it. It
-     * is a real curve point, so a check against it costs what a check against a registered key costs. An author without
-     * a live key is checked against it ({@link #provenKey}); the result of that check is never used for anything but the
-     * time it takes.
+     * The public key of an Ed25519 key pair that is generated when the verifier is made (JDK {@code KeyPairGenerator},
+     * https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/security/KeyPairGenerator.html) and whose private
+     * key is dropped at once, so nobody can sign for it. It is a real curve point, so a check against it costs what a
+     * check against a registered key costs. An author without a live key is checked against it ({@link #provenKey}); the
+     * result of that check is never used for anything but the time it takes.
      */
-    private static final String DUMMY_PUBLIC_KEY = "MCowBQYDK2VwAyEAJqVX6Tk60f69Z7Ch7bLTjwXWgbUzoBYx4ZYJwW3Hdg4=";
+    private final String dummyPublicKey;
 
     private final SessionKeyStateRepository keys;
     private final AttestationProperties properties;
@@ -49,6 +51,12 @@ public class SignedAttestationVerifier implements AttestationVerifier {
         this.keys = keys;
         this.properties = properties;
         this.clock = clock;
+        try {
+            // the private key of the pair is not kept: only its public half is needed, and nobody can sign for it
+            this.dummyPublicKey = PublicKeys.encode(KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic());
+        } catch (NoSuchAlgorithmException failure) {
+            throw new IllegalStateException("This JDK has no Ed25519 key pair generator", failure);
+        }
     }
 
     @Override
@@ -104,12 +112,12 @@ public class SignedAttestationVerifier implements AttestationVerifier {
     /**
      * The live key of the author, once the signature is proven under it; every other outcome is one answer. An author
      * without a live key is answered after the same work as one with a key: the signature is checked against
-     * {@link #DUMMY_PUBLIC_KEY}, a fixed valid key that nobody can sign for, so the time of the answer does not tell a
+     * {@link #dummyPublicKey}, a valid key made at start that nobody can sign for, so the time of the answer does not tell a
      * caller which authors have a key (the answer itself is already one for both cases).
      */
     private SessionPublicKey provenKey(AttestationToken token, AuthorId author) {
         Optional<SessionPublicKey> registered = keys.findLive(author);
-        String keyText = registered.map(SessionPublicKey::publicKey).orElse(DUMMY_PUBLIC_KEY);
+        String keyText = registered.map(SessionPublicKey::publicKey).orElse(dummyPublicKey);
         try {
             PublicKey key = PublicKeys.decode(keyText);
             token.verify(key);
