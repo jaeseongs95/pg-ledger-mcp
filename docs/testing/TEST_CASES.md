@@ -540,6 +540,8 @@ Ten write tools: `ledger_save, ledger_transition, ledger_record_fix, ledger_reco
 | MCW-022 | MCP | body above the configured limit | call | HTTP 413 / `PAYLOAD_TOO_LARGE`, nothing written, server keeps serving | plan (resource limit) | no |
 | MCW-023 | MCP | `ledger_save` input schema | inspect `fields` | typed properties per the create/edit groups; `category` and `severity` carry the active codes as enum + description (P path `fields.category.enum`) | e2e.mjs:K1 | no |
 | MCW-024 | MCP | tools invoked as `ledger_get`-style read tool with `_hostAttestation` | call | read tools do not need it; property is not declared (see MCR-001) | plan | no |
+| MCW-026 | MCP | body above the configured limit sent with `Transfer-Encoding: chunked` (no `Content-Length`), and a chunked body exactly at the limit | call | above: HTTP 413 / `PAYLOAD_TOO_LARGE` (problem detail), nothing written, the body is not read beyond the limit + 1 byte; at the limit: accepted. One servlet filter (counts the bytes, rejects through the `HandlerExceptionResolver` to the one advice) also answers the declared `Content-Length` case of MCW-022; Tomcat `maxPostSize` (form parsing) and `maxSwallowSize` (aborted uploads) do not apply | security audit (Tomcat 11 HTTP connector documentation) | no |
+| MCW-027 | MCP | `ledger_batch` with `ops:[{"op":"drop"}]` and with an op that has no `op` key | call | `VALIDATION_FAILED`; unknown op: `UNKNOWN_VALUE` at `ops[0].op` with the allowed ops (`save`, `transition`, `record_fix`, `record_case`, `link`, `correct`); missing: `REQUIRED` at `ops[0].op`; neither the text nor the structured content has `org.pgledger` or `BatchOp`; other Jackson failures carry a fixed reason, not the library text | security audit: internal class name in the error result | no |
 | MCW-025 | MCP | the MCP scenario of the old suite, executed in order with the same data (E-07..E-28, C1..C15, P1..P5, V1..V7 through the tools) | run | every step has the outcome listed in the SVC cases it maps to | e2e.mjs whole file | no |
 
 ## 8. MCR: MCP read-tool contract (12 tools)
@@ -612,6 +614,8 @@ Tools: `ledger_get, ledger_defect, ledger_task, ledger_history, ledger_search, l
 | MCR-S04 | MCP | defects, tasks, conditions | `kind` filter, `project`, `exclude_status=[MERGED,NOT_DEFECT]` | only matching kinds/projects; excluded states absent | plan | no |
 | MCR-S05 | MCP | many matches | search | newest first (created desc, then id desc), paged by cursor | plan | no |
 | MCR-S06 | MCP | keyword `100%`, `_x`, `a\b`, `'; DROP TABLE project; --`, blank keyword, 1000-char keyword | search | `%`, `_`, `\` literal; injection text is data; blank or over-long keyword `VALIDATION_FAILED` | REPO-027 | no |
+| MCR-S08 | SERVICE | search with 20 keywords, and with 21 | search | 20: accepted; 21: `VALIDATION_FAILED` at `keywords` with `MUST_HOLD_ITEMS` 0..20, no SQL statement runs | security audit: unbounded SQL clause | no |
+| MCR-H15 | SERVICE | history with 200 ids, and with 201 | history | 200: accepted; 201: `VALIDATION_FAILED` at `ids` with `MUST_HOLD_ITEMS` 0..200, no SQL statement runs | security audit: unbounded SQL clause | no |
 | MCR-S07 | MCP | Korean and ASCII text | search with mixed case | ASCII case-insensitive; Korean exact | plan | no |
 
 ### 8.6 Lists, attention, stats, projects, codes
@@ -648,6 +652,7 @@ Tools: `ledger_get, ledger_defect, ledger_task, ledger_history, ledger_search, l
 | MCC-015 | MCP | bearer | none / wrong / right | 401 / 401 / 200; comparison is constant time (ARC-020 + unit test with equal-length differing tokens); token never in logs or errors | plan | no |
 | MCC-016 | MCP | Host header allowlist | allowed / unlisted / allowed with port / mixed case | passes / refused (`DNS_REBINDING_BLOCKED`-class 403) / passes / passes | plan; e2e.sh:S-W03 | no |
 | MCC-017 | E2E | deployed MCP server | connect from a non-loopback address | refused; listens on 127.0.0.1 only | plan | no |
+| MCC-027 | MCP | token of 15 characters, and a missing token | start the context | the start fails; the failure analysis and the log name `ledger.mcp.token` and never print the token (the length check is not a Bean Validation constraint on the secret, because Boot prints the rejected value of a binding violation); a token of 16 characters starts | security audit: startup diagnostic printed the token | no |
 | MCC-018 | MCP | `/healthz` | unauthenticated GET | 200 `{status:UP}`-style, no DB or secret detail; other Actuator endpoints are not exposed (404) | plan | no |
 | MCC-019 | MCP | unknown tool, malformed JSON-RPC, oversize frame | call | JSON-RPC error (not a 500); no side effects; server keeps serving | plan | no |
 | MCC-020 | MCP | unexpected RuntimeException / DB integrity error in a tool | call | `INTERNAL_ERROR` / `INTEGRITY_VIOLATION`, no SQL text, no vendor class names, logged once | plan: one conversion | no |

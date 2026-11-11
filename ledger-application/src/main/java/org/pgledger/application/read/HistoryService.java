@@ -1,5 +1,7 @@
 package org.pgledger.application.read;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -19,6 +21,7 @@ import org.pgledger.domain.value.Tokens;
 import org.pgledger.domain.value.UtcInstant;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
 
 /**
  * The history, the receipt of every write: by id list, id range, entity, project, operation, author and time,
@@ -26,10 +29,14 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @Transactional(readOnly = true)
+@Validated
 public class HistoryService {
 
+    /** The most ids one history call may carry (they become the {@code IN} list of the SQL). */
+    public static final int MAX_IDS = 200;
+
     /** The criteria, all optional and combined with AND. */
-    public record HistoryQuery(List<Long> ids, Long idFrom, Long idTo, String entity, String entityId,
+    public record HistoryQuery(@Size(max = MAX_IDS, message = "{reason.MUST_HOLD_ITEMS}") List<Long> ids, Long idFrom, Long idTo, String entity, String entityId,
             String project, String op, String authorId, String atFrom, String atTo, Boolean includeBefore,
             Number maxRows, String cursor) {
     }
@@ -57,7 +64,7 @@ public class HistoryService {
         this.cursors = cursors;
     }
 
-    public Page<HistoryView> history(HistoryQuery q) {
+    public Page<HistoryView> history(@Valid HistoryQuery q) {
         HistoryQueryRepository.Filter filter = new HistoryQueryRepository.Filter(q.ids(), q.idFrom(), q.idTo(),
                 blank(q.entity()) ? null : Tokens.parse("entity", q.entity(), HistoryEntity.values()),
                 blank(q.entityId()) ? null : q.entityId(),

@@ -44,12 +44,20 @@ public class SearchService {
     /** Longest keyword. */
     public static final int MAX_KEYWORD = 200;
 
+    /** The most keywords one search may carry (each one is a clause of the SQL). */
+    public static final int MAX_KEYWORDS = 20;
+
     private static final String KEYWORD_BLANK = "{reason.MUST_NOT_BE_BLANK}";
     private static final String KEYWORD_LENGTH = "{reason.MUST_BE_AT_MOST_CHARS}";
+    private static final String KEYWORD_COUNT = "{reason.MUST_HOLD_ITEMS}";
 
-    /** The criteria; everything but the keywords is optional. Every keyword is 1..{@link #MAX_KEYWORD} characters. */
+    /**
+     * The criteria; everything but the keywords is optional. There are at most {@link #MAX_KEYWORDS} keywords and
+     * every keyword is 1..{@link #MAX_KEYWORD} characters.
+     */
     public record SearchQuery(String project, List<String> kinds,
-            List<@NotBlank(message = KEYWORD_BLANK) @Size(max = MAX_KEYWORD, message = KEYWORD_LENGTH) String> keywords,
+            @Size(max = MAX_KEYWORDS, message = KEYWORD_COUNT) List<@NotBlank(message = KEYWORD_BLANK)
+                    @Size(max = MAX_KEYWORD, message = KEYWORD_LENGTH) String> keywords,
             String match, List<String> excludeStatus, String createdFrom, String createdTo, Number maxRows,
             String cursor) {
     }
