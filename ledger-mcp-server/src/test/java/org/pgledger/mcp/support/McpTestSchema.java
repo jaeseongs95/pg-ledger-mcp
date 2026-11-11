@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import javax.sql.DataSource;
+import org.pgledger.application.admin.SessionKeyService;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -29,6 +30,12 @@ public class McpTestSchema {
     @Bean
     ProjectNumbers projectNumbers() {
         return new ProjectNumbers();
+    }
+
+    /** The key pairs of the test authors (the hook and the owner of the tests, see {@link KeyRing}). */
+    @Bean
+    KeyRing keyRing(SessionKeyService owner, Clock clock) {
+        return new KeyRing(owner, clock);
     }
 
     @Bean

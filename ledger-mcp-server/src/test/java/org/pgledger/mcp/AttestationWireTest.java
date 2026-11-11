@@ -232,6 +232,7 @@ class AttestationWireTest {
     @DisplayName("MCW-038: whoami of a signed session lists its grants; of a session without a registered key it is SESSION_KEY_NOT_REGISTERED; of a malformed value it still answers author_format_ok=false")
     void whoami(McpSession session, Scenario scenario, @Autowired KeyRing keys) {
         String author = scenario.actorWith("who", "defect", "task");
+        keys.enroll(author);
         String token = keys.token(author, WHOAMI, "");
         WriteOutputs.Whoami who = session.ok(WHOAMI, Args.of().with("_hostAttestation", token),
                 WriteOutputs.Whoami.class);

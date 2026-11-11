@@ -30,6 +30,8 @@ tasks.jar {
     // Standard `jar` task with the dependencies merged in: classes of the runtime classpath without signature files,
     // module descriptors and Maven metadata. Own classes come first, so they win a name clash. The licence and
     // notice texts of each dependency are kept under META-INF/third-party/<jar> (they would clash at META-INF/).
+    // the dependency jars (Jackson and the project jar of ledger-attestation) are built before they are merged
+    dependsOn(configurations.runtimeClasspath)
     val licenseFiles = listOf("META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/*-LICENSE")
     configurations.runtimeClasspath.get().filter { it.name.endsWith(".jar") }.forEach { dependency ->
         from(zipTree(dependency)) { exclude(licenseFiles) }

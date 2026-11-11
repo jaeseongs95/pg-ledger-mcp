@@ -40,7 +40,7 @@ CREATE TABLE id_counter (
   name VARCHAR(30) NOT NULL,
   issued_no BIGINT NOT NULL,
   CONSTRAINT pk_id_counter PRIMARY KEY (name),
-  CONSTRAINT ck_id_counter_name CHECK (name IN ('HISTORY', 'DEFECT_FIX', 'DEFECT_CASE', 'SESSION_GRANT'))
+  CONSTRAINT ck_id_counter_name CHECK (name IN ('HISTORY', 'DEFECT_FIX', 'DEFECT_CASE', 'SESSION_GRANT', 'SESSION_KEY'))
 );
 
 CREATE TABLE task (

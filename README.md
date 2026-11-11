@@ -7,10 +7,14 @@ Agents read and write through MCP tools. They never get a database login of thei
 
 - **Role logins, not per-agent accounts.** There are three logins: `ledger_author`, `ledger_reviewer` and `ledger_reader`.
   Each MCP tool is bound to the login it needs, and the caller never chooses one.
-- **The host hook stamps every write and whoami.** Reserved `_hostAttestation` is `<vendor>:<session-id>`, for example `claude:1f2e3d4c` or `codex:9a8b7c6d`.
-  Models must omit this field. The hook inserts the host session id, using the parent conversation id for subagents.
-  Existing project/scope grants still apply. The ledger owner is `user:owner`; no new token authentication is added.
-  Legacy model `author_id` is ignored by the server. This convention relies on the host hook; it is not signed server authentication.
+- **The host hook signs every write and whoami.** Reserved `_hostAttestation` is a signed token (`pgla1.<author>.<tool>.<request id>.<issued at>.<signature>`)
+  for the author `<vendor>:<session-id>`, for example `claude:1f2e3d4c` or `codex:9a8b7c6d`. Models must omit this field.
+  The hook keeps one Ed25519 key pair per author in an owner-only folder (`LEDGER_HOOK_KEY_DIR`, default `~/.pg-ledger-mcp/session-keys`);
+  `java -jar ledger-client-hook.jar session-key <author>` prints the public key and its fingerprint. The owner registers the key for the
+  author (`ledger-cli key-register <author> <public-key> <fingerprint>`, after comparing the fingerprint); the server verifies the
+  signature, the tool, the request id and the time (default window 5 minutes) before it looks at any grant. A bare `<vendor>:<session-id>` is refused.
+  Existing project/scope grants still apply. The ledger owner is `user:owner`. Legacy model `author_id` is ignored by the server.
+  Limit: another process of the same OS user can read the key file; separate OS accounts are needed for isolation inside one user.
 - **Writes need a live grant.** The owner grants an author a scope on a project with `bin/ledger-admin grant`.
   The scopes are `defect`, `task`, `fix` and `verify`. Writes without a matching grant are refused.
 - **Verification is separate.** `VERIFIED`, `MET` and `NOT_MET` can only be set through the reviewer login.

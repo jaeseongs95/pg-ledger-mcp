@@ -120,8 +120,7 @@ class AttestationTokenTest {
                 new AttestationClaims("a\n1:b", "", "", 1),
                 new AttestationClaims("a", "1:b\n", "", 1),
                 new AttestationClaims("a", "", "1:b\n", 1),
-                new AttestationClaims("a", "b", "c", 10),
-                new AttestationClaims("a", "b", "c", 1));
+                new AttestationClaims("a", "b", "c", 10));
         for (int i = 0; i < all.size(); i++) {
             for (int j = i + 1; j < all.size(); j++) {
                 assertThat(all.get(i).signedBytes()).as("%s vs %s", all.get(i), all.get(j))

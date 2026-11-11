@@ -252,7 +252,7 @@ class DmlAccountTest {
             });
             assertThat(ctx.bean(CommonCodeRepository.class).find(CodeGroup.DEFECT_CATEGORY, code.code()))
                     .hasValueSatisfying(c -> assertThat(c.state()).isEqualTo(CodeState.INACTIVE));
-            assertThat(List.of(Counter.values())).hasSize(4);
+            assertThat(List.of(Counter.values())).hasSize(5);
         }
     }
 

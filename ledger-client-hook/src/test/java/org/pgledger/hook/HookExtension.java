@@ -22,7 +22,7 @@ final class HookExtension implements ParameterResolver {
     @Override
     public Object resolveParameter(ParameterContext parameter, ExtensionContext context) {
         TestWorkspace workspace = context.getStore(NAMESPACE)
-                .getOrComputeIfAbsent(TestWorkspace.class, type -> new TestWorkspace(), TestWorkspace.class);
+                .computeIfAbsent(TestWorkspace.class, type -> new TestWorkspace(), TestWorkspace.class);
         Class<?> type = parameter.getParameter().getType();
         if (type == HookFixture.class) {
             return new HookFixture(workspace.keys());

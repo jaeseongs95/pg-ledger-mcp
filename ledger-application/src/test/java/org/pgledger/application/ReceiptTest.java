@@ -309,8 +309,12 @@ class ReceiptTest {
     void rcp13_restart(Scenario s) {
         String id = Scenario.uuid();
         SaveResult first = s.bean(SaveService.class).save(Scenario.AUTHOR, create(s, id, "d"));
-        LedgerTestRunners.restartOf(s.ctx(), restarted -> assertThat(restarted.getBean(SaveService.class).save(
-                Scenario.AUTHOR, create(s, id, "d"))).isEqualTo(first));
+        // the restarted application has the real verifier only (no test signing): the call carries the signed
+        // attestation of the author, bound to the tool of the call, as the hook and the tool binding make it
+        String token = s.ctx().keys().token(Scenario.AUTHOR, "ledger_save", id, s.ctx().clock().instant());
+        LedgerTestRunners.restartOf(s.ctx(), restarted -> assertThat(ScopedValue
+                .where(org.pgledger.domain.context.ToolScope.CURRENT, "ledger_save")
+                .call(() -> restarted.getBean(SaveService.class).save(token, create(s, id, "d")))).isEqualTo(first));
         assertThat(defects(s)).isEqualTo(1);
     }
 
