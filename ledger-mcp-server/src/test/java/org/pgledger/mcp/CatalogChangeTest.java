@@ -12,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.mcp.support.CodeChanges;
+import org.pgledger.testing.TestOwners;
 import org.pgledger.mcp.support.CodeListing;
 import org.pgledger.mcp.support.Calls;
 import org.pgledger.mcp.support.Calls.Fields;
@@ -57,7 +58,7 @@ class CatalogChangeTest {
     @DisplayName("MCC-003: a category added by another process is announced and shown in the ledger_save schema "
             + "without a restart")
     void aNewCategoryIsAnnounced(McpSession session, ApplicationContext context) {
-        codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "UI_UX"));
+        codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "UI_UX"), TestOwners.OWNER);
 
         List<Tool> announced = session.awaitListChange(NOTIFICATION);
 
@@ -70,15 +71,15 @@ class CatalogChangeTest {
     @DisplayName("MCC-004: a code set INACTIVE is announced and removed from enumeration and description, and shown "
             + "again when reactivated")
     void aRetiredCodeLeavesAndComesBack(McpSession session, ApplicationContext context) {
-        codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "COMES_AND_GOES"));
+        codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "COMES_AND_GOES"), TestOwners.OWNER);
         session.awaitListChange(NOTIFICATION);
         SchemaView shown = saveField(session, "fields.category");
 
-        codes(context).set(CodeChanges.inactive(CodeChanges.CATEGORY, "COMES_AND_GOES"));
+        codes(context).set(CodeChanges.inactive(CodeChanges.CATEGORY, "COMES_AND_GOES"), TestOwners.OWNER);
         session.awaitListChange(NOTIFICATION);
         SchemaView retired = saveField(session, "fields.category");
 
-        codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "COMES_AND_GOES"));
+        codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "COMES_AND_GOES"), TestOwners.OWNER);
         session.awaitListChange(NOTIFICATION);
         SchemaView reactivated = saveField(session, "fields.category");
 
@@ -93,12 +94,12 @@ class CatalogChangeTest {
     @DisplayName("MCC-005: a relation kind and a severity added by another process show in ledger_link.kind and in "
             + "the severity text")
     void aRelationKindAndASeverityAreShown(McpSession session, ApplicationContext context) {
-        codes(context).set(CodeChanges.active(CodeChanges.RELATION, "BLOCKS_NEW"));
+        codes(context).set(CodeChanges.active(CodeChanges.RELATION, "BLOCKS_NEW"), TestOwners.OWNER);
         session.awaitListChange(NOTIFICATION);
         List<String> kinds = SchemaView.of(session.mapper(), session.tool("ledger_link").inputSchema())
                 .at("kind").orElseThrow().allowed();
 
-        codes(context).set(CodeChanges.active(CodeChanges.SEVERITY, "P7"));
+        codes(context).set(CodeChanges.active(CodeChanges.SEVERITY, "P7"), TestOwners.OWNER);
         session.awaitListChange(NOTIFICATION);
         SchemaView severity = saveField(session, "fields.severity");
 
@@ -121,7 +122,7 @@ class CatalogChangeTest {
     @Test
     @DisplayName("MCC-007: three open sessions are all notified, a fourth opened afterwards sees the new schema")
     void everySessionIsNotified(McpSession first, McpSession second, McpSession third, ApplicationContext context) {
-        codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "FOR_THREE"));
+        codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "FOR_THREE"), TestOwners.OWNER);
 
         List<List<Tool>> announced = Stream.of(first, second, third)
                 .map(session -> session.awaitListChange(NOTIFICATION)).toList();
@@ -136,7 +137,7 @@ class CatalogChangeTest {
     @DisplayName("MCC-008: a session with the old schema writes the new code, the service reads the database")
     void theOldSchemaDoesNotLimitTheWrite(McpSession session, Scenario scenario, ApplicationContext context) {
         List<String> before = saveField(session, "fields.category").allowed();
-        codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "NOT_LISTED_YET"));
+        codes(context).set(CodeChanges.active(CodeChanges.CATEGORY, "NOT_LISTED_YET"), TestOwners.OWNER);
 
         WriteOutputs.Saved saved = session.ok("ledger_save", Calls.Save.create("defect",
                 new Fields(scenario.projectId(), "new code", "NOT_LISTED_YET", "P2", "b", "c", null, null, null, null,
@@ -169,7 +170,7 @@ class CatalogChangeTest {
         List<CommonCodeService.CodeCommand> flips = List.of(CodeChanges.active(CodeChanges.CATEGORY, "FLIP"),
                 CodeChanges.inactive(CodeChanges.CATEGORY, "FLIP"));
         Callable<List<Integer>> changing = () -> IntStream.range(0, 12).mapToObj(round -> {
-            codes(context).set(flips.get(round % flips.size()));
+            codes(context).set(flips.get(round % flips.size()), TestOwners.OWNER);
             return watcher.awaitListChange(NOTIFICATION).size();
         }).toList();
 
@@ -185,9 +186,9 @@ class CatalogChangeTest {
             + "inactive severity is omitted")
     void specialCharactersArePreserved(McpSession session, ApplicationContext context) {
         codes(context).set(CodeChanges.withTexts(CodeChanges.CATEGORY, "QUOTED", "따옴표 \"quoted\"",
-                "say \"hi\"", "line one\nline two", "back\\slash"));
+                "say \"hi\"", "line one\nline two", "back\\slash"), TestOwners.OWNER);
         codes(context).set(CodeChanges.withTexts(CodeChanges.CATEGORY, "TEMPLATE", "@CODES:DEFECT_CATEGORY@",
-                "@CODES:DEFECT_SEVERITY@", "@CODES:DEFECT_CATEGORY@", "@CODES:DEFECT_CATEGORY@"));
+                "@CODES:DEFECT_SEVERITY@", "@CODES:DEFECT_CATEGORY@", "@CODES:DEFECT_CATEGORY@"), TestOwners.OWNER);
         session.awaitListChange(NOTIFICATION);
         SchemaView category = saveField(session, "fields.category");
         SchemaView severity = saveField(session, "fields.severity");
