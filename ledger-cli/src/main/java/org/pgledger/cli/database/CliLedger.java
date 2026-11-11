@@ -5,6 +5,7 @@ import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.ProjectService;
 import org.pgledger.application.admin.SessionKeyService;
+import org.pgledger.application.legacy.LegacyImportService;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.domain.error.LedgerException;
@@ -25,15 +26,17 @@ public final class CliLedger {
     private final CommonCodeService codes;
     private final GrantService grants;
     private final SessionKeyService keys;
+    private final LegacyImportService importer;
     private final CliActor actor;
     private final SchemaReadiness readiness;
 
     public CliLedger(ProjectService projects, CommonCodeService codes, GrantService grants, SessionKeyService keys,
-            CliActor actor, SchemaReadiness readiness) {
+            LegacyImportService importer, CliActor actor, SchemaReadiness readiness) {
         this.projects = projects;
         this.codes = codes;
         this.grants = grants;
         this.keys = keys;
+        this.importer = importer;
         this.actor = actor;
         this.readiness = readiness;
     }
@@ -52,6 +55,11 @@ public final class CliLedger {
 
     public SessionKeyService keys() {
         return keys;
+    }
+
+    /** The legacy import ({@code import-legacy}). */
+    public LegacyImportService importer() {
+        return importer;
     }
 
     /** The audit actor {@code cli:<process user>}. */

@@ -1,6 +1,7 @@
 package org.pgledger.cli.database;
 
 import org.pgledger.database.driver.LedgerDataSourceConfiguration;
+import org.pgledger.database.driver.LegacySourceConfiguration;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -17,6 +18,6 @@ import org.springframework.context.annotation.Profile;
 @Configuration(proxyBeanMethods = false)
 @Conditional(DriverRegisteredCondition.class)
 @Profile("!embedded")
-@Import(LedgerDataSourceConfiguration.class)
+@Import({LedgerDataSourceConfiguration.class, LegacySourceConfiguration.class})
 public class CliDriverDataSourceConfiguration {
 }

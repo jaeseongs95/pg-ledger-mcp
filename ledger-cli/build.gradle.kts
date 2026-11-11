@@ -24,6 +24,8 @@ dependencies {
     testImplementation(libs.archunit)
     // The shared architecture and source rules (ARC-033: no operating system detection) live in the domain test fixtures.
     testImplementation(testFixtures(project(":ledger-domain")))
+    // The builder of the legacy ledger on H2 (the table shapes of the old schema and the data of the old installer), MIG-024.
+    testImplementation(testFixtures(project(":ledger-database")))
     // The test database is the embedded H2 in its default mode (a driver on the test classpath only; the product ships none).
     testImplementation("com.h2database:h2")
 }

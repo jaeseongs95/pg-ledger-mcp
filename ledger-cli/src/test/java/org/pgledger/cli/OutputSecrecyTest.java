@@ -27,13 +27,15 @@ class OutputSecrecyTest {
     private static final String PASSWORD = "Db-Password-4711-unique";
     private static final String DSN_PASSWORD = "Dsn-Password-0815-unique";
     private static final String TOKEN = "Bearer-Token-0123456789-unique-value";
-    private static final List<String> SECRETS = List.of(PASSWORD, DSN_PASSWORD, TOKEN);
+    private static final String SOURCE_PASSWORD = "Legacy-Source-Password-2468-unique";
+    private static final List<String> SECRETS = List.of(PASSWORD, DSN_PASSWORD, TOKEN, SOURCE_PASSWORD);
 
     @TempDir
     Path tmp;
 
     private Cli withSecrets(Cli cli) {
         return cli.withArguments("--ledger.jdbc.password=" + PASSWORD, "--ledger.mcp.token=" + TOKEN,
+                "--ledger.import.source.password=" + SOURCE_PASSWORD, "--ledger.import.source.url=jdbc:postgresql://old.example/ledger?password=" + SOURCE_PASSWORD,
                 "--ledger.jdbc.url=jdbc:postgresql://db.example/ledger?user=ledger&password=" + DSN_PASSWORD);
     }
 
@@ -48,7 +50,8 @@ class OutputSecrecyTest {
     @DisplayName("CLI-012 a command that is refused (no driver, a usage error, an unreachable MCP server) prints no password, no DSN password and no token, with and without --debug")
     void refusalsAndDebugLogsHoldNoSecret(Cli cli, CapturedOutput captured) {
         RecordingOutput output = new RecordingOutput();
-        List<String[]> lines = List.of(new String[] { "migrate" }, new String[] { "grants" },
+        List<String[]> lines = List.of(new String[] { "migrate" }, new String[] { "grants" }, new String[] { "import-legacy" },
+                new String[] { "import-legacy", "--verify-only", "--debug" },
                 new String[] { "project-add", "only-one-operand" },
                 new String[] { "mcp-check", "--url=http://127.0.0.1:1/mcp" },
                 new String[] { "mcp-check", "--url=http://127.0.0.1:1/mcp", "--debug" },

@@ -20,6 +20,7 @@ import org.pgledger.cli.LedgerCliApplication;
 import org.pgledger.cli.key.SessionKeyRegistry;
 import org.pgledger.cli.secret.ProcessUser;
 import org.pgledger.cli.secret.SecretInput;
+import org.pgledger.database.repository.LegacySourceRepository;
 import org.springframework.boot.ExitCodeEvent;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -60,15 +61,17 @@ public final class CliExtension implements ParameterResolver {
         private final DataSource database;
         private final String processUser;
         private final List<String> extraArguments;
+        private final LegacySourceRepository legacySource;
 
         Cli() {
-            this(null, null, List.of());
+            this(null, null, List.of(), null);
         }
 
-        private Cli(DataSource database, String processUser, List<String> extraArguments) {
+        private Cli(DataSource database, String processUser, List<String> extraArguments, LegacySourceRepository legacySource) {
             this.database = database;
             this.processUser = processUser;
             this.extraArguments = extraArguments;
+            this.legacySource = legacySource;
         }
 
         /**
@@ -78,19 +81,24 @@ public final class CliExtension implements ParameterResolver {
          * in without a close method, so it is still open when the run has closed the context and the test reads the rows.
          */
         public Cli withDatabase(DataSource dataSource) {
-            return new Cli(dataSource, processUser, extraArguments);
+            return new Cli(dataSource, processUser, extraArguments, legacySource);
         }
 
         /** A Cli that runs as this process user (the account name that the audit trail records as {@code cli:<name>}). */
         public Cli asProcessUser(String name) {
-            return new Cli(database, name, extraArguments);
+            return new Cli(database, name, extraArguments, legacySource);
+        }
+
+        /** A Cli whose application has this legacy ledger as the source of {@code import-legacy} (the way the settings {@code ledger.import.source.*} would configure it). */
+        public Cli withLegacySource(LegacySourceRepository source) {
+            return new Cli(database, processUser, extraArguments, source);
         }
 
         /** A Cli that also gets these command line arguments (for example {@code --spring.config.import=...}). */
         public Cli withArguments(String... arguments) {
             List<String> all = new ArrayList<>(extraArguments);
             all.addAll(List.of(arguments));
-            return new Cli(database, processUser, List.copyOf(all));
+            return new Cli(database, processUser, List.copyOf(all), legacySource);
         }
 
         /** @param input null keeps the product Console input; @param output null keeps the product stream output */
@@ -113,6 +121,9 @@ public final class CliExtension implements ParameterResolver {
                         GenericApplicationContext generic = (GenericApplicationContext) ctx;
                         if (database != null) {
                             generic.registerBean("testDataSource", DataSource.class, () -> new DelegatingDataSource(database));
+                        }
+                        if (legacySource != null) {
+                            generic.registerBean("testLegacySource", LegacySourceRepository.class, () -> legacySource);
                         }
                         if (processUser != null) {
                             UserPrincipal principal = () -> processUser;

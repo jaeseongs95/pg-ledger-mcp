@@ -43,7 +43,12 @@ public enum ErrorCode {
     MCP_UNREACHABLE,
     MCP_AUTHORIZATION_REFUSED,
     MCP_FAILED,
-    MCP_TOOL_MISSING;
+    MCP_TOOL_MISSING,
+    IMPORT_SOURCE_NOT_CONFIGURED,
+    IMPORT_TARGET_NOT_EMPTY,
+    IMPORT_SOURCE_INCOMPLETE,
+    IMPORT_DATA_REFUSED,
+    IMPORT_VERIFY_FAILED;
 
     public String messageKey() {
         return "error." + name();

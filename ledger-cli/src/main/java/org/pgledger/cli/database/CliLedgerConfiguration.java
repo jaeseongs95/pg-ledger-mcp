@@ -5,6 +5,7 @@ import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.ProjectService;
 import org.pgledger.application.admin.SessionKeyService;
+import org.pgledger.application.legacy.LegacyImportService;
 import org.pgledger.cli.key.LedgerSessionKeyRegistry;
 import org.pgledger.cli.key.SessionKeyRegistry;
 import org.pgledger.database.LedgerDatabaseConfiguration;
@@ -41,8 +42,8 @@ public class CliLedgerConfiguration {
 
     @Bean
     CliLedger cliLedger(ProjectService projects, CommonCodeService codes, GrantService grants,
-            SessionKeyService sessionKeys, CliActor actor, SchemaReadiness readiness) {
-        return new CliLedger(projects, codes, grants, sessionKeys, actor, readiness);
+            SessionKeyService sessionKeys, LegacyImportService importer, CliActor actor, SchemaReadiness readiness) {
+        return new CliLedger(projects, codes, grants, sessionKeys, importer, actor, readiness);
     }
 
     @Bean

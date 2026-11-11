@@ -9,6 +9,7 @@ public enum CliCommand {
     SECRET_SET("secret-set"),
     DRIVER_REGISTER("driver-register"),
     MIGRATE("migrate"),
+    IMPORT_LEGACY("import-legacy"),
     KEY_REGISTER("key-register"),
     KEY_REVOKE("key-revoke"),
     PROJECT_ADD("project-add"),

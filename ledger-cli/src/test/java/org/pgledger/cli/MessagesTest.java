@@ -27,7 +27,8 @@ class MessagesTest {
     void everyKeyIsDefinedInBothBundles() throws IOException {
         List<String> required = new ArrayList<>(List.of("usage.header", "secret-set.prompt", "secret-set.stored",
                 "key-register.registered", "key-register.replaced", "key-register.server", "key-revoke.revoked",
-                "migrate.applied", "migrate.current", "driver-register.registered", "project-add.added", "code-set.set",
+                "migrate.applied", "migrate.current", "import-legacy.table", "import-legacy.imported", "import-legacy.verified",
+                "import-legacy.violation", "import-legacy.mismatch", "driver-register.registered", "project-add.added", "code-set.set",
                 "codes.line", "grant.issued", "grant.never", "revoke.revoked", "grants.none", "grants.line", "mcp-check.ok"));
         for (ErrorCode code : ErrorCode.values()) {
             required.add(code.messageKey());
