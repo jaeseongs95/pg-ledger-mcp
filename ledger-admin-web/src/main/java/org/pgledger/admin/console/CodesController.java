@@ -2,6 +2,7 @@ package org.pgledger.admin.console;
 
 import java.util.List;
 import java.util.Objects;
+import org.pgledger.admin.security.OwnerActors;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
 import org.pgledger.application.read.CatalogService;
@@ -12,6 +13,7 @@ import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.CodeGroup;
 import org.pgledger.domain.rule.CodeState;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -50,10 +52,10 @@ public class CodesController {
     }
 
     @PostMapping("/codes")
-    String set(@ModelAttribute CodeForm form) {
+    String set(@ModelAttribute CodeForm form, Authentication authentication) {
         requireConfirmationToReactivate(form);
         codes.set(new CodeCommand(form.group(), form.code(), form.nameKo(), form.nameEn(), form.descriptionKo(),
-                form.descriptionEn(), form.sortOrder(), form.state()));
+                form.descriptionEn(), form.sortOrder(), form.state()), OwnerActors.of(authentication));
         return "redirect:/codes";
     }
 

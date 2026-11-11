@@ -25,17 +25,18 @@ import org.springframework.stereotype.Component;
 public final class AdminTokenProvider implements AuthenticationProvider {
 
     /** The shortest token that is accepted as the secret of the owner. */
-    static final int MIN_TOKEN_LENGTH = 16;
-
-    private static final String UNKNOWN_CLIENT = "unknown";
+    static final int MIN_TOKEN_LENGTH = LedgerAdminProperties.MIN_TOKEN_LENGTH;
 
     private final byte[] expected;
     private final byte[] agent;
     private final LoginAttempts attempts;
 
     /**
-     * @throws IllegalArgumentException when the token is missing, blank or too short, or equals the agent token; the
-     *         message names the key and never the value
+     * The agent token is required and must differ from the admin token (the binding of {@link LedgerAdminProperties}
+     * stops the start otherwise); the checks here guard a provider made without that binding.
+     *
+     * @throws IllegalArgumentException when the token is missing, blank or too short, or the agent token is missing or
+     *         equals it; the message names the key and never the value
      */
     public AdminTokenProvider(LedgerAdminProperties properties, LoginAttempts attempts) {
         String token = properties.token();
@@ -45,8 +46,11 @@ public final class AdminTokenProvider implements AuthenticationProvider {
         }
         this.expected = digest(token);
         String agentToken = properties.agentToken();
-        this.agent = agentToken == null || agentToken.isBlank() ? null : digest(agentToken);
-        if (agent != null && MessageDigest.isEqual(agent, expected)) {
+        if (agentToken == null || agentToken.isBlank()) {
+            throw new IllegalArgumentException("ledger.admin.agent-token must be set");
+        }
+        this.agent = digest(agentToken);
+        if (MessageDigest.isEqual(agent, expected)) {
             throw new IllegalArgumentException("ledger.admin.agent-token must differ from ledger.admin.token");
         }
         this.attempts = attempts;
@@ -55,17 +59,17 @@ public final class AdminTokenProvider implements AuthenticationProvider {
     @Override
     public Authentication authenticate(Authentication authentication) {
         String client = authentication.getDetails() instanceof WebAuthenticationDetails details
-                ? details.getRemoteAddress() : UNKNOWN_CLIENT;
-        if (attempts.isLocked(client)) {
+                ? details.getRemoteAddress() : null;
+        if (!attempts.admit(client)) {
             throw new AdminAuthenticationException(AdminCode.TOO_MANY_AUTH_FAILURES);
         }
         byte[] presented = digest(presentedToken(authentication));
-        if (agent != null && MessageDigest.isEqual(agent, presented)) {
-            attempts.failed(client);
+        if (MessageDigest.isEqual(agent, presented)) {
+            attempts.failed();
             throw new AdminAuthenticationException(AdminCode.AGENT_TOKEN_FORBIDDEN);
         }
         if (!MessageDigest.isEqual(expected, presented)) {
-            attempts.failed(client);
+            attempts.failed();
             throw new AdminAuthenticationException(AdminCode.UNAUTHORIZED);
         }
         attempts.succeeded(client);

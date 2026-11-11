@@ -27,21 +27,50 @@
 
   <section>
     <h2 th:text="#{grants.issue}">Issue grants</h2>
-    <form method="post" th:action="@{/grants}">
+    <p th:text="#{grants.key.help}">Paste the public key that the session printed ...</p>
+    <form method="post" th:action="@{/grants/preview}">
       <label for="author" th:text="#{grants.author.label}">Author (vendor:session)</label>
-      <input id="author" name="author" type="text" required autocomplete="off">
+      <input id="author" name="author" type="text" required autocomplete="off" th:value="${preview != null} ? ${preview.form().author()}">
       <label for="grant-project" th:text="#{common.project}">Project</label>
       <select id="grant-project" name="project" required>
-        <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.id()}">p1</option>
+        <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.id()}" th:selected="${preview != null and p.id() == preview.form().project()}">p1</option>
       </select>
       <fieldset>
         <legend th:text="#{grants.scopes}">Scopes</legend>
-        <label th:each="s : ${scopes}" class="check"><input type="checkbox" name="scopes" th:value="${s.token()}"> <span th:text="${s.token()}">defect</span></label>
+        <label th:each="s : ${scopes}" class="check"><input type="checkbox" name="scopes" th:value="${s.token()}" th:checked="${preview != null and preview.form().scopes() != null and preview.form().scopes().contains(s.token())}"> <span th:text="${s.token()}">defect</span></label>
       </fieldset>
       <label for="expiresAt" th:text="#{grants.expires.label}">Expires (UTC, for example 2030-12-31T00:00:00Z; empty: never)</label>
-      <input id="expiresAt" name="expiresAt" type="text" autocomplete="off">
+      <input id="expiresAt" name="expiresAt" type="text" autocomplete="off" th:value="${preview != null} ? ${preview.form().expiresAt()}">
       <label for="note" th:text="#{grants.note}">Note</label>
-      <input id="note" name="note" type="text" maxlength="500" autocomplete="off">
+      <input id="note" name="note" type="text" maxlength="500" autocomplete="off" th:value="${preview != null} ? ${preview.form().note()}">
+      <label for="publicKey" th:text="#{grants.key.label}">Public key of the session (base64)</label>
+      <textarea id="publicKey" name="publicKey" rows="3" required autocomplete="off" spellcheck="false" th:text="${preview != null} ? ${preview.form().publicKey()}"></textarea>
+      <button type="submit" th:text="#{grants.preview}">Show the fingerprint</button>
+    </form>
+  </section>
+
+  <section th:if="${preview != null}" aria-labelledby="confirm-title">
+    <h2 id="confirm-title" th:text="#{grants.confirm.title}">Compare the fingerprint</h2>
+    <p><span th:text="#{grants.fingerprint}">Fingerprint of the pasted key</span>: <code class="fingerprint" th:text="${preview.fingerprint()}">0000</code></p>
+    <p th:if="${preview.alreadyRegistered()}" th:text="#{grants.key.same}">The author already has this key.</p>
+    <p th:if="${preview.currentFingerprint() != null}" class="notice" role="alert">
+      <span th:text="#{grants.key.current(${preview.form().author()})}">The author already has another registered key</span>:
+      <code class="fingerprint" th:text="${preview.currentFingerprint()}">1111</code>,
+      <span th:text="#{grants.key.registeredAt}">registered</span> <time th:replace="~{fragments :: time(${preview.currentRegisteredAt()})}">t</time>
+    </p>
+    <form method="post" th:action="@{/grants}">
+      <input type="hidden" name="author" th:value="${preview.form().author()}">
+      <input type="hidden" name="project" th:value="${preview.form().project()}">
+      <input type="hidden" name="scopes" th:each="scope : ${preview.form().scopes()}" th:value="${scope}">
+      <input type="hidden" name="expiresAt" th:value="${preview.form().expiresAt()}">
+      <input type="hidden" name="note" th:value="${preview.form().note()}">
+      <input type="hidden" name="publicKey" th:value="${preview.form().publicKey()}">
+      <input type="hidden" name="fingerprint" th:value="${preview.fingerprint()}">
+      <label class="check"><input type="checkbox" name="confirmFingerprint" value="yes" required> <span th:text="#{grants.confirm.check}">I compared this fingerprint with the one the session printed</span></label>
+      <th:block th:if="${preview.currentFingerprint() != null}">
+        <input type="hidden" name="replaceFingerprint" th:value="${preview.currentFingerprint()}">
+        <label class="check"><input type="checkbox" name="replace" value="yes"> <span th:text="#{grants.replace.check}">Replace the registered key shown above with this one</span></label>
+      </th:block>
       <button type="submit" th:text="#{grants.submit}">Issue</button>
     </form>
   </section>
