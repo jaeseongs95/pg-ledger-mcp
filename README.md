@@ -162,7 +162,12 @@ sudo -u ledger ledger-cli revoke claude:1f2e3d4c web fix
 sudo -u ledger ledger-cli codes DEFECT_CATEGORY
 sudo -u ledger ledger-cli grants
 sudo -u ledger ledger-cli mcp-check --url=http://127.0.0.1:8765/mcp
+# once, on the freshly migrated schema: copy the legacy ledger (the old schema `ledger`, read only) and compare every table (--verify-only repeats the comparison)
+sudo -u ledger ledger-cli secret-set ledger.import.source.password
+sudo -u ledger ledger-cli import-legacy --ledger.import.source.url=jdbc:<dbms>://<host>/<database> --ledger.import.source.username=ledger_reader
 ```
+
+`import-legacy` refuses when the new schema already holds ledger data, copies everything in one transaction and rolls back on any failure. It copies the old grants without a session key, so after the import each session registers its key (`key-register`) and its grants work again; a value of the old data that the new schema cannot hold (for example an empty `purpose`) is listed and nothing is written.
 
 `install.sh` does the following:
 
