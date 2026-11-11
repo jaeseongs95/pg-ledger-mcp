@@ -1,12 +1,18 @@
 package org.pgledger.apptest;
 
 import java.time.Clock;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.pgledger.application.admin.SessionKeyService;
 import org.pgledger.application.gate.AttestationVerifier;
 import org.pgledger.application.gate.SignedAttestationVerifier;
 import org.pgledger.attestation.AttestationToken;
+import org.pgledger.attestation.PublicKeys;
+import org.pgledger.database.repository.Counter;
+import org.pgledger.database.repository.IdAllocator;
+import org.pgledger.database.repository.SessionKeyRepository;
+import org.pgledger.domain.model.SessionPublicKey;
 import org.pgledger.domain.value.AuthorId;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -34,15 +40,20 @@ public final class SigningAttestationVerifier implements AttestationVerifier {
     private final TestKeyRing keys;
     private final Clock clock;
     private final SessionKeyService sessionKeys;
+    private final SessionKeyRepository keyRows;
+    private final IdAllocator ids;
     private final TransactionTemplate ownTransaction;
     private final Set<String> enrolled = ConcurrentHashMap.newKeySet();
 
     SigningAttestationVerifier(SignedAttestationVerifier real, TestKeyRing keys, Clock clock,
-            SessionKeyService sessionKeys, PlatformTransactionManager transactions) {
+            SessionKeyService sessionKeys, SessionKeyRepository keyRows, IdAllocator ids,
+            PlatformTransactionManager transactions) {
         this.real = real;
         this.keys = keys;
         this.clock = clock;
         this.sessionKeys = sessionKeys;
+        this.keyRows = keyRows;
+        this.ids = ids;
         this.ownTransaction = new TransactionTemplate(transactions,
                 new DefaultTransactionDefinition(TransactionDefinition.PROPAGATION_REQUIRES_NEW));
     }
@@ -83,9 +94,26 @@ public final class SigningAttestationVerifier implements AttestationVerifier {
      */
     public void enroll(String author) {
         if (!enrolled.contains(author)) {
-            ownTransaction.executeWithoutResult(status -> sessionKeys.register(
-                    new SessionKeyService.RegisterCommand(author, keys.publicKeyOf(author), null), TestOwners.OWNER));
+            ownTransaction.executeWithoutResult(status -> {
+                if (Objects.equals(AuthorId.OWNER.value(), author)) {
+                    insertOwnerRoleKey(author);
+                } else {
+                    sessionKeys.register(
+                            new SessionKeyService.RegisterCommand(author, keys.publicKeyOf(author), null), TestOwners.OWNER);
+                }
+            });
             enrolled.add(author);
         }
+    }
+
+    /**
+     * The owner role {@code user:owner} gets no key from the service (audit2 S5: only sessions sign), so the service
+     * tests that write as that author (the gate needs a grant for it too, SVC-GATE-16) put its key row in directly. The
+     * real server can never verify a write of that author.
+     */
+    private void insertOwnerRoleKey(String author) {
+        var publicKey = keys.pairOf(author).getPublic();
+        keyRows.insert(SessionPublicKey.register(ids.next(Counter.SESSION_KEY), AuthorId.OWNER,
+                PublicKeys.encode(publicKey), PublicKeys.fingerprint(publicKey), AuthorId.OWNER, clock.instant(), null));
     }
 }

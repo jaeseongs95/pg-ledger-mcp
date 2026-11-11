@@ -4,6 +4,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import javax.sql.DataSource;
+import org.pgledger.database.repository.IdAllocator;
+import org.pgledger.database.repository.SessionKeyRepository;
 import org.pgledger.application.admin.SessionKeyService;
 import org.pgledger.application.gate.SignedAttestationVerifier;
 import org.pgledger.application.support.LedgerTestFixtures;
@@ -66,8 +68,9 @@ public class LedgerTestInfrastructure {
     @Bean
     @Primary
     SigningAttestationVerifier signingAttestationVerifier(SignedAttestationVerifier real, TestKeyRing keys, Clock clock,
+            SessionKeyRepository keyRows, IdAllocator ids,
             SessionKeyService sessionKeys, PlatformTransactionManager transactions) {
-        return new SigningAttestationVerifier(real, keys, clock, sessionKeys, transactions);
+        return new SigningAttestationVerifier(real, keys, clock, sessionKeys, keyRows, ids, transactions);
     }
 
     @Bean
