@@ -174,6 +174,13 @@ class GrantProjectTest implements DbmsAware {
     void grt05_validation(NewProject project, Scenario s) {
         assertThat(Expect.outcome(() -> s.bean(ProjectService.class).add(project.command())))
                 .isEqualTo(Optional.ofNullable(project.expected()));
+        if (project.expected() == null) {
+            // the id and the code are required; the violation names the property as the callers know it
+            assertThat(Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand(null, "PRJN", "t")),
+                    ValidationCode.VALIDATION_FAILED).args()).containsExactly("id", "is required");
+            assertThat(Expect.failure(() -> s.bean(ProjectService.class).add(new ProjectCommand("prj-n", null, "t")),
+                    ValidationCode.VALIDATION_FAILED).args()).containsExactly("code", "is required");
+        }
     }
 
     @Test

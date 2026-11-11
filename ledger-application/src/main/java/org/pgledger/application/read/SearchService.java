@@ -1,24 +1,32 @@
 package org.pgledger.application.read;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.pgledger.database.repository.KeywordMatch;
 import org.pgledger.database.repository.SearchQueryRepository;
 import org.pgledger.database.repository.SearchQueryRepository.Kind;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.rule.ConditionState;
 import org.pgledger.domain.rule.DefectStatus;
+import org.pgledger.domain.rule.LifecycleState;
 import org.pgledger.domain.rule.TaskState;
 import org.pgledger.domain.value.MaxRows;
 import org.pgledger.domain.value.PageCursor;
 import org.pgledger.domain.value.ProjectId;
+import org.pgledger.domain.value.Token;
+import org.pgledger.domain.value.Tokens;
 import org.pgledger.domain.value.UtcInstant;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
 
 /**
  * Finds defects, tasks and conditions by keywords (a keyword matches in title, purpose, behavior, root cause or
@@ -28,19 +36,52 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @Transactional(readOnly = true)
+@Validated
 public class SearchService {
 
     /** Longest keyword. */
     public static final int MAX_KEYWORD = 200;
 
-    /** The criteria; everything but the keywords is optional. */
-    public record SearchQuery(String project, List<String> kinds, List<String> keywords, String match,
-            List<String> excludeStatus, String createdFrom, String createdTo, Number maxRows, String cursor) {
+    private static final String KEYWORD_LENGTH = "each keyword must be 1..200 characters";
+
+    /** The criteria; everything but the keywords is optional. Every keyword is 1..{@link #MAX_KEYWORD} characters. */
+    public record SearchQuery(String project, List<String> kinds,
+            List<@NotBlank(message = KEYWORD_LENGTH) @Size(max = MAX_KEYWORD, message = KEYWORD_LENGTH) String> keywords,
+            String match, List<String> excludeStatus, String createdFrom, String createdTo, Number maxRows,
+            String cursor) {
     }
 
     /** One found item; {@code createdAt} is null for a condition. */
     public record Hit(String kind, String id, String projectId, String title, String state, Instant createdAt) {
     }
+
+    /** The kinds as the callers name them (lower case); the repository's {@link Kind} is the same set. */
+    private enum KindToken implements Token {
+        DEFECT(Kind.DEFECT), TASK(Kind.TASK), CONDITION(Kind.CONDITION);
+
+        private final Kind kind;
+
+        KindToken(Kind kind) {
+            this.kind = kind;
+        }
+
+        @Override
+        public String token() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+
+        static KindToken of(Kind kind) {
+            return switch (kind) {
+                case DEFECT -> DEFECT;
+                case TASK -> TASK;
+                case CONDITION -> CONDITION;
+            };
+        }
+    }
+
+    /** Every state constant of the three kinds, for the exclusion list. */
+    private static final List<LifecycleState> STATES = Stream.<LifecycleState[]>of(DefectStatus.values(),
+            TaskState.values(), ConditionState.values()).flatMap(Arrays::stream).toList();
 
     private final SearchQueryRepository search;
     private final Cursors cursors;
@@ -50,28 +91,19 @@ public class SearchService {
         this.cursors = cursors;
     }
 
-    public Page<Hit> search(SearchQuery q) {
+    public Page<Hit> search(@Valid SearchQuery q) {
         Set<Kind> kinds = new LinkedHashSet<>();
         if (q.kinds() == null || q.kinds().isEmpty()) {
             kinds.addAll(List.of(Kind.values()));
         } else {
-            q.kinds().forEach(raw -> kinds.add(kind(raw)));
+            q.kinds().forEach(raw -> kinds.add(Tokens.parse("kinds", raw, KindToken.values()).kind));
         }
-        List<String> keywords = new ArrayList<>();
-        if (q.keywords() != null) {
-            for (String keyword : q.keywords()) {
-                if (keyword == null || keyword.isBlank() || keyword.length() > MAX_KEYWORD) {
-                    throw ValidationException.invalid("keywords", "each keyword must be 1.." + MAX_KEYWORD
-                            + " characters");
-                }
-                keywords.add(keyword);
-            }
-        }
+        List<String> keywords = q.keywords() == null ? List.of() : q.keywords();
         KeywordMatch match = q.match() == null ? KeywordMatch.ANY
                 : EnumParser.parse("match", q.match(), KeywordMatch.values());
         Set<String> excluded = new LinkedHashSet<>();
         if (q.excludeStatus() != null) {
-            q.excludeStatus().forEach(raw -> excluded.add(status(raw)));
+            q.excludeStatus().forEach(raw -> excluded.add(status(raw).name()));
         }
         ProjectId project = q.project() == null || q.project().isBlank() ? null : ProjectId.of(q.project());
         SearchQueryRepository.Filter filter = new SearchQueryRepository.Filter(project, kinds, keywords, match,
@@ -93,32 +125,17 @@ public class SearchService {
         }
         var page = search.page(filter, maxRows, after);
         return cursors.page(page, PageCursor.Kind.SEARCH, criteria,
-                h -> new Hit(h.kind().name().toLowerCase(java.util.Locale.ROOT), h.id(), h.projectId(), h.title(),
-                        h.state(), h.createdAt()),
+                h -> new Hit(KindToken.of(h.kind()).token(), h.id(), h.projectId(), h.title(), h.state(),
+                        h.createdAt()),
                 h -> h.createdAt() == null ? null : new UtcInstant(h.createdAt()).toString(),
                 h -> h.kind().name() + ":" + h.id());
     }
 
-    private static Kind kind(String raw) {
-        for (Kind kind : Kind.values()) {
-            if (kind.name().toLowerCase(java.util.Locale.ROOT).equals(raw)) {
-                return kind;
-            }
-        }
-        throw ValidationException.invalid("kinds", "unknown value " + raw, Arrays.stream(Kind.values())
-                .map(k -> k.name().toLowerCase(java.util.Locale.ROOT)).toList());
-    }
-
-    private static String status(String raw) {
-        List<String> known = new ArrayList<>();
-        Arrays.stream(DefectStatus.values()).forEach(s -> known.add(s.name()));
-        Arrays.stream(TaskState.values()).forEach(s -> known.add(s.name()));
-        Arrays.stream(ConditionState.values()).forEach(s -> known.add(s.name()));
-        if (raw == null || !known.contains(raw)) {
-            throw ValidationException.invalid("exclude_status", "unknown value " + raw,
-                    known.stream().distinct().toList());
-        }
-        return raw;
+    /** The state constant of a name in the exclusion list; the name is that of a state of any of the three kinds. */
+    private static LifecycleState status(String raw) {
+        return STATES.stream().filter(state -> state.token().equals(raw)).findFirst()
+                .orElseThrow(() -> ValidationException.invalid("exclude_status", "unknown value " + raw,
+                        STATES.stream().map(LifecycleState::name).distinct().toList()));
     }
 
     private static Instant time(String path, String raw) {

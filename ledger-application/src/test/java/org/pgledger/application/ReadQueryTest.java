@@ -57,6 +57,7 @@ import org.pgledger.application.write.SaveService;
 import org.pgledger.application.write.TransitionService;
 import org.pgledger.application.write.WriteResult.SaveResult;
 import org.pgledger.domain.error.ErrorCode;
+import org.pgledger.domain.error.LedgerException;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 
@@ -380,13 +381,16 @@ class ReadQueryTest implements DbmsAware {
     @ValueSource(strings = {"", "   "})
     @DisplayName("MCR-S06: a blank keyword is refused")
     void s06_blank(String keyword, Scenario s) {
-        Expect.failure(() -> search(s, List.of(keyword), null), ValidationCode.VALIDATION_FAILED);
+        LedgerException e = Expect.failure(() -> search(s, List.of(keyword), null), ValidationCode.VALIDATION_FAILED);
+        assertThat(e.args()).containsExactly("keywords", "each keyword must be 1..200 characters");
     }
 
     @Test
     @DisplayName("MCR-S06: a keyword of 1000 characters is refused")
     void s06_tooLong(Scenario s) {
-        Expect.failure(() -> search(s, List.of("k".repeat(1000)), null), ValidationCode.VALIDATION_FAILED);
+        LedgerException e = Expect.failure(() -> search(s, List.of("k".repeat(1000)), null),
+                ValidationCode.VALIDATION_FAILED);
+        assertThat(e.args()).containsExactly("keywords", "each keyword must be 1..200 characters");
     }
 
     @Test
@@ -413,8 +417,13 @@ class ReadQueryTest implements DbmsAware {
         var mine = s.bean(ListService.class).defects(new DefectsQuery(s.projectId(), null, null, null, null, null,
                 null, null));
         assertThat(mine.items()).extracting(ListService.DefectItem::title).containsExactly("mine");
-        Expect.failure(() -> s.bean(ListService.class).defects(new DefectsQuery(null, null, null, null, null, null,
-                null, null)), ValidationCode.VALIDATION_FAILED);
+        LedgerException missing = Expect.failure(() -> s.bean(ListService.class).defects(new DefectsQuery(null, null, null,
+                null, null, null, null, null)), ValidationCode.VALIDATION_FAILED);
+        assertThat(missing.args()).containsExactly("project", "is required");
+        LedgerException longOwner = Expect.failure(() -> s.bean(ListService.class).defects(new DefectsQuery(
+                s.projectId(), null, null, null, null, "o".repeat(201), null, null)),
+                ValidationCode.VALIDATION_FAILED);
+        assertThat(longOwner.args()).containsExactly("owner", "must be at most 200 characters");
     }
 
     @Test

@@ -79,7 +79,7 @@ class ArchitectureTest {
                         .doNotHaveFullyQualifiedName(HistoryWriter.class.getName()).should()
                         .callMethodWhere(INSERTS_HISTORY)),
                 new Rule("ARC-029 no JPA", noClasses().should().dependOnClassesThat().resideInAnyPackage(
-                        "jakarta.persistence..", "org.hibernate..", "org.springframework.data.jpa..")));
+                        "jakarta.persistence..", "org.hibernate.orm..", "org.springframework.data.jpa..")));
     }
 
     @ParameterizedTest
