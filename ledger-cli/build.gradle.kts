@@ -34,6 +34,17 @@ tasks.bootJar {
     archiveFileName = "ledger-cli.jar"
 }
 
+// DOC-001 .. DOC-029: the documentation tests read the READMEs, the release notes and the sources of the other modules as
+// text. The root of the repository is passed in, never guessed, and the files are inputs, so a change of a document or of
+// the code a document mirrors runs the tests again.
+tasks.test {
+    systemProperty("ledger.docs.root", rootProject.layout.projectDirectory.asFile.absolutePath)
+    inputs.files(rootProject.fileTree(rootProject.layout.projectDirectory) {
+        include("README*.md", "docs/**/*.md", "clients/**", "settings.gradle.kts", "build.gradle.kts",
+            "ledger-*/src/main/java/**/*.java")
+    }).withPropertyName("documentationSources")
+}
+
 // mcp-check is tested against an MCP server started in the test: the MCP Java SDK server over Streamable HTTP in an embedded
 // Tomcat. Tomcat brings the servlet classes, and the tests of the CLI itself assert that the CLI has none (CLI-002), so these
 // tests have a source set and a test task of their own: it sees what the tests see (the test classes and their dependencies)
