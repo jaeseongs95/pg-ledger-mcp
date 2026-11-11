@@ -51,7 +51,7 @@ class KeyBlockTest {
     static Stream<Arguments> notABlock() {
         String ok = block("ledger", "claude:a", KEY, FINGERPRINT);
         return Stream.of(
-                Arguments.argumentSet("null", null),
+                Arguments.argumentSet("null", (Object) null),
                 Arguments.argumentSet("empty", ""),
                 Arguments.argumentSet("the bare key", KEY),
                 Arguments.argumentSet("no server", "author: claude:a\npublic-key: " + KEY + "\nfingerprint: " + FINGERPRINT),
