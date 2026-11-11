@@ -6,15 +6,12 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.node.ObjectNode;
 
-/** Per-test fixture: runs the hook in process and builds the expected stamped arguments. */
+/** Per-test fixture: runs the hook in process. */
 final class HookFixture {
 
     /** The host session id used by the tests; it exercises the whole allowed character set. */
     static final String HOST_ID = "parent-1234_ab.cd";
-    static final String RESERVED_KEY = "_hostAttestation";
 
     private final JsonCodec codec = JsonCodec.create();
 
@@ -39,21 +36,5 @@ final class HookFixture {
         assertThat(run.err()).as("stderr").isEmpty();
         assertThat(run.exit()).as("exit code").isZero();
         return run;
-    }
-
-    /** The arguments as the hook must forward them: the model's arguments plus the attestation, nothing else. */
-    JsonNode stamped(JsonNode body, String attestation) {
-        ObjectNode copy = ((ObjectNode) body).deepCopy();
-        copy.put(RESERVED_KEY, attestation);
-        return copy;
-    }
-
-    /** A tool input given as a Java value (record, list ...), turned into the JSON the model would have sent. */
-    JsonNode body(Object value) {
-        return Json.MAPPER.valueToTree(value);
-    }
-
-    String attestation(HostScenario host, String hostId) {
-        return host.vendor() + ":" + hostId;
     }
 }

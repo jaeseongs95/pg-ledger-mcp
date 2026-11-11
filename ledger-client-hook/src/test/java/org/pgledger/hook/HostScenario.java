@@ -5,43 +5,46 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * One host as the tests see it: how it names the ledger tools, how its event is written, and what a correct answer
- * looks like. The expected answers are the host contract; a test only states the case and asks the scenario.
+ * looks like. The expected answers are the host contract written out as records; a test only states the case and
+ * asks the scenario.
  */
 interface HostScenario {
 
-    /** What a host that gets malformed input must see: exit code, answer, and whether stderr carries a message. */
-    record Malformed(int exit, Optional<HostAnswer> answer, boolean stderrMessage) {}
+    /** What a host that gets malformed input must see: exit code, stdout document, and the exact stderr text. */
+    record Malformed(int exit, Optional<JsonNode> stdout, String stderr) {}
 
     Client client();
 
-    /** The vendor prefix of the stamped id, spelled out as the contract has it. */
-    String vendor();
+    /** The id the host gets from {@code hostId}, spelled out as the contract has it. */
+    String attestation(String hostId);
 
     /** The host's name for {@code ledger_<operation>}. */
     String toolName(String operation);
 
-    /** A host event for the tool, with the arguments as JSON; a null {@code hostId} leaves the id key out. */
-    byte[] event(String toolName, JsonNode body, JsonNode hostId);
+    /**
+     * A host event for the tool. {@code arguments} is a JSON tree, a record, a map or {@link Json#raw raw JSON};
+     * a Java null {@code hostId} leaves the id key out.
+     */
+    byte[] event(String toolName, Object arguments, JsonNode hostId);
 
-    /** A host event whose arguments are the given raw JSON text, with the standard host id (for HK-014). */
-    byte[] rawEvent(String toolName, String rawBody);
+    /** Like {@link #event(String, Object, JsonNode)} with the standard host id {@link HookFixture#HOST_ID}. */
+    default byte[] event(String toolName, Object arguments) {
+        return event(toolName, arguments, Json.text(HookFixture.HOST_ID));
+    }
 
-    /** Like {@link #rawEvent} for an operation, in a form that makes the host echo the whole arguments back. */
-    byte[] echoEvent(String operation, String rawBody);
+    /** An event for the operation in a form that makes the host echo the whole arguments back (HK-014). */
+    byte[] echoEvent(String operation, Object arguments);
 
     /** The complete arguments of the answer to an {@link #echoEvent}. */
     JsonNode echoed(Run run);
 
-    /** The stdout of {@code run} read as this host's answer; empty if nothing was written. */
-    Optional<HostAnswer> answer(Run run);
+    /** The answer to a call that gets stamped; {@code sent} are the arguments of the direct call. */
+    Optional<JsonNode> allowed(JsonNode sent, String attestation);
 
-    /** The answer to a direct call that gets stamped. */
-    Optional<HostAnswer> allowed(String attestation, JsonNode stampedBody);
-
-    Optional<HostAnswer> denied(Refusal reason);
+    Optional<JsonNode> denied(Refusal reason);
 
     /** The answer to a call the hook does not handle. */
-    Optional<HostAnswer> untouched();
+    Optional<JsonNode> untouched();
 
     Malformed malformedInput();
 }
