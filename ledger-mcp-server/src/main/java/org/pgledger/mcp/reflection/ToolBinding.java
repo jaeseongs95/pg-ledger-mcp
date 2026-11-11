@@ -5,6 +5,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
@@ -14,7 +15,7 @@ import org.pgledger.mcp.tool.PresenceAware;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.exc.MismatchedInputException;
-import tools.jackson.databind.exc.UnrecognizedPropertyException;
+import tools.jackson.databind.exc.PropertyBindingException;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -69,6 +70,7 @@ public final class ToolBinding {
     public Object call(Map<String, Object> arguments) {
         Map<String, Object> given = arguments == null ? Map.of() : arguments;
         List<ValidationIssue> issues = new ArrayList<>();
+        List<JacksonException> causes = new ArrayList<>();
         Set<String> declared = Set.copyOf(parameters.stream().map(ToolParameter::name).toList());
         given.keySet().stream().filter(key -> !declared.contains(key)).sorted().forEach(key -> issues.add(
                 new ValidationIssue(key, ValidationReason.UNKNOWN_ARGUMENT, List.of(), List.of())));
@@ -82,7 +84,13 @@ public final class ToolBinding {
                             List.of()));
                 }
             } else {
-                values[i] = bind(parameter, raw, issues);
+                int issuesBefore = issues.size();
+                values[i] = bind(parameter, raw, issues, causes);
+                // a text that holds the JSON null is no value either (the old form of "the argument is missing")
+                if (values[i] == null && parameter.required() && issues.size() == issuesBefore) {
+                    issues.add(new ValidationIssue(parameter.name(), ValidationReason.REQUIRED, List.of(),
+                            List.of()));
+                }
             }
         }
         for (ChoiceSlot slot : choiceSlots) {
@@ -90,12 +98,13 @@ public final class ToolBinding {
         }
         if (!issues.isEmpty()) {
             throw new ValidationException(ValidationCode.VALIDATION_FAILED, List.of(issues.getFirst().path()),
-                    issues, Map.of());
+                    issues, Map.of(), causes.isEmpty() ? null : causes.getFirst());
         }
         return invoke(values);
     }
 
-    private Object bind(ToolParameter parameter, Object raw, List<ValidationIssue> issues) {
+    private Object bind(ToolParameter parameter, Object raw, List<ValidationIssue> issues,
+            List<JacksonException> causes) {
         Object source = raw;
         try {
             if (source instanceof String text && parameter.structured()) {
@@ -112,6 +121,7 @@ public final class ToolBinding {
             return value;
         } catch (JacksonException failure) {
             issues.add(issue(parameter.name(), failure));
+            causes.add(failure);
             return null;
         }
     }
@@ -126,7 +136,7 @@ public final class ToolBinding {
             }
         }
         return switch (failure) {
-            case UnrecognizedPropertyException unknown ->
+            case PropertyBindingException unknown ->
                 new ValidationIssue(path.toString(), ValidationReason.UNKNOWN_ARGUMENT, List.of(), List.of());
             case MismatchedInputException mismatch when mismatch.getTargetType() != null ->
                 new ValidationIssue(path.toString(), ValidationReason.WRONG_TYPE,
@@ -138,11 +148,11 @@ public final class ToolBinding {
 
     private void checkChoice(ChoiceSlot slot, Object[] values, List<ValidationIssue> issues) {
         for (int i = 0; i < values.length; i++) {
-            if (parameters.get(i).name().equals(slot.parameter())) {
+            if (Objects.equals(parameters.get(i).name(), slot.parameter())) {
                 for (String candidate : texts(values[i])) {
                     if (!slot.values().contains(candidate)) {
                         issues.add(new ValidationIssue(parameters.get(i).name(), ValidationReason.UNKNOWN_VALUE,
-                                slot.values(), List.of(candidate)));
+                                List.of(candidate), slot.values()));
                     }
                 }
             }

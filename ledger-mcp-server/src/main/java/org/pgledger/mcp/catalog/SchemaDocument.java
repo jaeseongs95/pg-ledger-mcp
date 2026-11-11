@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
+import org.springframework.util.StringUtils;
 
 /**
  * A JSON schema of a tool as the MCP SDK holds it (a nested map of keywords; the SDK's {@code Tool} offers no other
@@ -69,7 +70,7 @@ final class SchemaDocument {
 
     private Optional<Map<String, Object>> node(String path) {
         Map<String, Object> current = root;
-        for (String segment : path.split("\\.")) {
+        for (String segment : StringUtils.delimitedListToStringArray(path, ".")) {
             boolean item = segment.endsWith("[]");
             String name = item ? segment.substring(0, segment.length() - 2) : segment;
             Map<String, Object> properties = map(resolve(current).get(PROPERTIES));

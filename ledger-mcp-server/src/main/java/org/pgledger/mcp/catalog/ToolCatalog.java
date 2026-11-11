@@ -3,10 +3,12 @@ package org.pgledger.mcp.catalog;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Stream;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.database.repository.CodeRevisionRepository;
@@ -59,6 +61,9 @@ public class ToolCatalog implements SmartInitializingSingleton {
     /** The tool definitions as Spring AI made them, and how to call each tool, by tool name. */
     private final Map<String, Tool> base = new LinkedHashMap<>();
     private final Map<String, ToolBinding> bound = new LinkedHashMap<>();
+
+    /** The input schema of every tool the catalog registered, which is switched when the codes change. */
+    private final Map<String, LiveSchema> liveSchemas = new LinkedHashMap<>();
     private long registeredRevision = -1;
 
     public ToolCatalog(@Lazy McpSyncServer server,
@@ -106,15 +111,40 @@ public class ToolCatalog implements SmartInitializingSingleton {
         long readRevision = revision.current();
         Map<String, Tool> registered = new LinkedHashMap<>();
         server.listTools().forEach(tool -> registered.put(tool.name(), tool));
-        bound.forEach((name, binding) -> {
-            Tool wanted = definition(base.get(name), binding);
-            if (!wanted.equals(registered.get(name))) {
-                server.addTool(SyncToolSpecification.builder().tool(wanted)
-                        .callHandler((exchange, request) -> results.run(() -> binding.call(request.arguments())))
-                        .build());
+        List<SyncToolSpecification> added = new ArrayList<>();
+        boolean switched = false;
+        for (Map.Entry<String, ToolBinding> entry : bound.entrySet()) {
+            String name = entry.getKey();
+            Tool wanted = definition(base.get(name), entry.getValue());
+            LiveSchema live = liveSchemas.get(name);
+            if (live == null) {
+                live = new LiveSchema(wanted.inputSchema());
+                liveSchemas.put(name, live);
+                added.add(specification(wanted, live, entry.getValue()));
+            } else if (!Objects.equals(wanted, registered.get(name))) {
+                live.switchTo(wanted.inputSchema());
+                switched = true;
             }
-        });
+        }
+        // a tool that is new to the server is added (the server announces list_changed itself); a tool whose schema
+        // moved is switched in place, which the server does not see, so it is announced here, once
+        added.forEach(server::addTool);
+        if (switched && added.isEmpty()) {
+            server.notifyToolsListChanged();
+        }
         registeredRevision = readRevision;
+    }
+
+    /** The tool with the live schema as its input schema, and the handler that binds the arguments and runs it. */
+    private SyncToolSpecification specification(Tool definition, LiveSchema schema, ToolBinding binding) {
+        Tool.Builder registered = Tool.builder(definition.name(), schema).title(definition.title())
+                .description(definition.description()).annotations(definition.annotations())
+                .meta(definition.meta());
+        if (definition.outputSchema() != null) {
+            registered.outputSchema(definition.outputSchema());
+        }
+        return SyncToolSpecification.builder().tool(registered.build())
+                .callHandler((exchange, request) -> results.run(() -> binding.call(request.arguments()))).build();
     }
 
     private Tool definition(Tool original, ToolBinding binding) {

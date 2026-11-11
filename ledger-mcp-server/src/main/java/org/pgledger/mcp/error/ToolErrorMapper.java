@@ -48,6 +48,9 @@ public class ToolErrorMapper {
     }
 
     private ToolError ledger(LedgerException failure) {
+        if (!(failure instanceof InfrastructureException)) {
+            LOG.debug("a tool call was refused with {}", failure.code().token(), failure);
+        }
         return switch (failure) {
             case ValidationException invalid -> validation(invalid);
             case TrustException trust -> plain(trust, trust.args());

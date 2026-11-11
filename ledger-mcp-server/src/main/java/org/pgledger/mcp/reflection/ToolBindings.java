@@ -43,6 +43,8 @@ public final class ToolBindings {
     public ToolBindings(JsonMapper boot) {
         this.mapper = boot.rebuild()
                 .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                // a key that the record keeps for itself (@JsonIgnore) is not an argument either
+                .enable(DeserializationFeature.FAIL_ON_IGNORED_PROPERTIES)
                 .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
                 .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
                 .build();
