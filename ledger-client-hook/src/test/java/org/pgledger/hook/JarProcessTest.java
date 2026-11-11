@@ -26,7 +26,7 @@ class JarProcessTest {
 
     private static final int HOST_LIMIT_MILLIS = 5_000;
     private static final JsonNode KOREAN_INPUT =
-            Json.tree(Map.of("note", "한글 😀 é", "n", new java.math.BigInteger("12345678901234567890")));
+            Json.tree(Map.of("note", "한글 😀 é", "n", 9007199254740991L));
 
     private static byte[] bytes(String text) {
         return text.getBytes(StandardCharsets.UTF_8);

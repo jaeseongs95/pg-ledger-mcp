@@ -162,7 +162,7 @@ class KeyAuditTest {
     }
 
     @ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = {"{\"n\":12345678901234567890}",
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"{\"n\":9007199254740991,\"m\":-9007199254740991}",
             "{\"d\":0.10,\"e\":1e2,\"z\":-0,\"big\":1E+30}", "{\"a\":[1,2.50,{\"b\":null}],\"s\":\"한글\",\"t\":\"a\\u0000\\n\"}"})
     @DisplayName("HK-038 the token signs the digest of the arguments the hook returns (numbers, null, nesting, escapes), recomputed with the shared class")
     void theDigestCoversTheArgumentsAsReturned(String json, HookFixture fixture) {
@@ -177,6 +177,15 @@ class KeyAuditTest {
     void aNumberBeyondTheRangeOfADoubleIsDenied(HookFixture fixture) {
         HostScenario claude = new ClaudeHost();
         Run run = fixture.runClean(claude, claude.event(claude.toolName("save"), Json.of("{\"n\":1e999}")));
+        assertThat(run.document()).isEqualTo(claude.denied(Refusal.ARGUMENTS_NOT_SIGNABLE));
+        assertThat(fixture.keyDirectory()).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("HK-038 (audit2 N2) an integer beyond 2**53-1 (12345678901234567890) cannot be signed either: denied ARGUMENTS_NOT_SIGNABLE, no key is created")
+    void anIntegerBeyondTheExactRangeIsDenied(HookFixture fixture) {
+        HostScenario claude = new ClaudeHost();
+        Run run = fixture.runClean(claude, claude.event(claude.toolName("save"), Json.of("{\"n\":12345678901234567890}")));
         assertThat(run.document()).isEqualTo(claude.denied(Refusal.ARGUMENTS_NOT_SIGNABLE));
         assertThat(fixture.keyDirectory()).doesNotExist();
     }
@@ -230,6 +239,25 @@ class KeyAuditTest {
                 .isInstanceOfSatisfying(SessionKeyException.class,
                         failure -> assertThat(failure.reason()).isEqualTo(SessionKeyException.Reason.TOO_OPEN));
         assertThat(Files.readAllBytes(file)).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("HK-040 (audit2 S3) ACL view: a key folder whose ACL is empty (no entry at all) is refused as TOO_OPEN, not taken for 'only the owner'")
+    void anEmptyAclIsRefused(@TempDir Path temp) throws IOException {
+        Assumptions.assumeTrue(acl(), "NOT_RUN: the default file system has no ACL attribute view");
+        Path directory = temp.resolve("keys");
+        TestStores.load(TestStores.open(directory), SERVER, AUTHOR);
+        AclFileAttributeView view = Files.getFileAttributeView(directory, AclFileAttributeView.class);
+        List<AclEntry> original = view.getAcl();
+        view.setAcl(List.of());
+        try {
+            assertThat(view.getAcl()).as("the folder now has an empty ACL").isEmpty();
+            assertThatThrownBy(() -> TestStores.load(TestStores.open(directory), SERVER, AUTHOR))
+                    .isInstanceOfSatisfying(SessionKeyException.class,
+                            failure -> assertThat(failure.reason()).isEqualTo(SessionKeyException.Reason.TOO_OPEN));
+        } finally {
+            view.setAcl(original);
+        }
     }
 
     static Stream<Arguments> widenedTargets() {

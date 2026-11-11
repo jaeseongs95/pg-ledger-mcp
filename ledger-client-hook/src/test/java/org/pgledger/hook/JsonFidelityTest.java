@@ -3,7 +3,6 @@ package org.pgledger.hook;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -19,8 +18,8 @@ class JsonFidelityTest {
 
     /** JSON texts whose literal form is the case (exponents, trailing zeros, duplicate keys): they are sent as they are. */
     private static final String NUMBERS =
-            "{\"big\":12345678901234567890,\"huge\":1e300,\"neg\":-0,\"dec\":0.10,\"tiny\":0.000000000000000000000000001,"
-                    + "\"long\":9223372036854775807,\"exp\":1.5E+3,\"precise\":3.141592653589793238462643383279}";
+            "{\"huge\":1e300,\"neg\":-0,\"dec\":0.10,\"tiny\":0.000000000000000000000000001,"
+                    + "\"exp\":1.5E+3,\"precise\":3.141592653589793238462643383279}";
 
     private static final String ESCAPES =
             "{\"esc\":\"\\\"\\\\\\/\\b\\f\\n\\r\\t\\u0041\",\"pair\":\"\\ud83d\\ude00\",\"raw\":\"😀 한글 é\","
@@ -30,12 +29,11 @@ class JsonFidelityTest {
 
     @ParameterizedTest
     @MethodSource("org.pgledger.hook.Hosts#all")
-    @DisplayName("HK-014 big integers and decimals keep their exact value (no double), and 0.10 keeps its trailing zero")
+    @DisplayName("HK-014 (changed by audit2 N2: no integer beyond 2**53-1) decimals keep their exact value (no double), and 0.10 keeps its trailing zero")
     void numbersAreExact(HostScenario host, HookFixture fixture) {
         Run run = fixture.runClean(host, host.echoEvent("save", Json.raw(NUMBERS)));
-        assertThat(run.out()).contains("\"big\":12345678901234567890").contains("\"dec\":0.10").contains("\"long\":9223372036854775807");
+        assertThat(run.out()).contains("\"dec\":0.10");
         JsonNode args = host.echoed(run);
-        assertThat(args.path("big").bigIntegerValue()).isEqualTo(new BigInteger("12345678901234567890"));
         assertThat(args.path("huge").decimalValue()).isEqualByComparingTo(new BigDecimal("1e300"));
         assertThat(args.path("neg").decimalValue()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(args.path("tiny").decimalValue()).isEqualByComparingTo(new BigDecimal("0.000000000000000000000000001"));
@@ -82,7 +80,7 @@ class JsonFidelityTest {
     @DisplayName("HK-014 a 1 MB body is handled in process well inside the time budget")
     void oneMegabyteBody(HostScenario host, HookFixture fixture) {
         String text = "한글abc".repeat(120_000); // 9 bytes per unit: about 1.08 MB of UTF-8
-        JsonNode input = Json.tree(Map.of("body", text, "n", new BigInteger("12345678901234567890")));
+        JsonNode input = Json.tree(Map.of("body", text, "n", 9007199254740991L));
         byte[] event = host.echoEvent("save", input);
         assertThat(event.length).isGreaterThan(1_000_000);
         long start = System.nanoTime();
@@ -100,7 +98,33 @@ class JsonFidelityTest {
         AntigravityHost agy = AntigravityHost.INSTANCE;
         Run run = fixture.runClean(agy, agy.echoEvent("save", NUMBERS));
         String text = agy.echoed(run).stringValue();
-        assertThat(text).contains("\"big\":12345678901234567890").contains("\"dec\":0.10").contains("\"long\":9223372036854775807");
+        assertThat(text).contains("\"dec\":0.10");
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"{\"big\":12345678901234567890}", "{\"n\":9007199254740992}",
+        "{\"n\":9007199254740993}", "{\"n\":-9007199254740992}", "{\"long\":9223372036854775807}",
+        "{\"a\":[1,{\"b\":-9223372036854775808}]}"})
+    @DisplayName("HK-014 (changed by audit2 N2) an integer beyond 2**53-1 in magnitude has no exact canonical form (RFC 7493 section 2.2): denied ARGUMENTS_NOT_SIGNABLE on every host, nothing signed, no key created")
+    void integersBeyondTheExactRangeAreDenied(String json, HookFixture fixture) {
+        for (HostScenario host : Hosts.ALL) {
+            Run run = fixture.runClean(host, host.event(host.toolName("save"), Json.raw(json)));
+            assertThat(run.document()).as(host.toString()).isEqualTo(host.denied(Refusal.ARGUMENTS_NOT_SIGNABLE));
+        }
+        assertThat(fixture.keyDirectory()).doesNotExist();
+    }
+
+    @ParameterizedTest
+    @MethodSource("org.pgledger.hook.Hosts#all")
+    @DisplayName("HK-014 (changed by audit2 N2) the largest exact integers (+-9007199254740991) and decimals that RFC 8785 canonicalises by their double (0.10, 1e300, 12345678901234567890.0) are still signed and passed on as sent")
+    void theExactRangeIsSigned(HostScenario host, HookFixture fixture) {
+        String sent = "{\"max\":9007199254740991,\"min\":-9007199254740991,\"dec\":0.10,\"huge\":1e300,\"float\":12345678901234567890.0}";
+        Run run = fixture.runClean(host, host.echoEvent("save", Json.raw(sent)));
+        JsonNode args = host.echoed(run);
+        assertThat(args.path("max").longValue()).isEqualTo(9007199254740991L);
+        assertThat(args.path("min").longValue()).isEqualTo(-9007199254740991L);
+        assertThat(run.out()).contains("\"dec\":0.10");
+        fixture.stampCarrier(host.server(), host.author(HookFixture.HOST_ID), "save", Json.of(sent), args);
     }
 
     @Test

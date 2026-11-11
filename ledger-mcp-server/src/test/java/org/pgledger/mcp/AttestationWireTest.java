@@ -371,6 +371,27 @@ class AttestationWireTest {
     }
 
     @Test
+    @DisplayName("MCW-044 (audit2 N2): a token signed for the decimal 9007199254740992.0 cannot carry the integer 9007199254740993 (or 9007199254740992): the server does not verify an integer beyond 2**53-1, ATTESTATION_BINDING_MISMATCH (arguments), nothing is written")
+    void anIntegerBeyondTheExactRangeIsNotVerified(McpSession session, Scenario scenario, @Autowired KeyRing keys) {
+        String author = scenario.actorWith("pl", "defect");
+        keys.enroll(author);
+        String requestId = UUID.randomUUID().toString();
+        Args signed = Args.of().with("entity", "defect").with("reason", Scenario.REASON)
+                .with("fields", Fields.defect(scenario.projectId(), "signed")).with("request_id", requestId)
+                .with("expected_version", 9007199254740992.0);
+        String token = signedFor(session, keys, author, "ledger_save", requestId, signed);
+        int before = Ledger.history(session, scenario.projectId()).size();
+
+        for (long integer : new long[] {9007199254740993L, 9007199254740992L}) {
+            ToolError error = session.failed("ledger_save",
+                    signed.with("expected_version", integer).with("_hostAttestation", token));
+            assertThat(error.code()).isEqualTo("ATTESTATION_BINDING_MISMATCH");
+            assertThat(error.details()).containsEntry("field", List.of("arguments"));
+        }
+        assertThat(Ledger.history(session, scenario.projectId())).hasSize(before);
+    }
+
+    @Test
     @DisplayName("MCC-028: no tool registers, revokes or lists keys or grants: the owner does that in the admin web and the CLI only")
     void noKeyOrGrantTool(McpSession session) {
         assertThat(session.tools()).extracting(io.modelcontextprotocol.spec.McpSchema.Tool::name)

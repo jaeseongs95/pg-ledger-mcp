@@ -48,7 +48,10 @@ class ArgumentsDigestTest {
                 Arguments.of(123456789012345680000d, "123456789012345680000"), Arguments.of(1e21, "1e+21"),
                 Arguments.of(1e-6, "0.000001"), Arguments.of(1e-7, "1e-7"), Arguments.of(5e-324, "5e-324"),
                 Arguments.of(1.7976931348623157e308, "1.7976931348623157e+308"),
-                Arguments.of(9007199254740992L, "9007199254740992"), Arguments.of(9007199254740993L, "9007199254740992"),
+                // changed by audit2 (N2): the integers 9007199254740992L and 9007199254740993L are refused (ATT-037); the
+                // double 9007199254740992 is a decimal and keeps its text
+                Arguments.of(9007199254740992d, "9007199254740992"), Arguments.of(9007199254740991L, "9007199254740991"),
+                Arguments.of(-9007199254740991L, "-9007199254740991"),
                 Arguments.of(0.1, "0.1"), Arguments.of(100, "100"), Arguments.of(1.5e300, "1.5e+300"),
                 Arguments.of(-1.25e-10, "-1.25e-10"), Arguments.of(12345.678, "12345.678"));
     }
@@ -64,6 +67,44 @@ class ArgumentsDigestTest {
             assertThat(JsonCanonicalizer.canonicalize(BigInteger.valueOf(value.longValue()))).isEqualTo(expected);
             assertThat(JsonCanonicalizer.canonicalize(Long.valueOf(value.longValue()))).isEqualTo(expected);
         }
+    }
+
+    static Stream<Number> integersOutOfRange() {
+        return Stream.of(9007199254740992L, 9007199254740993L, -9007199254740992L, Long.MAX_VALUE, Long.MIN_VALUE,
+                new BigInteger("9007199254740992"), new BigInteger("-9007199254740993"),
+                new BigInteger("12345678901234567890"), BigInteger.TEN.pow(40));
+    }
+
+    @ParameterizedTest
+    @MethodSource("integersOutOfRange")
+    @DisplayName("ATT-037 (audit2 N2) an integer outside [-(2**53)+1, (2**53)-1] is an IllegalArgumentException, alone, nested and in the digest")
+    void integersBeyondTheExactRangeAreRefused(Number integer) {
+        assertThatThrownBy(() -> JsonCanonicalizer.canonicalize(integer)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> JsonCanonicalizer.canonicalize(List.of(map("a", integer))))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ArgumentsDigest.of(map("n", integer))).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("ATT-037 the two integers that the double cannot tell apart no longer get one digest: both are refused; the largest exact integers keep their own text")
+    void neighboursOfTheLimit() {
+        assertThatThrownBy(() -> ArgumentsDigest.of(map("n", 9007199254740992L))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ArgumentsDigest.of(map("n", 9007199254740993L))).isInstanceOf(IllegalArgumentException.class);
+        assertThat(JsonCanonicalizer.canonicalize(9007199254740991L)).isEqualTo("9007199254740991");
+        assertThat(JsonCanonicalizer.canonicalize(new BigInteger("-9007199254740991"))).isEqualTo("-9007199254740991");
+        assertThat(ArgumentsDigest.of(map("n", 9007199254740990L))).isNotEqualTo(ArgumentsDigest.of(map("n", 9007199254740991L)));
+    }
+
+    @Test
+    @DisplayName("ATT-038 (audit2 N2) a decimal number stays the text of its double as RFC 8785 says: 0.10 is 0.1, 1e300 and a BigDecimal beyond 2**53 are accepted; a Number type that is no JSON number is refused")
+    void decimalsKeepTheTextOfTheirDouble() {
+        assertThat(ArgumentsDigest.of(map("n", new BigDecimal("0.10")))).isEqualTo(ArgumentsDigest.of(map("n", 0.1)));
+        assertThat(JsonCanonicalizer.canonicalize(new BigDecimal("0.10"))).isEqualTo("0.1");
+        assertThat(JsonCanonicalizer.canonicalize(new BigDecimal("1e300"))).isEqualTo("1e+300");
+        assertThat(JsonCanonicalizer.canonicalize(new BigDecimal("9007199254740993"))).isEqualTo("9007199254740992");
+        assertThat(JsonCanonicalizer.canonicalize(1.5f)).isEqualTo("1.5");
+        assertThatThrownBy(() -> JsonCanonicalizer.canonicalize(new java.util.concurrent.atomic.AtomicLong(1)))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
