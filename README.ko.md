@@ -198,7 +198,8 @@ cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-
   쓰게 하고(`application.yaml`과 서비스별 파일 하나씩이 한 디렉터리에 놓입니다. 운영자의 설정은 그곳의 `local.yaml`에 두며, 마지막에 읽고 교체하지 않습니다),
   앱 계정의 데이터베이스 비밀번호를 저장하고(숨김 입력), `ledger.admin.token`과 `ledger.mcp.token`을 만들고(그 단계의 끝에 한 번만 표시),
   복사본 `ledger.admin.agent-token`을 저장하고, 드라이버를 등록하고, DDL 계정으로 `migrate`를 실행하고, 두 서비스를 시작합니다. 내려받거나 설치하는 것은
-  없습니다. 더 새로운 jar로 다시 실행하면 업그레이드입니다. 파일과 서비스는 교체되고, 스키마와 권한은 다시 적용되며, 비밀·토큰·데이터는 유지됩니다.
+  없습니다. 더 새로운 jar로 다시 실행하면 업그레이드입니다. 파일과 서비스는 교체되고, 스키마와 권한은 다시 적용되며, 비밀·토큰·데이터는 유지됩니다. 중간에 멈춘 실행도 같은 방법으로 고칩니다. 같은 옵션으로 다시 실행하면 됩니다(비밀을 저장하는 명령은
+  데이터베이스를 쓰지 않습니다).
   설정 디렉터리는 도구의 `ledger.secrets.home`이며, 서비스는 같은 출처를 `spring.config.import`로 읽습니다.
 
 `deploy/install.sh`의 옵션은 `--name=value`로 줍니다. 스스로 읽지 않는 옵션은 `render-deploy`로 넘어갑니다.
@@ -270,8 +271,8 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 모든 것은 `C:\ProgramData\pg-ledger-mcp`에 놓입니다. 두 서비스는 LocalService로 실행하고, 실패하면 다시 시작하며(WinSW 설정), 로그는 `logs` 폴더에 씁니다.
 비밀은 설치 끝에 LocalService에 넘기며, 설치한 사용자는 파일이 있다는 것만 볼 수 있고 스크립트는 다시 실행하는 동안만 이를 되가져옵니다. 그래서 그 뒤에는
 `ledger-cli`의 소유자 명령이 비밀을 읽지 못합니다. 소유자 작업(프로젝트, 공통코드, 부여, 키)은 `ledger.admin.token`으로 로그인하는 관리 웹의 화면에서
-합니다. 관리 웹은 `Secure` 세션 쿠키를 설정합니다. 브라우저가 루프백 주소의 일반 HTTP에서 이를 받아들이지 않으면 `local.yaml`에서
-`server.servlet.session.cookie.secure`를 false로 둡니다.
+합니다. 개인 PC에서는 관리 웹을 `http://localhost:8865`로 엽니다(포트는 `--admin-port=<n>`입니다). 관리 웹은 `Secure` 세션 쿠키를 설정하는데, 주요 브라우저는
+`localhost`를 보안 컨텍스트로 취급하므로 이를 받아들입니다.
 
 ### 설치 뒤
 

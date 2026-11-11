@@ -215,7 +215,8 @@ cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-
   of the application account (hidden input), generates `ledger.admin.token` and `ledger.mcp.token` (shown once, at the end of
   their step), stores the copy `ledger.admin.agent-token`, registers the driver, runs `migrate` with the DDL account and starts the
   two services. Nothing is downloaded or installed. Running it again with newer jars is the upgrade: files and services are replaced,
-  the schema and the grants are applied again, and secrets, tokens and data are kept. The settings directory is `ledger.secrets.home`
+  the schema and the grants are applied again, and secrets, tokens and data are kept. A run that stopped half way is repaired the same
+  way: run it again with the same options (the commands that store secrets do not need the database). The settings directory is `ledger.secrets.home`
   of the tool; the services read the same sources through `spring.config.import`.
 
 The options of `deploy/install.sh` are given as `--name=value`; the ones it does not read itself go on to `render-deploy`:
@@ -290,8 +291,9 @@ Everything lives in `C:\ProgramData\pg-ledger-mcp`. Both services run as LocalSe
 configuration), and write their logs to the `logs` folder. The secrets are handed over to LocalService at the end of the
 installation; the installing user can only see that a file exists, and the script takes them back for the duration of a re-run. So the
 owner commands of `ledger-cli` cannot read them afterwards: do the owner work (projects, common codes, grants, keys) on the pages of
-the admin web, which sign in with `ledger.admin.token`. The admin web sets a `Secure` session cookie; if a browser does not accept it on
-the loopback address over plain HTTP, set `server.servlet.session.cookie.secure` to false in `local.yaml`.
+the admin web, which sign in with `ledger.admin.token`. On a personal PC open the admin web at `http://localhost:8865` (the port is
+`--admin-port=<n>`): the admin web sets a `Secure` session cookie, which the major browsers accept from `localhost` because they treat it
+as a secure context.
 
 ### After the installation
 

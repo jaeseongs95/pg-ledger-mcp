@@ -1,5 +1,6 @@
 package org.pgledger.cli.database;
 
+import org.pgledger.cli.CliCommand;
 import org.pgledger.database.driver.DriverLoader;
 import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.domain.error.InfrastructureCode;
@@ -10,6 +11,7 @@ import org.springframework.boot.context.properties.bind.BindException;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Condition;
 import org.springframework.context.annotation.ConditionContext;
+import org.springframework.core.env.CommandLinePropertySource;
 import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /**
@@ -36,6 +38,13 @@ public final class DriverRegisteredCondition implements Condition {
     public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
         if (context.getEnvironment().matchesProfiles("embedded")) {
             return true;
+        }
+        // the first operand is the command (Boot's command line property source names the operands this way)
+        String operands = context.getEnvironment().getProperty(
+                CommandLinePropertySource.DEFAULT_NON_OPTION_ARGS_PROPERTY_NAME, "");
+        if (CliCommand.parse(operands.split(",")[0]).filter(command -> !command.usesDatabase()).isPresent()) {
+            LOG.debug("the command does not use the ledger database: no database bean is made, whatever is registered");
+            return false;
         }
         try {
             DriverRegistration registration = Binder.get(context.getEnvironment())

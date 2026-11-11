@@ -326,7 +326,7 @@ class DeployRendererTest {
         try (InputStream stream = new ClassPathResource("application.properties").getInputStream()) {
             properties.load(stream);
         }
-        PropertyPlaceholderHelper helper = new PropertyPlaceholderHelper("${", "}", ":", true);
+        PropertyPlaceholderHelper helper = new PropertyPlaceholderHelper("${", "}", ":", null, true);
         String imported = helper.replacePlaceholders(properties.getProperty("spring.config.import"),
                 placeholder -> null);
         String unitImport = file(render(values()), MCP_UNIT).lines().filter(line -> line.startsWith("ExecStart="))

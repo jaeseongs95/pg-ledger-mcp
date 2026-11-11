@@ -32,6 +32,18 @@ public enum CliCommand {
         return cliName;
     }
 
+    /**
+     * Whether the command works on the ledger database. The others never need it: a registered driver and a database that is
+     * down or whose password is not stored yet must not stop them, so an installation that stopped half way can be run again
+     * ({@code secret-set} has to be able to store the password that is missing).
+     */
+    public boolean usesDatabase() {
+        return switch (this) {
+            case SECRET_SET, TOKEN_GENERATE, MCP_CHECK, RENDER_DEPLOY -> false;
+            default -> true;
+        };
+    }
+
     /** Message key of this command line in the usage text. */
     public String usageKey() {
         return "usage." + cliName;
