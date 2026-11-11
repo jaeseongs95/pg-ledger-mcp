@@ -1,5 +1,6 @@
 package org.pgledger.mcp.tool;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 import java.util.List;
@@ -22,18 +23,21 @@ public final class WriteOutputs {
     public sealed interface Result permits Saved, Transitioned, FixRecorded, CaseRecorded, Linked, Corrected {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Saved(@JsonProperty("status") WriteStatus status, @JsonProperty("entity") String entity,
             @JsonProperty("id") String id, @JsonProperty("version") long version,
             @JsonProperty("history_id") long historyId, @JsonProperty("author") String author,
             @JsonProperty("login") String login) implements Result {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Transitioned(@JsonProperty("status") WriteStatus status, @JsonProperty("entity") String entity,
             @JsonProperty("id") String id, @JsonProperty("from") String from, @JsonProperty("to") String to,
             @JsonProperty("version") long version, @JsonProperty("history_id") long historyId,
             @JsonProperty("author") String author, @JsonProperty("login") String login) implements Result {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record FixRecorded(@JsonProperty("status") WriteStatus status, @JsonProperty("defect") String defect,
             @JsonProperty("fix_id") long fixId, @JsonProperty("defect_status") String defectStatus,
             @JsonProperty("owner_actor_id") String ownerActorId, @JsonProperty("version") long version,
@@ -42,23 +46,27 @@ public final class WriteOutputs {
             @JsonProperty("author") String author, @JsonProperty("login") String login) implements Result {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record CaseRecorded(@JsonProperty("status") WriteStatus status, @JsonProperty("entity") String entity,
             @JsonProperty("id") String id, @JsonProperty("case_id") long caseId,
             @JsonProperty("defect") String defect, @JsonProperty("history_id") long historyId,
             @JsonProperty("author") String author, @JsonProperty("login") String login) implements Result {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Linked(@JsonProperty("status") WriteStatus status, @JsonProperty("entity") String entity,
             @JsonProperty("id") String id, @JsonProperty("removed") boolean removed,
             @JsonProperty("history_id") long historyId, @JsonProperty("author") String author,
             @JsonProperty("login") String login) implements Result {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Corrected(@JsonProperty("status") WriteStatus status, @JsonProperty("corrects") long corrects,
             @JsonProperty("history_id") long historyId, @JsonProperty("author") String author,
             @JsonProperty("login") String login) implements Result {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Batched(@JsonProperty("status") WriteStatus status, @JsonProperty("count") int count,
             @JsonProperty("results") List<Result> results) {
 
@@ -68,11 +76,13 @@ public final class WriteOutputs {
     }
 
     /** One live grant of {@code ledger_whoami}. */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Grant(@JsonProperty("project") String project, @JsonProperty("scope") String scope,
             @JsonProperty("expires_at") Instant expiresAt) {
     }
 
     /** The answer of {@code ledger_whoami}; {@code session_user} is the login of the channel. */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Whoami(@JsonProperty("session_user") String sessionUser, @JsonProperty("author") String author,
             @JsonProperty("author_format_ok") boolean authorFormatOk,
             @JsonProperty("can_verify_login") boolean canVerifyLogin, @JsonProperty("grants") List<Grant> grants) {

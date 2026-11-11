@@ -28,7 +28,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Finds the tools of an adapter bean (its {@code @McpTool} methods) and turns each into a {@link ToolBinding}.
- * Reading annotations of methods and record components is reflection, which stays in this package.
+ * Reading annotations of methods and record components is reflection, which stays in this package. The reasons why
+ * the tools are bound here and not by Spring AI's callback are in {@link ToolBinding}. Finding the methods uses
+ * Spring's {@code MethodIntrospector} and {@code AnnotatedElementUtils}; only what they do not offer is read directly
+ * (the record components that carry {@code @CommonCode} and {@code @Choice}).
  */
 @Component
 public final class ToolBindings {

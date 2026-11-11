@@ -26,6 +26,35 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>An argument that is an object or an array and arrives as text is the old form of the tool contract (a JSON
  * document in a string); it is read as that document here and nowhere else.
+ *
+ * <p><b>Why this is not Spring AI's own callback</b> (principle 2.1: the answer to "does Spring offer it?" is
+ * recorded here). Spring AI's {@code SyncMcpToolMethodCallback} binds and calls an {@code @McpTool} method, and it is
+ * used to make the tool definitions, but it cannot give the contract of this ledger:
+ * <ul>
+ * <li>A binding or business failure becomes a free-text error result ({@code createSyncErrorResult}: the exception
+ * message and the message of its cause as one text, no structured content); the error token with one issue per
+ * argument (path, reason, allowed values) that the ledger contract needs cannot be produced there. Evidence:
+ * {@code javap} of {@code SyncMcpToolMethodCallback.apply} and {@code AbstractSyncMcpToolMethodCallback} in
+ * spring-ai-mcp-annotations 2.0.2 (the class is {@code final}, {@code buildTypedArgument} is {@code protected}, the
+ * constructor with a {@code Class<? extends Throwable>} only stores the class for the asynchronous callback).</li>
+ * <li>Its argument binding reads with a lenient mapper: an unknown key is accepted (spike report c8, section c of
+ * {@code SPIKE_REPORT.md}); strict reading and the text form of an object are this class.</li>
+ * <li>The SDK's own input validation ({@code McpServer.SyncSpecification#validateToolInputs}, 2.1.0) answers a
+ * schema violation as one free-text error result; it is switched off in {@code McpServerConfiguration} for that
+ * reason, and no Spring AI property exists for it.</li>
+ * </ul>
+ * Documents: Spring AI "MCP Annotations - Server"
+ * (https://docs.spring.io/spring-ai/reference/api/mcp/mcp-annotations-server.html), MCP Java SDK server documentation
+ * and javadoc (https://modelcontextprotocol.io/sdk/java/mcp-server). UNVERIFIED: these pages were not opened in this
+ * work (no outside request is allowed); the statements above rest on the bytecode of the two jars and on the spike
+ * report, whose section c cites the Spring AI page as not describing a hook for validation or schema changes.
+ *
+ * <p><b>Why the required-argument checks are not Jakarta constraints</b> (principle 2.2 category 9). The services
+ * validate every field rule with Jakarta Validation. What is checked here happens before any object exists that a
+ * constraint could sit on: a key that the tool does not declare, a declared key that is missing, a value of the wrong
+ * type, and a value outside a closed set are facts about the call, and a Jakarta violation would carry the path of a
+ * method parameter, not of the wire key. The checks are derived from the declarations ({@code @McpToolParam}
+ * required, {@code @Choice}), not written per argument. UNVERIFIED: no Bean Validation page was opened for this.
  */
 public final class ToolBinding {
 

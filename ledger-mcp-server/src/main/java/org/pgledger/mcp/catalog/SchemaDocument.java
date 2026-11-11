@@ -15,6 +15,20 @@ import org.springframework.util.StringUtils;
  *
  * <p>A property is addressed by a path of property names separated by dots; an array item is the name followed by
  * {@code []}. A property that is a {@code $ref} into {@code $defs} is followed to its definition.
+ *
+ * <p><b>Why the schema is edited here</b> (principle 2.1: the answer to "does Spring offer it?" is recorded here).
+ * Spring AI makes the input schema of an {@code @McpTool} method once, with a fixed generator
+ * ({@code McpJsonSchemaGenerator}, victools with the Jackson and Swagger modules), and offers no hook to change the
+ * result: the schema has no {@code additionalProperties} (spike report c8), it cannot list values that live in the
+ * database and change while the server runs, and its descriptions are the annotation texts, not message-bundle
+ * texts. The MCP SDK (2.1.0) takes a tool definition as given; {@code McpSyncServerCustomizer} changes the server
+ * specification, and the list filter ({@code McpSyncListFilter}) only decides whether a tool is visible. Evidence:
+ * the bytecode of spring-ai-mcp-annotations 2.0.2, spring-ai-autoconfigure-mcp-server-common 2.0.2 and mcp-core
+ * 2.1.0, and the spike report (SPIKE_REPORT.md, b and c). Documents: Spring AI "MCP Annotations - Server"
+ * (https://docs.spring.io/spring-ai/reference/api/mcp/mcp-annotations-server.html) and the MCP Java SDK
+ * documentation (https://modelcontextprotocol.io/sdk/java/mcp-server). UNVERIFIED: not opened in this work (no
+ * outside request is allowed). The map form is the SDK's own type for a schema ({@code Tool.inputSchema()}); this
+ * class and {@code LiveSchema} are the only places that hold it, and the edits are the minimum the catalog needs.
  */
 final class SchemaDocument {
 

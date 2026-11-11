@@ -29,6 +29,7 @@ public final class ReadOutputs {
     }
 
     /** One page of a list. */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Items<T>(@JsonProperty("items") List<T> items, @JsonProperty("truncated") boolean truncated,
             @JsonProperty("next_cursor") String nextCursor) {
 
@@ -37,11 +38,13 @@ public final class ReadOutputs {
         }
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record GotItem(@JsonProperty("entity") String entity, @JsonProperty("id") String id,
             @JsonProperty("state") String state, @JsonProperty("version") long version,
             @JsonProperty("project_id") String projectId, @JsonProperty("merged_into") String mergedInto) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Got(@JsonProperty("items") List<GotItem> items, @JsonProperty("not_found") List<String> notFound) {
 
         public Got {
@@ -50,20 +53,24 @@ public final class ReadOutputs {
         }
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record LastChange(@JsonProperty("at") Instant at, @JsonProperty("author") String author,
             @JsonProperty("login") String login, @JsonProperty("assurance") String assurance,
             @JsonProperty("op") String op, @JsonProperty("reason") String reason) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Fix(@JsonProperty("commit") String commit, @JsonProperty("repo") String repo,
             @JsonProperty("branch") String branch, @JsonProperty("ci") String ci,
             @JsonProperty("ci_conclusion") String ciConclusion, @JsonProperty("by") String by) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record TaskRef(@JsonProperty("task") String task, @JsonProperty("state") String state,
             @JsonProperty("owner") String owner) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Case(@JsonProperty("source") String source, @JsonProperty("defect") String defect,
             @JsonProperty("case_id") Long caseId, @JsonProperty("observation") String observation,
             @JsonProperty("evidence") String evidence, @JsonProperty("user_quote") String userQuote,
@@ -71,14 +78,17 @@ public final class ReadOutputs {
             @JsonProperty("at") Instant at) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Relation(@JsonProperty("kind") String kind, @JsonProperty("other") String other) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record ChangeSummary(@JsonProperty("id") long id, @JsonProperty("at") Instant at,
             @JsonProperty("author") String author, @JsonProperty("op") String op,
             @JsonProperty("reason") String reason) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Defect(@JsonProperty("id") String id, @JsonProperty("project_id") String projectId,
             @JsonProperty("title") String title, @JsonProperty("category") String category,
             @JsonProperty("severity") String severity, @JsonProperty("status") String status,
@@ -93,6 +103,7 @@ public final class ReadOutputs {
             @JsonProperty("recent_changes") List<ChangeSummary> recentChanges) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Task(@JsonProperty("id") String id, @JsonProperty("project_id") String projectId,
             @JsonProperty("title") String title, @JsonProperty("purpose") String purpose,
             @JsonProperty("success_condition") String successCondition,
@@ -109,6 +120,7 @@ public final class ReadOutputs {
      * is the full row before the change, present only when asked for ({@code include_before}): then it is the row,
      * or null when the operation has none.
      */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record History(@JsonProperty("id") long id, @JsonProperty("at") Instant at,
             @JsonProperty("author_id") String authorId, @JsonProperty("vendor") String vendor,
             @JsonProperty("login") String login, @JsonProperty("actor_assurance") String actorAssurance,
@@ -120,11 +132,13 @@ public final class ReadOutputs {
             @JsonProperty("request_id") String requestId, @JsonProperty("legacy_ref") String legacyRef) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Hit(@JsonProperty("kind") String kind, @JsonProperty("id") String id,
             @JsonProperty("project_id") String projectId, @JsonProperty("title") String title,
             @JsonProperty("state") String state, @JsonProperty("created_at") Instant createdAt) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record DefectRow(@JsonProperty("id") String id, @JsonProperty("title") String title,
             @JsonProperty("category") String category, @JsonProperty("severity") String severity,
             @JsonProperty("status") String status, @JsonProperty("merged_into") String mergedInto,
@@ -132,26 +146,31 @@ public final class ReadOutputs {
             @JsonProperty("created_at") Instant createdAt, @JsonProperty("updated_at") Instant updatedAt) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record TaskRow(@JsonProperty("id") String id, @JsonProperty("title") String title,
             @JsonProperty("state") String state, @JsonProperty("owner_actor_id") String ownerActorId,
             @JsonProperty("version") long version, @JsonProperty("created_at") Instant createdAt,
             @JsonProperty("updated_at") Instant updatedAt) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record ConditionRow(@JsonProperty("id") String id, @JsonProperty("release") String release,
             @JsonProperty("goal_label") String goalLabel, @JsonProperty("code") String code,
             @JsonProperty("condition_text") String conditionText, @JsonProperty("state") String state,
             @JsonProperty("version") long version) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record AttentionRow(@JsonProperty("kind") String kind, @JsonProperty("entity") String entity,
             @JsonProperty("id") String id, @JsonProperty("project_id") String projectId) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record DayCount(@JsonProperty("day") LocalDate day, @JsonProperty("defects") long defects,
             @JsonProperty("tasks") long tasks) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record Stats(@JsonProperty("defects_by_status") Map<String, Long> defectsByStatus,
             @JsonProperty("defects_by_severity") Map<String, Long> defectsBySeverity,
             @JsonProperty("tasks_by_state") Map<String, Long> tasksByState,
@@ -161,10 +180,12 @@ public final class ReadOutputs {
             @JsonProperty("created_per_day") List<DayCount> createdPerDay) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record ProjectRow(@JsonProperty("id") String id, @JsonProperty("code") String code,
             @JsonProperty("title") String title) {
     }
 
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     public record CodeRow(@JsonProperty("group") String group, @JsonProperty("code") String code,
             @JsonProperty("name_ko") String nameKo, @JsonProperty("name_en") String nameEn,
             @JsonProperty("description_ko") String descriptionKo,
