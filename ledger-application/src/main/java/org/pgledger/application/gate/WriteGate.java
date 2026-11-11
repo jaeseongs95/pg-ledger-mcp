@@ -32,15 +32,20 @@ public class WriteGate {
     }
 
     /** Runs the checks and returns the trusted session. */
-    public GateSession open(String actor, Channel channel, Resolution resolution) {
-        if (channel != Channel.REVIEWER && resolution instanceof Resolution.Resolved resolved
-                && resolved.targets().stream().anyMatch(t -> t.scope() == Scope.VERIFY)) {
-            throw new TrustException(TrustCode.VERIFY_NEEDS_REVIEWER_LOGIN, List.of());
+    public GateSession open(String actor, Channel channel, Lookup lookup) {
+        // a verification through the author channel is refused first, so it is looked up first (once)
+        Resolution early = channel != Channel.REVIEWER && lookup.mayVerify() ? lookup.find().get() : null;
+        if (early instanceof Resolution.Resolved resolved) {
+            requireReviewerForVerification(channel, resolved.targets());
         }
         AuthorId author = AuthorId.of(actor);
+        Resolution resolution = early != null ? early : lookup.find().get();
         return switch (resolution) {
             case Resolution.Unresolved unresolved -> throw unresolved.failure();
             case Resolution.Resolved resolved -> {
+                if (early == null) {
+                    requireReviewerForVerification(channel, resolved.targets());
+                }
                 Set<Target> distinct = new LinkedHashSet<>(resolved.targets());
                 // one fixed order of grant rows, so two writes that need the same grants cannot wait for each other
                 distinct.stream().sorted(Comparator.comparing((Target t) -> t.project().value())
@@ -48,6 +53,12 @@ public class WriteGate {
                 yield new GateSession(author, channel);
             }
         };
+    }
+
+    private static void requireReviewerForVerification(Channel channel, List<Target> targets) {
+        if (channel != Channel.REVIEWER && targets.stream().anyMatch(t -> t.scope() == Scope.VERIFY)) {
+            throw new TrustException(TrustCode.VERIFY_NEEDS_REVIEWER_LOGIN, List.of());
+        }
     }
 
     /** Checks (and stamps) one more grant of an author that already passed the gate. */

@@ -3,7 +3,7 @@ package org.pgledger.application.write;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
-import org.pgledger.application.gate.Resolution;
+import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Target;
 import org.pgledger.application.gate.WriteGate;
 import org.pgledger.application.history.ChangeSet;
@@ -56,8 +56,8 @@ public class RecordCaseOperation extends WriteOperation<RecordCaseCommand, Recor
     }
 
     @Override
-    protected Resolution resolve(RecordCaseCommand c) {
-        return Resolution.of(() -> List.of(new Target(rows.defect(DefectId.of(c.defectId())).projectId(),
+    protected Lookup resolve(RecordCaseCommand c) {
+        return Lookup.afterActor(() -> List.of(new Target(rows.defect(DefectId.of(c.defectId())).projectId(),
                 Scope.DEFECT)));
     }
 

@@ -1,9 +1,9 @@
 package org.pgledger.application.write;
 
-import java.util.List;
-import java.util.Set;
+import java.util.Arrays;
+import java.util.Optional;
+import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Resolution;
-import org.pgledger.application.gate.Target;
 import org.pgledger.application.gate.WriteGate;
 import org.pgledger.application.history.ChangeSet;
 import org.pgledger.application.history.HistoryWriter;
@@ -15,13 +15,14 @@ import org.pgledger.domain.model.HistoryEntry;
 import org.pgledger.domain.model.ReceiptOperation;
 import org.pgledger.domain.rule.ConditionState;
 import org.pgledger.domain.rule.DefectStatus;
+import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
-import org.pgledger.domain.rule.TaskState;
+import org.pgledger.domain.rule.LifecycleState;
 import org.pgledger.domain.rule.Scope;
+import org.pgledger.domain.rule.TaskState;
 import org.pgledger.domain.value.CanonicalPayload;
 import org.pgledger.domain.value.ConditionId;
 import org.pgledger.domain.value.DefectId;
-import org.pgledger.domain.value.ProjectId;
 import org.pgledger.domain.value.TaskId;
 import org.springframework.stereotype.Component;
 
@@ -32,10 +33,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class CorrectOperation extends WriteOperation<CorrectCommand, CorrectResult> {
-
-    /** The names of the verification states of the three kinds (a history row keeps states as text). */
-    private static final Set<String> VERIFICATION_STATES = Set.copyOf(List.of(DefectStatus.VERIFIED.name(),
-            TaskState.VERIFIED.name(), ConditionState.MET.name(), ConditionState.NOT_MET.name()));
 
     private final Rows rows;
     private final HistoryRepository historyRows;
@@ -57,29 +54,62 @@ public class CorrectOperation extends WriteOperation<CorrectCommand, CorrectResu
     }
 
     @Override
-    protected Resolution resolve(CorrectCommand c) {
-        return Resolution.of(() -> {
-            HistoryEntry row = historyRows.findById(historyId(c))
-                    .orElseThrow(() -> Rows.notFound("history", Long.toString(historyId(c))));
-            ProjectId project = switch (row.entity()) {
-                case TASK -> rows.task(TaskId.of(row.entityId())).projectId();
-                case CONDITION -> rows.condition(ConditionId.of(row.entityId())).projectId();
-                case CONDITION_LINK -> rows.condition(ConditionId.of(before(row.entityId(), '|'))).projectId();
-                case DEFECT -> rows.defect(DefectId.of(row.entityId())).projectId();
-                case DEFECT_FIX -> rows.defect(DefectId.of(before(row.entityId(), '@'))).projectId();
-                case DEFECT_TASK, DEFECT_RELATION, DEFECT_CASE ->
-                    rows.defect(DefectId.of(before(row.entityId(), '|'))).projectId();
-            };
-            Scope scope = switch (row.entity()) {
-                case TASK, CONDITION, CONDITION_LINK -> Scope.TASK;
-                case DEFECT_FIX -> Scope.FIX;
-                case DEFECT, DEFECT_TASK, DEFECT_RELATION, DEFECT_CASE -> Scope.DEFECT;
-            };
-            boolean verification = row.op() == HistoryOp.TRANSITION
-                    && (VERIFICATION_STATES.contains(row.toState())
-                            || (row.fromState() != null && VERIFICATION_STATES.contains(row.fromState())));
-            return List.of(new Target(project, verification ? Scope.VERIFY : scope));
+    protected Lookup resolve(CorrectCommand c) {
+        return Lookup.verifiable(() -> {
+            if (c.historyId() == null) {
+                return Resolution.unresolved(ValidationException.invalid("history_id", "is required"));
+            }
+            return historyRows.findById(c.historyId()).map(this::target)
+                    .orElseGet(() -> Resolution.unresolved(Rows.notFound("history", c.historyId().toString())));
         });
+    }
+
+    /** The project of the corrected entity and the scope that writes it (verify for a verification). */
+    private Resolution target(HistoryEntry row) {
+        Scope scope = verification(row) ? Scope.VERIFY : switch (row.entity()) {
+            case TASK, CONDITION, CONDITION_LINK -> Scope.TASK;
+            case DEFECT_FIX -> Scope.FIX;
+            case DEFECT, DEFECT_TASK, DEFECT_RELATION, DEFECT_CASE -> Scope.DEFECT;
+        };
+        return switch (row.entity()) {
+            case TASK -> rows.taskTarget(TaskId.of(row.entityId()), scope);
+            case CONDITION -> rows.conditionTarget(ConditionId.of(row.entityId()), scope);
+            case CONDITION_LINK -> rows.conditionTarget(ConditionId.of(before(row.entityId(), '|')), scope);
+            case DEFECT -> rows.defectTarget(DefectId.of(row.entityId()), scope);
+            case DEFECT_FIX -> rows.defectTarget(DefectId.of(before(row.entityId(), '@')), scope);
+            case DEFECT_TASK, DEFECT_RELATION, DEFECT_CASE ->
+                rows.defectTarget(DefectId.of(before(row.entityId(), '|')), scope);
+        };
+    }
+
+    /**
+     * Whether the corrected row is a verification: a transition into or out of VERIFIED, MET or NOT_MET. A history
+     * row keeps its states as text (an imported row may hold one that is none of ours, which is no verification);
+     * they become the state constants of the entity here, at the boundary, and are compared as constants.
+     */
+    private static boolean verification(HistoryEntry row) {
+        if (row.op() != HistoryOp.TRANSITION) {
+            return false;
+        }
+        return isVerification(row.entity(), row.toState()) || isVerification(row.entity(), row.fromState());
+    }
+
+    private static boolean isVerification(HistoryEntity entity, String stored) {
+        return state(entity, stored).filter(LifecycleState::verification).isPresent();
+    }
+
+    /** The state constant of a stored state text; none for a text that is none of the entity's states. */
+    private static Optional<LifecycleState> state(HistoryEntity entity, String stored) {
+        return switch (entity) {
+            case DEFECT -> find(DefectStatus.values(), stored);
+            case TASK -> find(TaskState.values(), stored);
+            case CONDITION -> find(ConditionState.values(), stored);
+            case CONDITION_LINK, DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, DEFECT_CASE -> Optional.empty();
+        };
+    }
+
+    private static Optional<LifecycleState> find(LifecycleState[] states, String stored) {
+        return Arrays.stream(states).filter(state -> state.token().equals(stored)).findFirst();
     }
 
     private static String before(String id, char separator) {

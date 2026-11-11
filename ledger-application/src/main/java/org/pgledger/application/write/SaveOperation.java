@@ -8,7 +8,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.pgledger.application.gate.Resolution;
+import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Target;
 import org.pgledger.application.gate.WriteGate;
 import org.pgledger.application.history.ChangeSet;
@@ -84,8 +84,8 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
     }
 
     @Override
-    protected Resolution resolve(SaveCommand c) {
-        return Resolution.of(() -> targets(c));
+    protected Lookup resolve(SaveCommand c) {
+        return Lookup.afterActor(() -> targets(c));
     }
 
     private List<Target> targets(SaveCommand c) {

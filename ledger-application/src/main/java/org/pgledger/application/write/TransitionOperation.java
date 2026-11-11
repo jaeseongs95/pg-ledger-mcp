@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Resolution;
 import org.pgledger.application.gate.Target;
 import org.pgledger.application.gate.WriteGate;
@@ -86,24 +87,28 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
     }
 
     @Override
-    protected Resolution resolve(TransitionCommand c) {
-        return Resolution.of(() -> {
+    protected Lookup resolve(TransitionCommand c) {
+        return Lookup.verifiable(() -> {
             HistoryEntity entity = Tokens.parse("entity", c.entity(), STATEFUL);
             return switch (entity) {
                 case DEFECT -> {
-                    Defect row = rows.defect(DefectId.of(c.id()));
-                    DefectStatus to = Tokens.parse("to", c.to(), DefectStatus.values());
-                    yield List.of(new Target(row.projectId(), Scope.forTransition(entity, row.status(), to)));
+                    DefectId id = DefectId.of(c.id());
+                    yield rows.findDefect(id).map(row -> Resolution.of(new Target(row.projectId(), Scope
+                            .forTransition(entity, row.status(), Tokens.parse("to", c.to(), DefectStatus.values())))))
+                            .orElseGet(() -> Resolution.unresolved(Rows.notFound("defect", id.value())));
                 }
                 case TASK -> {
-                    Task row = rows.task(TaskId.of(c.id()));
-                    TaskState to = Tokens.parse("to", c.to(), TaskState.values());
-                    yield List.of(new Target(row.projectId(), Scope.forTransition(entity, row.state(), to)));
+                    TaskId id = TaskId.of(c.id());
+                    yield rows.findTask(id).map(row -> Resolution.of(new Target(row.projectId(), Scope
+                            .forTransition(entity, row.state(), Tokens.parse("to", c.to(), TaskState.values())))))
+                            .orElseGet(() -> Resolution.unresolved(Rows.notFound("task", id.value())));
                 }
                 case CONDITION -> {
-                    Condition row = rows.condition(ConditionId.of(c.id()));
-                    ConditionState to = Tokens.parse("to", c.to(), ConditionState.values());
-                    yield List.of(new Target(row.projectId(), Scope.forTransition(entity, row.state(), to)));
+                    ConditionId id = ConditionId.of(c.id());
+                    yield rows.findCondition(id).map(row -> Resolution.of(new Target(row.projectId(), Scope
+                            .forTransition(entity, row.state(), Tokens.parse("to", c.to(),
+                                    ConditionState.values())))))
+                            .orElseGet(() -> Resolution.unresolved(Rows.notFound("condition", id.value())));
                 }
                 case DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE ->
                     throw new IllegalStateException("Tokens.parse refused it");
