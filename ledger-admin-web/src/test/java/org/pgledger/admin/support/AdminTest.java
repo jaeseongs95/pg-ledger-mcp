@@ -21,7 +21,8 @@ import org.springframework.test.context.ActiveProfiles;
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
 @SpringBootTest(classes = LedgerAdminApplication.class, properties = {AdminTestSettings.TOKEN_PROPERTY,
-    AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
+    AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.INSECURE_COOKIE, AdminTestSettings.NO_GLOBAL_CAP,
+    AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
     AdminTestSettings.NO_JMX})
 @AutoConfigureMockMvc
 @ActiveProfiles("embedded")

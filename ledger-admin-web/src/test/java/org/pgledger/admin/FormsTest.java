@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.admin.support.AdminTest;
+import org.pgledger.admin.support.AuthorKeys;
 import org.pgledger.admin.support.Browser;
 import org.pgledger.admin.support.Browser.Form;
 import org.pgledger.admin.support.Seeds;
@@ -100,8 +101,8 @@ class FormsTest {
         String author = "gemini:admin-ui-test";
         Browser browser = Browser.signedIn(mvc);
 
-        browser.perform(browser.form("/grants", Form.of("author", author, "project", project.project(), "scopes", "defect",
-                "scopes", "task", "expiresAt", "2099-12-31T00:00:00Z", "note", "a note"), browser.csrfOf("/grants")))
+        browser.perform(browser.form("/grants", AuthorKeys.newPair().confirmed(Form.of("author", author, "project", project.project(), "scopes", "defect",
+                "scopes", "task", "expiresAt", "2099-12-31T00:00:00Z", "note", "a note")), browser.csrfOf("/grants")))
                 .andExpect(status().is3xxRedirection());
         assertThat(grants.live(author)).extracting(g -> g.scope().token()).containsExactlyInAnyOrder("defect", "task");
         assertThat(grants.live(author)).allMatch(g -> "user:owner".equals(g.grantedBy().value()));
@@ -135,6 +136,7 @@ class FormsTest {
         MultiValueMap<String, String> fields = Form.of();
         input.fields().forEach((name, values) -> values.forEach(value -> fields.add(name,
                 "p".equals(value) ? project.project() : value)));
+        AuthorKeys.newPair().confirmed(fields);
         Browser browser = Browser.signedIn(mvc);
 
         post(browser, "/grants", "/grants", fields).andExpect(status().is4xxClientError())

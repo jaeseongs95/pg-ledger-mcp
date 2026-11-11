@@ -54,9 +54,9 @@ class McpHealthTest {
     private MockMvc mvc;
 
     private static LedgerAdminProperties properties(String url, Duration timeout) {
-        return new LedgerAdminProperties("a-token-of-sixteen-chars", null, List.of("localhost"),
-                org.springframework.util.unit.DataSize.ofKilobytes(64), Path.of("/unused"),
-                new LedgerAdminProperties.Lockout(5, Duration.ofSeconds(60), Duration.ofSeconds(60)),
+        return new LedgerAdminProperties("a-token-of-sixteen-chars", "an-agent-token-of-sixteen", List.of("localhost"),
+                org.springframework.util.unit.DataSize.ofKilobytes(64), Path.of("/unused"), Path.of("/unused-drivers"),
+                new LedgerAdminProperties.Lockout(5, Duration.ofSeconds(60), Duration.ofSeconds(60), 50),
                 new LedgerAdminProperties.Oidc(List.of()), new LedgerAdminProperties.Mcp(url, timeout));
     }
 
@@ -139,7 +139,8 @@ class McpHealthTest {
     void adm046_onlyHttpUrlsFromConfiguration() throws Exception {
         ApplicationContextRunner runner = new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(ValidationAutoConfiguration.class))
-                .withUserConfiguration(PropertiesOnly.class);
+                .withUserConfiguration(PropertiesOnly.class)
+                .withPropertyValues(AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.AGENT_TOKEN_PROPERTY);
 
         runner.withPropertyValues("ledger.admin.mcp.health-url=ftp://example.test/healthz")
                 .run(context -> assertThat(context).hasFailed());

@@ -6,8 +6,6 @@ plugins {
 dependencies {
     // The ledger services (projects, grants, common codes, read services) with the database module and the domain.
     implementation(project(":ledger-application"))
-    // The Ed25519 key primitives of the author attestation: the grant screen shows the fingerprint of the key it registers (and the tests sign as the hook does).
-    implementation(project(":ledger-attestation"))
     // Spring MVC with server-side rendering by Thymeleaf; the CSRF token is added to th:action forms by Spring Security.
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
@@ -30,6 +28,8 @@ dependencies {
     implementation("tools.jackson.dataformat:jackson-dataformat-yaml")
 
     testImplementation(testFixtures(project(":ledger-domain")))
+    // The tests play the client hook of an author: they make an Ed25519 key pair and sign as the hook does (JDK only).
+    testImplementation(project(":ledger-attestation"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // MockMvc and @AutoConfigureMockMvc (Boot 4 keeps the MVC test support in its own starter).
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")

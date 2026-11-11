@@ -17,7 +17,8 @@ import org.springframework.test.context.ActiveProfiles;
  * another address), the forwarding headers are ignored and the cookie is not made {@code Secure} by them.
  */
 @SpringBootTest(classes = LedgerAdminApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
+        properties = {AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.INSECURE_COOKIE,
+            AdminTestSettings.NO_GLOBAL_CAP, AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
             AdminTestSettings.NO_JMX, "server.tomcat.remoteip.internal-proxies=192\\.0\\.2\\.1"})
 @ActiveProfiles("embedded")
 @Import(AdminTestInfrastructure.class)

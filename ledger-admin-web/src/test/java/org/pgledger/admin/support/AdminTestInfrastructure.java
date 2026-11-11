@@ -11,6 +11,7 @@ import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -49,6 +50,14 @@ public class AdminTestInfrastructure {
     @Primary
     MutableClock testClock() {
         return new MutableClock();
+    }
+
+    /** The monotonic time source of the lock after failed attempts: it moves with the test clock, not with the system. */
+    @Bean
+    @Primary
+    @ConditionalOnProperty(name = "admin.test.moving-ticker", havingValue = "true", matchIfMissing = true)
+    com.github.benmanes.caffeine.cache.Ticker testTicker(MutableClock clock) {
+        return clock.ticker();
     }
 
     @Bean

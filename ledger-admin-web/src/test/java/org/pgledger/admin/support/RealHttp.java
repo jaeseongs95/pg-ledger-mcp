@@ -2,6 +2,7 @@ package org.pgledger.admin.support;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -48,12 +49,22 @@ public final class RealHttp {
         }
     }
 
-    private final HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
-            .followRedirects(HttpClient.Redirect.NEVER).connectTimeout(Duration.ofSeconds(10)).build();
+    private final HttpClient client;
     private final int port;
 
     public RealHttp(int port) {
+        this(port, null);
+    }
+
+    /**
+     * @param from the local address the requests are sent from (the peer address the server sees); null: the system
+     *             chooses (127.0.0.1 for a request to 127.0.0.1)
+     */
+    public RealHttp(int port, InetAddress from) {
         this.port = port;
+        HttpClient.Builder builder = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+                .followRedirects(HttpClient.Redirect.NEVER).connectTimeout(Duration.ofSeconds(10));
+        this.client = (from == null ? builder : builder.localAddress(from)).build();
     }
 
     public int port() {
