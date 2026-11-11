@@ -12,13 +12,21 @@ import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.AclEntry;
+import java.nio.file.attribute.AclEntryPermission;
+import java.nio.file.attribute.AclEntryType;
+import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.nio.file.attribute.UserPrincipal;
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.jar.JarEntry;
@@ -27,12 +35,14 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.opentest4j.TestAbortedException;
 import org.pgledger.database.driver.DriverDataSources;
 import org.pgledger.database.driver.DriverLoader;
 import org.pgledger.database.driver.DriverRegistration;
@@ -52,6 +62,7 @@ import org.pgledger.domain.error.ErrorCode;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.domain.value.Sha256;
+import org.pgledger.testing.OwnerOnlyFiles;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.context.properties.bind.BindException;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -75,6 +86,7 @@ class DriverBoundaryTest {
 
     @BeforeAll
     void buildTheFakeJar(@TempDir Path shared) throws IOException {
+        OwnerOnlyFiles.restrict(shared);
         fakeJar = shared.resolve("fake-drivers.jar");
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(fakeJar))) {
             for (Class<?> type : List.of(BaseFakeDriver.class, FakeDriverA.class, FakeDriverB.class,
@@ -87,6 +99,12 @@ class DriverBoundaryTest {
                 jar.closeEntry();
             }
         }
+        OwnerOnlyFiles.restrict(fakeJar);
+    }
+
+    @BeforeEach
+    void trustTheTempDirectory() {
+        OwnerOnlyFiles.restrict(temp);
     }
 
     private static Path locationOf(Class<?> type) {
@@ -97,8 +115,15 @@ class DriverBoundaryTest {
         }
     }
 
+    /**
+     * The H2 jar for the tests: a copy of the one on the class path in a directory of its own that only its owner can use
+     * (the loader refuses a jar, or a directory, that other accounts can write, and the Gradle cache is not that on every
+     * file system).
+     */
+    private static final Path H2_JAR = OwnerOnlyFiles.copyToNewDirectory(locationOf(org.h2.Driver.class));
+
     private static Path h2Jar() {
-        return locationOf(org.h2.Driver.class);
+        return H2_JAR;
     }
 
     private static String sha(Path file) {
@@ -149,7 +174,7 @@ class DriverBoundaryTest {
     @ParameterizedTest
     @MethodSource("brokenArchives")
     void drv003_aFileThatIsNotAJarIsRefused(Broken broken) throws IOException {
-        Path file = Files.write(temp.resolve("broken.jar"), broken.content());
+        Path file = OwnerOnlyFiles.write(temp.resolve("broken.jar"), broken.content());
         assertThat(codeOf(describing(file, "org.h2.Driver", "jdbc:h2:mem:x"))).isEqualTo(
                 InfrastructureCode.DRIVER_INVALID);
     }
@@ -227,7 +252,7 @@ class DriverBoundaryTest {
 
     @Test
     void drv009_aJarThatIsGoneIsRefusedWithItsPath() throws IOException {
-        Path copy = Files.copy(h2Jar(), temp.resolve("gone.jar"));
+        Path copy = OwnerOnlyFiles.copy(h2Jar(), temp.resolve("gone.jar"));
         DriverRegistration registration = DriverLoader.describe(copy, "org.h2.Driver", "jdbc:h2:mem:g", NOW);
         Files.delete(copy);
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
@@ -261,10 +286,106 @@ class DriverBoundaryTest {
     @Test
     void drv017_aJarThatOthersCanWriteIsRefused() throws IOException {
         assumeTrue(temp.getFileSystem().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
-        Path copy = Files.copy(h2Jar(), temp.resolve("writable.jar"));
+        Path copy = OwnerOnlyFiles.copy(h2Jar(), temp.resolve("writable.jar"));
         Files.setPosixFilePermissions(copy, PosixFilePermissions.fromString("rw-rw-r--"));
         assertThat(codeOf(describing(copy, "org.h2.Driver", "jdbc:h2:mem:w"))).isEqualTo(
                 InfrastructureCode.DRIVER_INVALID);
+    }
+
+
+    private static boolean hasAcl(Path path) {
+        return Files.getFileAttributeView(path, AclFileAttributeView.class) != null;
+    }
+
+    private static boolean hasPosix(Path path) {
+        return Files.getFileAttributeView(path, PosixFileAttributeView.class) != null;
+    }
+
+    /** DRV-030 (audit2 N4): a directory that the group or others can write is refused, the jar in it being fine. */
+    @Test
+    void drv030_aDirectoryThatOthersCanWriteIsRefused() throws IOException {
+        assumeTrue(hasPosix(temp), "needs POSIX permissions");
+        Path directory = OwnerOnlyFiles.restrict(Files.createDirectory(temp.resolve("drivers-open")));
+        Path jar = OwnerOnlyFiles.copy(h2Jar(), directory.resolve("h2.jar"));
+        DriverLoader.describe(jar, "org.h2.Driver", "jdbc:h2:mem:dir-ok", NOW);
+
+        for (String mode : List.of("rwxrwx---", "rwx---rwx", "rwx-w----", "rwx----w-")) {
+            Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString(mode));
+            InfrastructureException refused = describing(jar, "org.h2.Driver", "jdbc:h2:mem:dir");
+            assertThat(codeOf(refused)).as(mode).isEqualTo(InfrastructureCode.DRIVER_INVALID);
+            assertThat(refused.args().getFirst()).as(mode).contains("directory").contains("writable");
+        }
+        Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwx------"));
+        DriverLoader.describe(jar, "org.h2.Driver", "jdbc:h2:mem:dir-again", NOW);
+    }
+
+    /**
+     * DRV-031 (audit2 N4): with ACLs, an entry that lets another account change the jar or its directory refuses it; an
+     * entry that only lets it read does not.
+     */
+    @Test
+    void drv031_aJarOrDirectoryThatAnotherAccountCanWriteIsRefusedByAcl() throws IOException {
+        assumeTrue(hasAcl(temp) && !hasPosix(temp), "needs ACLs");
+        UserPrincipal everyone = temp.getFileSystem().getUserPrincipalLookupService().lookupPrincipalByName("Everyone");
+        for (boolean onDirectory : new boolean[] {true, false}) {
+            Path directory = OwnerOnlyFiles.restrict(Files.createDirectory(temp.resolve("acl-" + onDirectory)));
+            Path jar = OwnerOnlyFiles.copy(h2Jar(), directory.resolve("h2.jar"));
+            Path target = onDirectory ? directory : jar;
+            AclFileAttributeView view = Files.getFileAttributeView(target, AclFileAttributeView.class);
+            List<AclEntry> original = view.getAcl();
+
+            view.setAcl(withEntry(original, everyone, AclEntryPermission.READ_DATA, AclEntryPermission.READ_ATTRIBUTES,
+                    AclEntryPermission.READ_ACL, AclEntryPermission.SYNCHRONIZE));
+            DriverLoader.describe(jar, "org.h2.Driver", "jdbc:h2:mem:acl-read-" + onDirectory, NOW);
+
+            for (AclEntryPermission change : List.of(AclEntryPermission.WRITE_DATA, AclEntryPermission.APPEND_DATA,
+                    AclEntryPermission.DELETE, AclEntryPermission.WRITE_ACL, AclEntryPermission.WRITE_OWNER)) {
+                view.setAcl(withEntry(original, everyone, AclEntryPermission.READ_DATA, change));
+                InfrastructureException refused = describing(jar, "org.h2.Driver", "jdbc:h2:mem:acl");
+                assertThat(codeOf(refused)).as("%s on the %s", change, onDirectory ? "directory" : "jar")
+                        .isEqualTo(InfrastructureCode.DRIVER_INVALID);
+                assertThat(refused.args().getFirst()).contains(onDirectory ? "directory" : "jar").contains("can be changed");
+            }
+            view.setAcl(original);
+            DriverLoader.describe(jar, "org.h2.Driver", "jdbc:h2:mem:acl-again-" + onDirectory, NOW);
+        }
+    }
+
+    private static List<AclEntry> withEntry(List<AclEntry> original, UserPrincipal who, AclEntryPermission... permissions) {
+        List<AclEntry> entries = new ArrayList<>(original);
+        entries.add(AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(who)
+                .setPermissions(EnumSet.copyOf(List.of(permissions))).build());
+        return entries;
+    }
+
+    /** DRV-032 (audit2 N4, S3): a directory whose ACL has no entry at all is refused. */
+    @Test
+    void drv032_aDirectoryWithAnEmptyAclIsRefused() throws IOException {
+        assumeTrue(hasAcl(temp) && !hasPosix(temp), "needs ACLs");
+        Path directory = OwnerOnlyFiles.restrict(Files.createDirectory(temp.resolve("acl-empty")));
+        Path jar = OwnerOnlyFiles.copy(h2Jar(), directory.resolve("h2.jar"));
+        AclFileAttributeView view = Files.getFileAttributeView(directory, AclFileAttributeView.class);
+        List<AclEntry> original = view.getAcl();
+        view.setAcl(List.of());
+        try {
+            InfrastructureException refused = describing(jar, "org.h2.Driver", "jdbc:h2:mem:acl-empty");
+            assertThat(codeOf(refused)).isEqualTo(InfrastructureCode.DRIVER_INVALID);
+            assertThat(refused.args().getFirst()).contains("without any entry");
+        } finally {
+            view.setAcl(original);
+        }
+    }
+
+    /** DRV-033 (audit2 N4): the jar is opened without following a link: a link to a jar is refused. */
+    @Test
+    void drv033_aSymbolicLinkToAJarIsRefused() throws IOException {
+        Path link = temp.resolve("link.jar");
+        try {
+            Files.createSymbolicLink(link, h2Jar());
+        } catch (UnsupportedOperationException | IOException cannot) {
+            throw new TestAbortedException("this file system cannot make symbolic links here: " + cannot, cannot);
+        }
+        assertThat(codeOf(describing(link, "org.h2.Driver", "jdbc:h2:mem:link"))).isEqualTo(InfrastructureCode.DRIVER_INVALID);
     }
 
     @Test
@@ -278,7 +399,7 @@ class DriverBoundaryTest {
 
     @Test
     void drv019_closingReleasesTheJarSoItCanBeDeleted(Databases databases) throws IOException, SQLException {
-        Path copy = Files.copy(h2Jar(), temp.resolve("release.jar"));
+        Path copy = OwnerOnlyFiles.copy(h2Jar(), temp.resolve("release.jar"));
         String url = databases.newUrl();
         DriverRegistration registration = DriverLoader.describe(copy, "org.h2.Driver", url, NOW);
         try (RegisteredDriver registered = DriverLoader.load(registration);
@@ -302,7 +423,7 @@ class DriverBoundaryTest {
 
     @Test
     void drv025_theClassesComeFromAPrivateCopyOfTheBytesThatWereHashed() throws Exception {
-        Path registered = Files.copy(fakeJar, temp.resolve("swapped-after-load.jar"));
+        Path registered = OwnerOnlyFiles.copy(fakeJar, temp.resolve("swapped-after-load.jar"));
         DriverRegistration registration = DriverLoader.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
                 NOW);
         try (RegisteredDriver driver = DriverLoader.load(registration)) {
@@ -319,7 +440,7 @@ class DriverBoundaryTest {
 
     @Test
     void drv026_theRegisteredFileCanBeDeletedWhileTheDriverIsOpen() throws Exception {
-        Path registered = Files.copy(fakeJar, temp.resolve("deleted-while-open.jar"));
+        Path registered = OwnerOnlyFiles.copy(fakeJar, temp.resolve("deleted-while-open.jar"));
         DriverRegistration registration = DriverLoader.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
                 NOW);
         try (RegisteredDriver driver = DriverLoader.load(registration)) {
@@ -333,7 +454,7 @@ class DriverBoundaryTest {
 
     @Test
     void drv027_thePrivateCopyExistsWhileTheDriverIsOpenAndIsGoneAfterwards() throws Exception {
-        Path registered = Files.copy(fakeJar, temp.resolve("lifecycle.jar"));
+        Path registered = OwnerOnlyFiles.copy(fakeJar, temp.resolve("lifecycle.jar"));
         Set<Path> before = temporaryJars();
 
         DriverRegistration registration = DriverLoader.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
@@ -355,8 +476,9 @@ class DriverBoundaryTest {
 
     @Test
     void drv027_aRefusedLoadLeavesNoCopy() throws IOException {
-        Path registered = Files.copy(fakeJar, temp.resolve("refused.jar"));
-        Path notAnArchive = Files.writeString(temp.resolve("refused-text.jar"), "this is not an archive");
+        Path registered = OwnerOnlyFiles.copy(fakeJar, temp.resolve("refused.jar"));
+        Path notAnArchive = OwnerOnlyFiles.write(temp.resolve("refused-text.jar"),
+                "this is not an archive".getBytes(StandardCharsets.UTF_8));
         Set<Path> before = temporaryJars();
 
         assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> DriverLoader.load(
@@ -375,7 +497,7 @@ class DriverBoundaryTest {
     @Test
     void drv029_aJarPathWithAPlaceholderIsRefusedByTheLoader() throws IOException {
         Path directory = Files.createDirectory(temp.resolve("${x}"));
-        Path jar = Files.copy(h2Jar(), directory.resolve("h2.jar"));
+        Path jar = OwnerOnlyFiles.copy(h2Jar(), directory.resolve("h2.jar"));
 
         InfrastructureException described = describing(jar, "org.h2.Driver", "jdbc:h2:mem:p");
         InfrastructureException loaded = catchThrowableOfType(InfrastructureException.class,
