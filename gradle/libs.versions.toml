@@ -1,0 +1,19 @@
+# Versions of everything that is not managed by the Spring Boot BOM. Each entry carries its reason.
+[versions]
+springBoot = "4.1.2"
+springAi = "2.0.2"
+archunit = "1.5.1"
+zonky = "2.2.2"
+pgBinaries = "18.6.0"
+
+[libraries]
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
+# Declared at the root for the later MCP modules; no module of this slice uses it yet.
+spring-ai-bom = { module = "org.springframework.ai:spring-ai-bom", version.ref = "springAi" }
+# ArchUnit 1.5.1: not in the Boot BOM; enforces the architecture rules (time API bans, reflection, history insert-only).
+archunit = { module = "com.tngtech.archunit:archunit", version.ref = "archunit" }
+# zonky 2.2.2: not in the Boot BOM; real embedded PostgreSQL for the repository tests (no Docker).
+embedded-postgres = { module = "io.zonky.test:embedded-postgres", version.ref = "zonky" }
+# PostgreSQL 18.6.0 binaries for zonky; the artifact is chosen by operating system in the root build script.
+embedded-postgres-binaries-windows-amd64 = { module = "io.zonky.test.postgres:embedded-postgres-binaries-windows-amd64", version.ref = "pgBinaries" }
+embedded-postgres-binaries-linux-amd64 = { module = "io.zonky.test.postgres:embedded-postgres-binaries-linux-amd64", version.ref = "pgBinaries" }

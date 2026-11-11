@@ -3,3 +3,11 @@ node_modules/
 *.log
 .env
 env
+
+# Java / Gradle
+.gradle/
+build/
+out/
+*.class
+.idea/
+*.iml
