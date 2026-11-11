@@ -1,0 +1,20 @@
+package org.pgledger.domain.value;
+
+import java.util.regex.Pattern;
+import org.pgledger.domain.error.ValidationException;
+
+/** A common-code value (category, severity, relation kind): a letter then letters, digits or {@code _}, up to 32. */
+public record CodeValue(String value) {
+
+    private static final Pattern FORMAT = Pattern.compile("[A-Za-z][A-Za-z0-9_]{0,31}");
+
+    public CodeValue {
+        if (value == null || !FORMAT.matcher(value).matches()) {
+            throw ValidationException.invalid("code", "must match [A-Za-z][A-Za-z0-9_]{0,31}");
+        }
+    }
+
+    public static CodeValue of(String value) {
+        return new CodeValue(value);
+    }
+}
