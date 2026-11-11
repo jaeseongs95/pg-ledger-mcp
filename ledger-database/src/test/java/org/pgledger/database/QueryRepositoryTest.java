@@ -119,65 +119,80 @@ class QueryRepositoryTest implements DbmsAware {
         assertThat(walk(project, order, null)).isEqualTo(expected);
     }
 
-    @Test
-    void repo027_searchIsCaseInsensitiveAndEscapesLikeCharacters() {
+    /** Keywords, how they combine, and the titles found (newest first) among the six defects of the fixture. */
+    private record Search(List<String> keywords, KeywordMatch match, List<String> titles) {
+        @Override
+        public String toString() {
+            return keywords + " " + match;
+        }
+    }
+
+    private static final List<String> SEARCH_TITLES = List.of("Login Bug", "login bug", "LOGIN BUG", "100%_done",
+            "a\\b", "1000 done");
+    private static final List<String> LOGIN_TITLES = List.of("LOGIN BUG", "login bug", "Login Bug");
+
+    static Stream<Search> searches() {
+        return Stream.of(
+                new Search(List.of("login"), KeywordMatch.ANY, LOGIN_TITLES),
+                new Search(List.of("LOGIN"), KeywordMatch.ANY, LOGIN_TITLES),
+                new Search(List.of("100%"), KeywordMatch.ANY, List.of("100%_done")),
+                new Search(List.of("_done"), KeywordMatch.ANY, List.of("100%_done")),
+                new Search(List.of("a\\b"), KeywordMatch.ANY, List.of("a\\b")),
+                new Search(List.of("login", "nothing"), KeywordMatch.ANY, LOGIN_TITLES),
+                new Search(List.of("login", "nothing"), KeywordMatch.ALL, List.of()),
+                new Search(List.of("behavior of login"), KeywordMatch.ANY, LOGIN_TITLES),
+                new Search(List.of("'; DROP TABLE project; --"), KeywordMatch.ANY, List.of()));
+    }
+
+    @ParameterizedTest
+    @MethodSource("searches")
+    void repo027_searchIsCaseInsensitiveAndEscapesLikeCharacters(Search search) {
         Project project = seed.project();
-        seed.defect(project, 1, "Login Bug", LedgerTestContext.START.plusSeconds(1));
-        seed.defect(project, 2, "login bug", LedgerTestContext.START.plusSeconds(2));
-        seed.defect(project, 3, "LOGIN BUG", LedgerTestContext.START.plusSeconds(3));
-        seed.defect(project, 4, "100%_done", LedgerTestContext.START.plusSeconds(4));
-        seed.defect(project, 5, "a\\b", LedgerTestContext.START.plusSeconds(5));
-        seed.defect(project, 6, "1000 done", LedgerTestContext.START.plusSeconds(6));
-        assertThat(search(project, "login")).hasSize(3);
-        assertThat(search(project, "LOGIN")).hasSize(3);
-        assertThat(search(project, "100%")).extracting(DefectSummary::title).containsExactly("100%_done");
-        assertThat(search(project, "_done")).extracting(DefectSummary::title).containsExactly("100%_done");
-        assertThat(search(project, "a\\b")).extracting(DefectSummary::title).containsExactly("a\\b");
-        // the percent sign and underscore are literal: "1000 done" matches neither "100%" nor "_done"
-        assertThat(search(project, "100%")).extracting(DefectSummary::title).doesNotContain("1000 done");
-        // any versus all keywords
-        assertThat(queries.search(project.id(), List.of("login", "nothing"), KeywordMatch.ANY, MaxRows.DEFAULT).rows())
-                .hasSize(3);
-        assertThat(queries.search(project.id(), List.of("login", "nothing"), KeywordMatch.ALL, MaxRows.DEFAULT).rows())
-                .isEmpty();
-        // the long text columns are searched too
-        assertThat(search(project, "behavior of login")).hasSize(3);
-        // injection text is data: the table survives and nothing matches
-        assertThat(search(project, "'; DROP TABLE project; --")).isEmpty();
+        IntStream.range(0, SEARCH_TITLES.size()).forEach(i -> seed.defect(project, i + 1, SEARCH_TITLES.get(i),
+                LedgerTestContext.START.plusSeconds(i + 1)));
+        assertThat(queries.search(project.id(), search.keywords(), search.match(), MaxRows.DEFAULT).rows())
+                .extracting(DefectSummary::title).containsExactlyElementsOf(search.titles());
         assertThat(JdbcClient.create(ctx.pool()).sql("SELECT COUNT(*) FROM project").query(Integer.class).single())
-                .isPositive();
-        assertThatThrownBy(() -> queries.search(project.id(), List.of(), KeywordMatch.ANY, MaxRows.DEFAULT))
+                .as("injection text is data: the table survives").isPositive();
+    }
+
+    @Test
+    void repo027_aSearchWithoutKeywordsIsRefused() {
+        assertThatThrownBy(() -> queries.search(seed.project().id(), List.of(), KeywordMatch.ANY, MaxRows.DEFAULT))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    private List<DefectSummary> search(Project project, String keyword) {
-        return queries.search(project.id(), List.of(keyword), KeywordMatch.ANY, MaxRows.DEFAULT).rows();
-    }
-
-    @Test
-    void repo028_dayRangesAreInclusiveAtBothEnds() {
-        Project project = seed.project();
-        Instant[] times = {Instant.parse("2026-11-04T23:59:59.999999Z"), Instant.parse("2026-11-05T00:00:00Z"),
-                Instant.parse("2026-11-05T14:59:59Z"), Instant.parse("2026-11-05T15:00:00Z")};
-        for (int i = 0; i < times.length; i++) {
-            seed.defect(project, i + 1, "t" + i, times[i]);
+    /** A creation-time range (inclusive; an open end is null) and the titles it finds, oldest first. */
+    private record Range(String name, Instant from, Instant to, List<String> titles) {
+        @Override
+        public String toString() {
+            return name;
         }
-        // the UTC day 2026-11-05
-        assertThat(titles(project, Instant.parse("2026-11-05T00:00:00Z"), Instant.parse("2026-11-05T23:59:59.999999Z")))
-                .containsExactlyInAnyOrder("t1", "t2", "t3");
-        // the same day in Seoul (KST) is 2026-11-04T15:00:00Z .. 2026-11-05T14:59:59.999999Z
-        assertThat(titles(project, Instant.parse("2026-11-04T15:00:00Z"), Instant.parse("2026-11-05T14:59:59.999999Z")))
-                .containsExactlyInAnyOrder("t0", "t1", "t2");
-        assertThat(titles(project, Instant.parse("2026-11-05T14:59:59Z"), Instant.parse("2026-11-05T15:00:00Z")))
-                .containsExactlyInAnyOrder("t2", "t3");
-        assertThat(queries.page(project.id(), new Filter(null, null, null, Instant.parse("2026-11-05T15:00:00Z"), null),
-                MaxRows.DEFAULT, Order.OLDEST_FIRST, null).rows()).extracting(DefectSummary::title)
-                .containsExactly("t3");
     }
 
-    private List<String> titles(Project project, Instant from, Instant to) {
-        return queries.page(project.id(), new Filter(null, null, null, from, to), MaxRows.DEFAULT,
-                Order.OLDEST_FIRST, null).rows().stream().map(DefectSummary::title).toList();
+    private static final List<Instant> RANGE_TIMES = List.of(Instant.parse("2026-11-04T23:59:59.999999Z"),
+            Instant.parse("2026-11-05T00:00:00Z"), Instant.parse("2026-11-05T14:59:59Z"),
+            Instant.parse("2026-11-05T15:00:00Z"));
+
+    static Stream<Range> ranges() {
+        return Stream.of(
+                new Range("the UTC day 2026-11-05", Instant.parse("2026-11-05T00:00:00Z"),
+                        Instant.parse("2026-11-05T23:59:59.999999Z"), List.of("t1", "t2", "t3")),
+                new Range("the same day in Seoul (KST)", Instant.parse("2026-11-04T15:00:00Z"),
+                        Instant.parse("2026-11-05T14:59:59.999999Z"), List.of("t0", "t1", "t2")),
+                new Range("both ends are inclusive", Instant.parse("2026-11-05T14:59:59Z"),
+                        Instant.parse("2026-11-05T15:00:00Z"), List.of("t2", "t3")),
+                new Range("open end", Instant.parse("2026-11-05T15:00:00Z"), null, List.of("t3")));
+    }
+
+    @ParameterizedTest
+    @MethodSource("ranges")
+    void repo028_dayRangesAreInclusiveAtBothEnds(Range range) {
+        Project project = seed.project();
+        IntStream.range(0, RANGE_TIMES.size()).forEach(i -> seed.defect(project, i + 1, "t" + i, RANGE_TIMES.get(i)));
+        assertThat(queries.page(project.id(), new Filter(null, null, null, range.from(), range.to()),
+                MaxRows.DEFAULT, Order.OLDEST_FIRST, null).rows()).extracting(DefectSummary::title)
+                .containsExactlyElementsOf(range.titles());
     }
 
     @Test

@@ -205,11 +205,13 @@ class DriverBoundaryTest {
         String url = target.dbms().newUrl();
         Set<String> before = registeredDrivers();
         DriverRegistration registration = DriverLoader.describe(target.jar().toString(), target.className(), url, NOW);
-        assertThat(registration.sha256()).isEqualTo(sha(target.jar()));
+        assertThat(registration).isEqualTo(new DriverRegistration(target.jar().toString(), target.className(),
+                sha(target.jar()), NOW));
         LedgerJdbcProperties properties = new LedgerJdbcProperties(url, null, null, 2, registration);
         try (RegisteredDriver registered = DriverLoader.load(registration);
                 HikariDataSource pool = DriverDataSources.create(registered, properties, null)) {
             Driver driver = registered.driver();
+            assertThat(registeredDrivers()).as("the DriverManager is not involved while the pool runs").isEqualTo(before);
             assertThat(driver.getClass().getClassLoader()).isInstanceOf(URLClassLoader.class);
             assertThat(pool.getDataSource()).isInstanceOf(SimpleDriverDataSource.class);
             try (Connection c = pool.getConnection(); var s = c.createStatement(); var rs = s.executeQuery("SELECT 1")) {
@@ -228,8 +230,10 @@ class DriverBoundaryTest {
     void drv008_aJarThatChangedSinceRegistrationIsRefusedBeforeAnyConnection() {
         DriverRegistration registration = new DriverRegistration(h2Jar().toString(), "org.h2.Driver",
                 "0".repeat(64), NOW);
-        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> DriverLoader.load(registration))))
-                .isEqualTo(InfrastructureCode.DRIVER_INVALID);
+        InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
+                () -> DriverLoader.load(registration));
+        assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
+        assertThat(thrown.args().getFirst()).contains("digest mismatch").contains(h2Jar().toString());
     }
 
     @Test
