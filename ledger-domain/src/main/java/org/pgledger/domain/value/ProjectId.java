@@ -7,7 +7,8 @@ import org.pgledger.domain.error.ValidationReason;
 /** Primary key of a project (the {@code project_id} of the tool contract); not the same as its code. */
 public record ProjectId(String value) {
 
-    private static final Pattern FORMAT = Pattern.compile("[A-Za-z0-9_-]{1,64}");
+    /** The format the constructor enforces (the legacy import checks it without throwing). */
+    public static final Pattern FORMAT = Pattern.compile("[A-Za-z0-9_-]{1,64}");
 
     public ProjectId {
         if (value == null || !FORMAT.matcher(value).matches()) {

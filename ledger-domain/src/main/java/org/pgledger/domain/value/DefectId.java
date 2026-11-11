@@ -9,7 +9,8 @@ import org.pgledger.domain.error.ValidationReason;
 /** {@code <PROJECT_CODE>-D-<number>}: the number is zero padded to 4 digits and grows past 9999. */
 public record DefectId(String value) {
 
-    private static final Pattern FORMAT = Pattern.compile("([A-Z][A-Z0-9_]{0,31})-D-([0-9]{4,})");
+    /** The format the constructor enforces (the legacy import checks it without throwing). */
+    public static final Pattern FORMAT = Pattern.compile("([A-Z][A-Z0-9_]{0,31})-D-([0-9]{4,})");
 
     public DefectId {
         if (value == null || !FORMAT.matcher(value).matches()) {

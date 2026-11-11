@@ -88,7 +88,9 @@ public enum ValidationReason {
     /** The fingerprint line of the pasted block is not the fingerprint of its public key. */
     KEY_BLOCK_FINGERPRINT_DIFFERS,
     /** {0} = the author the pasted block is for. */
-    KEY_BLOCK_AUTHOR_DIFFERS;
+    KEY_BLOCK_AUTHOR_DIFFERS,
+    /** The defect is merged, through the chain of its merge targets, into itself (the legacy import cannot order the rows). */
+    MERGE_CHAIN_LOOPS;
 
     private static final String PREFIX = "reason.";
 

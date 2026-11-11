@@ -235,6 +235,6 @@ CREATE TABLE owner_audit (
   detail VARCHAR(1000),
   CONSTRAINT pk_owner_audit PRIMARY KEY (id),
   CONSTRAINT ck_owner_audit_operation CHECK (operation IN ('GRANT_ISSUED', 'GRANT_REVOKED', 'KEY_REGISTERED',
-    'KEY_REPLACED', 'KEY_REVOKED', 'CODE_SET', 'PROJECT_ADDED', 'DRIVER_REGISTERED'))
+    'KEY_REPLACED', 'KEY_REVOKED', 'CODE_SET', 'PROJECT_ADDED', 'DRIVER_REGISTERED', 'IMPORT'))
 );
 CREATE INDEX ix_owner_audit_subject ON owner_audit (subject, id);
