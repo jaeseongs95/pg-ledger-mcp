@@ -82,6 +82,25 @@ class ArchitectureTest {
     }
 
     @Test
+    @DisplayName("ARC-036 catch rules: no empty catch, no broad catch outside the test entry that plays the CLI boundary")
+    void arc036_catchRules() {
+        assertThat(CodingScan.catchProblems(Set.of("CliExtension.java"), null, Path.of("src", "main", "java"),
+                Path.of("src", "test", "java"))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ARC-037 string rules: literal first in equals, no == on strings, no string switch, no intern(), no new String(")
+    void arc037_stringRules() {
+        noClasses().should().callMethod(String.class, "intern")
+                .orShould().callConstructor(String.class, String.class)
+                .orShould().callConstructor(String.class, byte[].class)
+                .orShould().callConstructor(String.class, byte[].class, java.nio.charset.Charset.class)
+                .check(MAIN);
+        assertThat(CodingScan.stringProblems(Set.of(), Path.of("src", "main", "java"), Path.of("src", "test", "java")))
+                .isEmpty();
+    }
+
+    @Test
     @DisplayName("The module does not depend on JDBC or a DataSource")
     void noJdbcDependency() {
         noClasses().should().dependOnClassesThat().resideInAnyPackage("java.sql..", "javax.sql..", "org.springframework.jdbc..")

@@ -124,7 +124,9 @@ public class SecretStore {
     /** Temporary 0600 file in the same directory, flushed to disk, then an atomic move over the target. */
     private void replace(Path target, ByteBuffer bytes) throws IOException {
         Path temporary = Files.createTempFile(directory, TEMPORARY_PREFIX, TEMPORARY_SUFFIX, PosixFilePermissions.asFileAttribute(FILE_MODE));
-        try {
+        // try-with-resources, no catch: unless the move happened the temporary file is deleted again, and a failure of
+        // that delete is added to the original failure as a suppressed exception.
+        try (TemporaryFile guard = new TemporaryFile(temporary)) {
             try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
                 while (bytes.hasRemaining()) {
                     channel.write(bytes);
@@ -133,13 +135,29 @@ public class SecretStore {
             }
             // ceiling: the directory itself is not fsynced; a crash right after the move can still lose the rename.
             Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException | RuntimeException e) {
-            try {
-                Files.deleteIfExists(temporary);
-            } catch (IOException cleanup) {
-                e.addSuppressed(cleanup);
+            guard.moved();
+        }
+    }
+
+    /** Deletes the temporary file on close unless it was moved to its place. */
+    private static final class TemporaryFile implements AutoCloseable {
+
+        private final Path path;
+        private boolean moved;
+
+        TemporaryFile(Path path) {
+            this.path = path;
+        }
+
+        void moved() {
+            moved = true;
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (!moved) {
+                Files.deleteIfExists(path);
             }
-            throw e;
         }
     }
 
@@ -159,7 +177,7 @@ public class SecretStore {
             }
         } catch (CharacterCodingException e) {
             Arrays.fill(bytes.array(), (byte) 0);
-            throw new FailureException(ErrorCode.INVALID_ENCODING);
+            throw new FailureException(ErrorCode.INVALID_ENCODING, e);
         }
         bytes.flip();
         return bytes;
