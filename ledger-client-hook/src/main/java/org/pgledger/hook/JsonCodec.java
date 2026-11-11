@@ -4,6 +4,7 @@ import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonParser;
 import tools.jackson.core.StreamReadConstraints;
 import tools.jackson.core.StreamWriteConstraints;
 import tools.jackson.core.json.JsonFactory;
@@ -66,14 +67,14 @@ public final class JsonCodec {
      * @throws JacksonException if the bytes are not exactly one valid JSON document
      */
     <T> T readEvent(byte[] json, Class<T> type) throws JacksonException {
-        // Anything that is not exactly one valid JSON document fails here and is the caller's malformed input.
-        mapper.readTree(json);
         try {
             return mapper.readValue(json, type);
         } catch (DatabindException notThisShape) {
-            // valid JSON, but not an event of this host: not an error, the caller treats it as "not a ledger call"
-            LOG.log(Level.FINE, "the JSON document is not an event of the host", notThisShape);
-            return null;
+            if (isOneJsonDocument(json)) {
+                LOG.log(Level.FINE, "the JSON document is not an event of the host", notThisShape);
+                return null;
+            }
+            throw notThisShape;
         }
     }
 
@@ -98,5 +99,16 @@ public final class JsonCodec {
     /** The compact JSON text, for a host that carries JSON inside a JSON string. */
     String writeText(JsonNode node) throws JacksonException {
         return mapper.writeValueAsString(node);
+    }
+
+    /** Whether the bytes are exactly one valid JSON value or nothing, checked token by token without a tree. */
+    private boolean isOneJsonDocument(byte[] json) {
+        try (JsonParser parser = mapper.createParser(json)) {
+            if (parser.nextToken() == null) {
+                return true;
+            }
+            parser.skipChildren();
+            return parser.nextToken() == null;
+        }
     }
 }

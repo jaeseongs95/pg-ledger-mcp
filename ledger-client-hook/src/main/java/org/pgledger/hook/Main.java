@@ -1,10 +1,7 @@
 package org.pgledger.hook;
 
-import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Entry point of {@code java -jar ledger-client-hook.jar <claude|codex|antigravity>}: the only class that is
@@ -15,19 +12,10 @@ import java.util.logging.Logger;
  */
 public final class Main {
 
-    private static final Logger LOG = Logger.getLogger(Main.class.getName());
-
     private Main() {}
 
     public static void main(String[] args) {
-        int status;
-        try {
-            status = new HookCli(JsonCodec.create()).run(args, System.in, System.out, System.err);
-        } catch (IOException e) {
-            // The one place that ends the process: the failure is logged with its cause (to stderr, by the JDK logger).
-            LOG.log(Level.SEVERE, "ledger: hook I/O failure", e);
-            status = 2;
-        }
+        int status = new HookCli(JsonCodec.create()).run(args, System.in, System.out, System.err);
         PrintStream stdout = System.out;
         stdout.flush();
         if (stdout.checkError() && status == 0) {
