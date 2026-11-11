@@ -1,6 +1,7 @@
 package org.pgledger.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -107,7 +108,7 @@ class RuntimeToolTest {
                 .untilAsserted(() -> assertThat(output.getAll()).contains("a scheduled task failed"));
         Whoami during = session.ok("ledger_whoami", Calls.Whoami.as("claude:nobody"), Whoami.class);
         database.sql("ALTER TABLE code_revision_away RENAME TO code_revision").update();
-        context.getBean(CommonCodeService.class).set(CodeChanges.active(CodeChanges.CATEGORY, "AFTER_OUTAGE"));
+        context.getBean(CommonCodeService.class).set(CodeChanges.active(CodeChanges.CATEGORY, "AFTER_OUTAGE"), TestOwners.OWNER);
         List<Tool> announced = session.awaitListChange(NOTIFICATION);
 
         assertThat(during.author()).isEqualTo("claude:nobody");

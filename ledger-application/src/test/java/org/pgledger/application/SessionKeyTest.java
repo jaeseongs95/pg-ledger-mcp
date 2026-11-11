@@ -1,6 +1,7 @@
 package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -48,7 +49,7 @@ class SessionKeyTest {
         SessionKeyService keys = s.bean(SessionKeyService.class);
         String author = newAuthor();
         KeyPair pair = TestKeyRing.newPair();
-        Registered registered = keys.register(new RegisterCommand(author, publicKey(pair), "laptop"));
+        Registered registered = keys.register(new RegisterCommand(author, publicKey(pair), "laptop"), TestOwners.OWNER);
         assertThat(registered.author()).isEqualTo(author);
         assertThat(registered.fingerprint()).isEqualTo(PublicKeys.fingerprint(pair.getPublic())).matches("[0-9a-f]{64}");
         SessionPublicKey live = keys.live(author).orElseThrow();
@@ -67,8 +68,8 @@ class SessionKeyTest {
         SessionKeyService keys = s.bean(SessionKeyService.class);
         String author = newAuthor();
         KeyPair pair = TestKeyRing.newPair();
-        Registered first = keys.register(new RegisterCommand(author, publicKey(pair), null));
-        Registered second = keys.register(new RegisterCommand(author, " " + publicKey(pair) + "\n", "again"));
+        Registered first = keys.register(new RegisterCommand(author, publicKey(pair), null), TestOwners.OWNER);
+        Registered second = keys.register(new RegisterCommand(author, " " + publicKey(pair) + "\n", "again"), TestOwners.OWNER);
         assertThat(second).isEqualTo(first);
         assertThat(keys.history(author)).hasSize(1);
         assertThat(keys.history(author).getFirst().note()).isNull();
@@ -83,7 +84,7 @@ class SessionKeyTest {
         long old = keys.live(author).orElseThrow().id();
         s.ctx().clock().set(s.ctx().clock().instant().plusSeconds(60));
         Registered registered = keys.registerReplacing(new RegisterCommand(author, publicKey(replacement), "rotated"),
-                OwnerIdentity.SYSTEM, keys.live(author).orElseThrow().fingerprint());
+                TestOwners.OWNER, keys.live(author).orElseThrow().fingerprint());
         assertThat(registered.id()).isNotEqualTo(old);
         List<SessionPublicKey> history = keys.history(author);
         assertThat(history).extracting(SessionPublicKey::id).containsExactly(old, registered.id());
@@ -111,13 +112,13 @@ class SessionKeyTest {
         String first = newAuthor();
         String second = newAuthor();
         String key = publicKey(TestKeyRing.newPair());
-        keys.register(new RegisterCommand(first, key, null));
-        LedgerException failure = Expect.failure(() -> keys.register(new RegisterCommand(second, key, null)),
+        keys.register(new RegisterCommand(first, key, null), TestOwners.OWNER);
+        LedgerException failure = Expect.failure(() -> keys.register(new RegisterCommand(second, key, null), TestOwners.OWNER),
                 ConflictCode.DUPLICATE_KEY);
         assertThat(failure.args().getFirst()).startsWith("public key ");
         assertThat(keys.live(second)).isEmpty();
-        assertThat(keys.revoke(first)).isTrue();
-        assertThat(keys.register(new RegisterCommand(second, key, null)).author()).isEqualTo(second);
+        assertThat(keys.revoke(first, TestOwners.OWNER)).isTrue();
+        assertThat(keys.register(new RegisterCommand(second, key, null), TestOwners.OWNER).author()).isEqualTo(second);
     }
 
     @Test
@@ -129,15 +130,15 @@ class SessionKeyTest {
                 .getPublic().getEncoded());
         String privateKey = Base64.getEncoder().encodeToString(TestKeyRing.newPair().getPrivate().getEncoded());
         for (String bad : new String[] {null, "", "   ", "not base64!", rsa, privateKey, "AAAA"}) {
-            LedgerException failure = Expect.failure(() -> keys.register(new RegisterCommand(author, bad, null)),
+            LedgerException failure = Expect.failure(() -> keys.register(new RegisterCommand(author, bad, null), TestOwners.OWNER),
                     ValidationCode.VALIDATION_FAILED);
             assertThat(failure.args()).containsExactly("public_key");
             assertThat(Expect.firstIssue(failure).reason()).isEqualTo(ValidationReason.MUST_BE_ED25519_PUBLIC_KEY);
         }
         String good = publicKey(TestKeyRing.newPair());
-        Expect.failure(() -> keys.register(new RegisterCommand("claude", good, null)), TrustCode.AUTHOR_ID_FORMAT);
-        Expect.failure(() -> keys.register(new RegisterCommand("user:someone", good, null)), TrustCode.AUTHOR_ID_FORMAT);
-        LedgerException missing = Expect.failure(() -> keys.register(new RegisterCommand(null, good, null)),
+        Expect.failure(() -> keys.register(new RegisterCommand("claude", good, null), TestOwners.OWNER), TrustCode.AUTHOR_ID_FORMAT);
+        Expect.failure(() -> keys.register(new RegisterCommand("user:someone", good, null), TestOwners.OWNER), TrustCode.AUTHOR_ID_FORMAT);
+        LedgerException missing = Expect.failure(() -> keys.register(new RegisterCommand(null, good, null), TestOwners.OWNER),
                 ValidationCode.VALIDATION_FAILED);
         assertThat(missing.args()).containsExactly("author");
         assertThat(keys.history(author)).isEmpty();
@@ -148,15 +149,15 @@ class SessionKeyTest {
     void key06_revoke(Scenario s) {
         SessionKeyService keys = s.bean(SessionKeyService.class);
         String author = s.actorWith("defect");
-        assertThat(keys.revoke(author)).isTrue();
-        assertThat(keys.revoke(author)).isFalse();
-        assertThat(keys.revoke(newAuthor())).isFalse();
+        assertThat(keys.revoke(author, TestOwners.OWNER)).isTrue();
+        assertThat(keys.revoke(author, TestOwners.OWNER)).isFalse();
+        assertThat(keys.revoke(newAuthor(), TestOwners.OWNER)).isFalse();
         assertThat(keys.live(author)).isEmpty();
         assertThat(keys.history(author)).hasSize(1).allSatisfy(row -> assertThat(row.revokedAt()).isNotNull());
         String request = UUID.randomUUID().toString();
         String token = s.ctx().keys().token(author, "ledger_save", request, s.ctx().clock().instant());
         Expect.failure(() -> asSave(s, token, request), TrustCode.SESSION_KEY_NOT_REGISTERED);
-        keys.register(new RegisterCommand(author, publicKey(s.ctx().keys().pairOf(author)), null));
+        keys.register(new RegisterCommand(author, publicKey(s.ctx().keys().pairOf(author)), null), TestOwners.OWNER);
         assertThat(asSave(s, token, request).author()).isEqualTo(author);
         assertThat(keys.history(author)).hasSize(2);
     }
@@ -167,7 +168,7 @@ class SessionKeyTest {
         SessionKeyService keys = s.bean(SessionKeyService.class);
         String author = newAuthor();
         List<Callable<Object>> calls = IntStream.range(0, 2).<Callable<Object>>mapToObj(i -> () -> keys.register(
-                new RegisterCommand(author, publicKey(TestKeyRing.newPair()), "n" + i))).toList();
+                new RegisterCommand(author, publicKey(TestKeyRing.newPair()), "n" + i), TestOwners.OWNER)).toList();
         List<Parallel.Outcome<Object>> outcomes = Parallel.all(calls);
         assertThat(outcomes.stream().filter(Parallel.Outcome::succeeded)).hasSize(1);
         assertThat(outcomes.stream().filter(o -> !o.succeeded())).singleElement().satisfies(o -> assertThat(o.failure())
@@ -183,9 +184,9 @@ class SessionKeyTest {
     void key08_rows(Scenario s) {
         SessionKeyService keys = s.bean(SessionKeyService.class);
         String author = newAuthor();
-        keys.register(new RegisterCommand(author, publicKey(TestKeyRing.newPair()), null));
-        keys.revoke(author);
-        keys.register(new RegisterCommand(author, publicKey(TestKeyRing.newPair()), null));
+        keys.register(new RegisterCommand(author, publicKey(TestKeyRing.newPair()), null), TestOwners.OWNER);
+        keys.revoke(author, TestOwners.OWNER);
+        keys.register(new RegisterCommand(author, publicKey(TestKeyRing.newPair()), null), TestOwners.OWNER);
         List<Long> ids = keys.history(author).stream().map(SessionPublicKey::id).toList();
         assertThat(ids.get(1)).isEqualTo(ids.get(0) + 1);
         assertThat(keys.history(author)).allSatisfy(row -> {

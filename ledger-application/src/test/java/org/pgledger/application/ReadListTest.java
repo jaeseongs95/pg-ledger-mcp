@@ -1,6 +1,7 @@
 package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -83,7 +84,7 @@ class ReadListTest {
                     "list-" + s.code().toLowerCase() + "-" + i, "L" + s.code() + "X" + i, "list project " + i)));
             IntStream.rangeClosed(1, ROWS).forEach(i -> s.bean(CommonCodeService.class).set(new CodeCommand(
                     "RELATION_KIND", "LST_" + s.code() + "_" + i, "목록 " + i, null, null, null, 500 + i,
-                    "INACTIVE")));
+                    "INACTIVE"), TestOwners.OWNER));
             return s;
         });
     }

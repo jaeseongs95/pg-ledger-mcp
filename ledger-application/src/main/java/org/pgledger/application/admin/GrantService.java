@@ -64,15 +64,6 @@ public class GrantService {
     }
 
     /**
-     * Issues the grants for a caller that has no person behind it (tests, imports); the owner operations of the admin
-     * web and of the command line tool name who they are with {@link #grant(GrantCommand, OwnerIdentity)}.
-     */
-    @Retryable(includes = DuplicateKeyException.class, maxRetries = 3, delay = 10)
-    public List<Long> grant(GrantCommand command) {
-        return issueAll(command, OwnerIdentity.SYSTEM);
-    }
-
-    /**
      * Issues the grants and returns the id of each, one per scope in the order given; who issued them is recorded in the
      * owner's audit trail in the same transaction. Another grant of the same key that commits first makes the insert a
      * duplicate key; the whole call is then retried in a new transaction (the retry is the outer advice, the
@@ -120,11 +111,6 @@ public class GrantService {
     private void closeLive(AuthorId author, ProjectId project, Scope scope, Instant now) {
         grants.findByActiveKey(SessionGrant.liveKey(author, project, scope))
                 .ifPresent(open -> state.revoke(open.id(), now));
-    }
-
-    /** Revokes the matching live grants for a caller that has no person behind it and returns how many. */
-    public int revoke(RevokeCommand command) {
-        return revokeAll(command, OwnerIdentity.SYSTEM);
     }
 
     /** Revokes the matching live grants, records who did it in the owner's audit trail, and returns how many. */

@@ -62,15 +62,6 @@ public class SessionKeyService {
     }
 
     /**
-     * Binds the key to an author that has no live key yet, for a caller that has no person behind it (tests); the owner
-     * operations name who they are with {@link #register(RegisterCommand, OwnerIdentity)}.
-     */
-    @Retryable(includes = DuplicateKeyException.class, maxRetries = 3, delay = 10)
-    public Registered register(RegisterCommand command) {
-        return bind(command, OwnerIdentity.SYSTEM, null);
-    }
-
-    /**
      * Binds the key to an author that has no live key yet and records who did it in the owner's audit trail. Registering
      * the key that is already live for the author changes nothing and answers with the existing row. A key that is live
      * for another author is refused (DUPLICATE_KEY). An author that already has another live key is refused
@@ -129,14 +120,6 @@ public class SessionKeyService {
                 author.value(), "key=" + fingerprint
                         + current.map(open -> " replaced=" + open.fingerprint()).orElse(""));
         return registered(row);
-    }
-
-    /**
-     * Closes the live key of the author for a caller that has no person behind it; true when there was one. The author
-     * cannot write until a key is registered.
-     */
-    public boolean revoke(String author) {
-        return revoke(author, OwnerIdentity.SYSTEM);
     }
 
     /** Closes the live key of the author and records who did it; true when there was one. */

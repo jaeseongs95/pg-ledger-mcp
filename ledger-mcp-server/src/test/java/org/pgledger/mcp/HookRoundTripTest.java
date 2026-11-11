@@ -1,6 +1,7 @@
 package org.pgledger.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import java.io.IOException;
@@ -71,7 +72,7 @@ class HookRoundTripTest {
         assertThat(PublicKeys.fingerprint(PublicKeys.decode(publicKey))).isEqualTo(fingerprint);
 
         // 2. the owner compares the fingerprint, registers the key and grants the session
-        assertThat(owner.register(new SessionKeyService.RegisterCommand(author, publicKey, "round trip"))
+        assertThat(owner.register(new SessionKeyService.RegisterCommand(author, publicKey, "round trip"), TestOwners.OWNER)
                 .fingerprint()).isEqualTo(fingerprint);
         scenario.grant(author, "defect");
 

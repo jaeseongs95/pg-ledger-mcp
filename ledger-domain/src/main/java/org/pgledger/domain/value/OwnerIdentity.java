@@ -13,9 +13,6 @@ public record OwnerIdentity(String value) {
     /** The longest identity ({@code owner_audit.actor} is 300 characters). */
     public static final int MAX_LENGTH = 300;
 
-    /** The identity of a caller that has no person behind it (tests, imports); the services never assume it. */
-    public static final OwnerIdentity SYSTEM = new OwnerIdentity("system");
-
     /**
      * @throws IllegalArgumentException when the value is null, blank, longer than {@value #MAX_LENGTH} characters or
      *         has a control character (the caller builds it from a trusted sign-in, so this is a programming error)

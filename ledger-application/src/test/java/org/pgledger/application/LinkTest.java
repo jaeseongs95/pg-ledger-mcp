@@ -1,6 +1,7 @@
 package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import java.util.List;
 import java.util.Map;
@@ -93,7 +94,7 @@ class LinkTest {
     @DisplayName("SVC-LNK-05: an inactive relation kind is refused for a new link")
     void lnk05_inactiveKind(Scenario s) {
         s.bean(CommonCodeService.class).set(new CodeCommand("RELATION_KIND", "old_kind", "old", null, null, null, 50,
-                "INACTIVE"));
+                "INACTIVE"), TestOwners.OWNER);
         SaveResult d1 = s.newDefect("one");
         SaveResult d2 = s.newDefect("two");
         Expect.failure(() -> link(s, "old_kind", d1.id(), d2.id(), null), ValidationCode.CODE_INVALID);
@@ -164,7 +165,7 @@ class LinkTest {
     @DisplayName("SVC-LNK-10: a code added with code-set is usable at once, without a restart")
     void lnk10_newKind(Scenario s) {
         s.bean(CommonCodeService.class).set(new CodeCommand("RELATION_KIND", "test_relation", "test", null, null, null,
-                60, null));
+                60, null), TestOwners.OWNER);
         SaveResult d1 = s.newDefect("one");
         SaveResult d2 = s.newDefect("two");
         assertThat(link(s, "test_relation", d1.id(), d2.id(), null).id()).endsWith("|test_relation");

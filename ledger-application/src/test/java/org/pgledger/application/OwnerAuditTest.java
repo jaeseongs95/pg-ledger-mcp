@@ -36,6 +36,7 @@ import org.pgledger.domain.value.OwnerIdentity;
 class OwnerAuditTest {
 
     private static final OwnerIdentity OWNER = OwnerIdentity.of("token:owner");
+    private static final OwnerIdentity OTHER_OWNER = OwnerIdentity.of("oidc:https://issuer.example#sub-1");
 
     private static String newAuthor() {
         return "claude:audit" + UUID.randomUUID().toString().substring(0, 8);
@@ -70,23 +71,22 @@ class OwnerAuditTest {
     }
 
     @Test
-    @DisplayName("SVC-GRT-07: the calls without an identity record system; a refused grant leaves no audit row")
-    void grt07_systemAndRefused(Scenario s) {
+    @DisplayName("SVC-GRT-07: the identity of another owner is recorded as given; a refused grant leaves no audit row")
+    void grt07_otherOwnerAndRefused(Scenario s) {
         GrantService grants = s.bean(GrantService.class);
         String author = newAuthor();
-        grants.grant(new GrantCommand(author, s.projectId(), List.of("fix"), null, null));
+        grants.grant(new GrantCommand(author, s.projectId(), List.of("fix"), null, null), OTHER_OWNER);
         Expect.failure(() -> grants.grant(new GrantCommand(author, "nowhere", List.of("fix"), null, null), OWNER),
                 LookupCode.NOT_FOUND);
 
         assertThat(audit(s, author + "|" + s.projectId())).singleElement().satisfies(row -> assertThat(row)
-                .startsWith("GRANT_ISSUED system "));
+                .startsWith("GRANT_ISSUED oidc:https://issuer.example#sub-1 "));
         assertThat(audit(s, author + "|nowhere")).isEmpty();
     }
 
     @Test
     @DisplayName("SVC-GRT-08: an owner identity is 1 to 300 characters without a control character")
     void grt08_identity() {
-        assertThat(OwnerIdentity.SYSTEM.value()).isEqualTo("system");
         assertThat(OwnerIdentity.of("x".repeat(300)).value()).hasSize(300);
         for (String bad : new String[] {null, "", "   ", "x".repeat(301), "line\nbreak", "bell\u0007"}) {
             assertThatThrownBy(() -> OwnerIdentity.of(bad)).isInstanceOf(IllegalArgumentException.class);
@@ -94,8 +94,7 @@ class OwnerAuditTest {
     }
 
     @Test
-    @DisplayName("SVC-CC-11: a code that is added or changed is audited with the identity; an identical set and the call "
-            + "without identity behave as specified")
+    @DisplayName("SVC-CC-11: a code that is added or changed is audited with the identity; an identical set and another owner behave as specified")
     void cc11_codeChangesAreAudited(Scenario s) {
         CommonCodeService codes = s.bean(CommonCodeService.class);
         String name = "AUD_" + s.code();
@@ -104,10 +103,10 @@ class OwnerAuditTest {
         codes.set(added, OWNER);
         codes.set(added, OWNER);
         codes.set(new CodeCommand("RELATION_KIND", name, "감사", "Audit", null, null, 70, "INACTIVE"), OWNER);
-        codes.set(new CodeCommand("RELATION_KIND", name, "감사", "Audit", null, null, 70, "ACTIVE"));
+        codes.set(new CodeCommand("RELATION_KIND", name, "감사", "Audit", null, null, 70, "ACTIVE"), OTHER_OWNER);
 
         assertThat(audit(s, subject)).containsExactly("CODE_SET token:owner added state=ACTIVE",
-                "CODE_SET token:owner changed state=INACTIVE", "CODE_SET system changed state=ACTIVE");
+                "CODE_SET token:owner changed state=INACTIVE", "CODE_SET oidc:https://issuer.example#sub-1 changed state=ACTIVE");
     }
 
     @Test
@@ -160,11 +159,24 @@ class OwnerAuditTest {
         keys.registerReplacing(new RegisterCommand(author, publicKey(second), null), OWNER, firstPrint);
         assertThat(keys.revoke(author, OWNER)).isTrue();
         assertThat(keys.revoke(author, OWNER)).isFalse();
-        keys.register(firstKey);
+        keys.register(firstKey, OTHER_OWNER);
 
         assertThat(audit(s, author)).containsExactly("KEY_REGISTERED token:owner key=" + firstPrint,
                 "KEY_REPLACED token:owner key=" + secondPrint + " replaced=" + firstPrint,
-                "KEY_REVOKED token:owner key=" + secondPrint, "KEY_REGISTERED system key=" + firstPrint);
+                "KEY_REVOKED token:owner key=" + secondPrint, "KEY_REGISTERED oidc:https://issuer.example#sub-1 key=" + firstPrint);
+    }
+
+    @Test
+    @DisplayName("SVC-GRT-09: every owner operation of the services takes the owner identity")
+    void grt09_noActorlessOperation() {
+        for (Class<?> service : List.of(GrantService.class, CommonCodeService.class, SessionKeyService.class)) {
+            for (java.lang.reflect.Method method : service.getDeclaredMethods()) {
+                if (java.lang.reflect.Modifier.isPublic(method.getModifiers()) && java.util.Set.of("grant", "revoke",
+                        "set", "register", "registerReplacing").contains(method.getName())) {
+                    assertThat(method.getParameterTypes()).as(method.toString()).contains(OwnerIdentity.class);
+                }
+            }
+        }
     }
 
     @Test

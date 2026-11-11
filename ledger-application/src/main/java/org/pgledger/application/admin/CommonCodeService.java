@@ -46,10 +46,6 @@ public class CommonCodeService {
         this.audit = audit;
     }
 
-    public CodeResult set(CodeCommand command) {
-        return set(command, OwnerIdentity.SYSTEM);
-    }
-
     /** Sets the code and, when that changes anything, records who did it in the owner's audit trail. */
     public CodeResult set(CodeCommand command, OwnerIdentity actor) {
         CodeGroup group = Tokens.parse("group", command.group(), CodeGroup.values());

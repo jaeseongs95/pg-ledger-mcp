@@ -25,6 +25,7 @@ import org.pgledger.attestation.AttestationToken;
 import org.pgledger.attestation.PublicKeys;
 import org.pgledger.domain.context.ToolScope;
 import org.springframework.stereotype.Component;
+import org.pgledger.testing.TestOwners;
 
 /**
  * Rows for the page tests, made through the real services in a project of its own (so tests do not collide): the
@@ -83,7 +84,7 @@ public class Seeds {
         int number = numbers.incrementAndGet();
         Seeded seeded = new Seeded("adm" + number, "ADM" + number);
         projects.add(new ProjectCommand(seeded.project(), seeded.code(), "Project " + number));
-        grants.grant(new GrantCommand(AUTHOR, seeded.project(), List.of("defect", "task"), null, null));
+        grants.grant(new GrantCommand(AUTHOR, seeded.project(), List.of("defect", "task"), null, null), TestOwners.OWNER);
         return seeded;
     }
 
@@ -145,7 +146,7 @@ public class Seeds {
     /** Registers the public key of the author once, as the owner does with the key the hook printed. */
     private synchronized void enroll() {
         if (!enrolled) {
-            keys.register(new RegisterCommand(AUTHOR, PublicKeys.encode(pair.getPublic()), null));
+            keys.register(new RegisterCommand(AUTHOR, PublicKeys.encode(pair.getPublic()), null), TestOwners.OWNER);
             enrolled = true;
         }
     }

@@ -12,6 +12,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.pgledger.testing.TestOwners;
 
 /**
  * The service tests call the services with the plain author of a test ({@code claude:e2e-author}), as the services were
@@ -66,7 +67,7 @@ public final class SigningAttestationVerifier implements AttestationVerifier {
     public void enroll(String author) {
         if (!enrolled.contains(author)) {
             ownTransaction.executeWithoutResult(status -> sessionKeys.register(
-                    new SessionKeyService.RegisterCommand(author, keys.publicKeyOf(author), null)));
+                    new SessionKeyService.RegisterCommand(author, keys.publicKeyOf(author), null), TestOwners.OWNER));
             enrolled.add(author);
         }
     }

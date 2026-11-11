@@ -3,6 +3,7 @@ package org.pgledger.admin;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import org.pgledger.testing.TestOwners;
 
 import java.util.List;
 import java.util.stream.Stream;
@@ -199,7 +200,7 @@ class FormsTest {
     void adm024_createAndRetireCode() throws Exception {
         Browser browser = Browser.signedIn(mvc);
         long before = codes.set(new CommonCodeService.CodeCommand("DEFECT_CATEGORY", "TMPCAT", "임시", "Temp", null, null,
-                null, "ACTIVE")).revision();
+                null, "ACTIVE"), TestOwners.OWNER).revision();
 
         browser.perform(browser.form("/codes", Form.of("group", "DEFECT_CATEGORY", "code", "UI_UX", "nameKo", "화면",
                 "nameEn", "UI", "state", "ACTIVE"), browser.csrfOf("/codes"))).andExpect(status().is3xxRedirection());
@@ -211,7 +212,7 @@ class FormsTest {
         String html = browser.perform(browser.get("/codes")).andReturn().getResponse().getContentAsString();
         assertThat(html).contains("UI_UX").contains("badge-INACTIVE");
         assertThat(codes.set(new CommonCodeService.CodeCommand("DEFECT_CATEGORY", "TMPCAT", "임시", "Temp", null, null,
-                null, "ACTIVE")).revision()).as("the revision is bumped by the two changes").isGreaterThan(before);
+                null, "ACTIVE"), TestOwners.OWNER).revision()).as("the revision is bumped by the two changes").isGreaterThan(before);
     }
 
     @Test

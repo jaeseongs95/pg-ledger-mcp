@@ -1,6 +1,7 @@
 package org.pgledger.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import org.pgledger.testing.TestOwners;
 
 import java.time.Instant;
 import java.util.List;
@@ -37,9 +38,9 @@ class GrantProjectTest {
     @DisplayName("SVC-GRT-01: one row per scope, an earlier live grant of the same key is closed, nothing is deleted")
     void grt01_grant(Scenario s) {
         String author = "claude:grt01";
-        s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("defect"), null, "first"));
+        s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("defect"), null, "first"), TestOwners.OWNER);
         List<Long> ids = s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(),
-                List.of("defect", "task"), "2030-01-01T00:00:00Z", "second"));
+                List.of("defect", "task"), "2030-01-01T00:00:00Z", "second"), TestOwners.OWNER);
         assertThat(ids).hasSize(2);
         assertThat(s.count("SELECT COUNT(*) FROM session_grant WHERE author_id = ? AND scope = 'DEFECT'", author))
                 .isEqualTo(2);
@@ -82,7 +83,7 @@ class GrantProjectTest {
         GrantCommand c = bad.command();
         GrantCommand onProject = new GrantCommand(c.author(), "P".equals(c.project()) ? s.projectId() : c.project(),
                 c.scopes(), c.expiresAt(), c.note());
-        assertThat(Expect.outcome(() -> s.bean(GrantService.class).grant(onProject)))
+        assertThat(Expect.outcome(() -> s.bean(GrantService.class).grant(onProject, TestOwners.OWNER)))
                 .isEqualTo(Optional.of(bad.expected()));
     }
 
@@ -92,20 +93,20 @@ class GrantProjectTest {
         String author = "claude:grt03";
         String other = s.otherProject();
         s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("defect", "task"), null,
-                null));
-        s.bean(GrantService.class).grant(new GrantCommand(author, other, List.of("defect"), null, null));
-        assertThat(s.bean(GrantService.class).revoke(new RevokeCommand(author, s.projectId(), "defect")))
+                null), TestOwners.OWNER);
+        s.bean(GrantService.class).grant(new GrantCommand(author, other, List.of("defect"), null, null), TestOwners.OWNER);
+        assertThat(s.bean(GrantService.class).revoke(new RevokeCommand(author, s.projectId(), "defect"), TestOwners.OWNER))
                 .isEqualTo(1);
-        assertThat(s.bean(GrantService.class).revoke(new RevokeCommand(author, s.projectId(), null))).isEqualTo(1);
-        assertThat(s.bean(GrantService.class).revoke(new RevokeCommand(author, null, null))).isEqualTo(1);
-        assertThat(s.bean(GrantService.class).revoke(new RevokeCommand(author, null, null))).isZero();
+        assertThat(s.bean(GrantService.class).revoke(new RevokeCommand(author, s.projectId(), null), TestOwners.OWNER)).isEqualTo(1);
+        assertThat(s.bean(GrantService.class).revoke(new RevokeCommand(author, null, null), TestOwners.OWNER)).isEqualTo(1);
+        assertThat(s.bean(GrantService.class).revoke(new RevokeCommand(author, null, null), TestOwners.OWNER)).isZero();
         assertThat(s.count("SELECT COUNT(*) FROM session_grant WHERE author_id = ?", author)).isEqualTo(3);
     }
 
     @Test
     @DisplayName("SVC-GRT-03: a scope without a project is refused")
     void grt03_scopeNeedsAProject(Scenario s) {
-        Expect.failure(() -> s.bean(GrantService.class).revoke(new RevokeCommand("claude:x", null, "defect")),
+        Expect.failure(() -> s.bean(GrantService.class).revoke(new RevokeCommand("claude:x", null, "defect"), TestOwners.OWNER),
                 ValidationCode.VALIDATION_FAILED);
     }
 
@@ -114,12 +115,12 @@ class GrantProjectTest {
     void grt04_whoami(Scenario s) {
         String author = "claude:grt04";
         String other = s.otherProject();
-        s.bean(GrantService.class).grant(new GrantCommand(author, other, List.of("task"), null, null));
+        s.bean(GrantService.class).grant(new GrantCommand(author, other, List.of("task"), null, null), TestOwners.OWNER);
         s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("task", "defect"),
-                "2030-01-01T00:00:00Z", null));
+                "2030-01-01T00:00:00Z", null), TestOwners.OWNER);
         s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("fix"), "2026-11-05T10:30:00Z",
-                null));
-        s.bean(GrantService.class).revoke(new RevokeCommand(author, other, "task"));
+                null), TestOwners.OWNER);
+        s.bean(GrantService.class).revoke(new RevokeCommand(author, other, "task"), TestOwners.OWNER);
         s.ctx().clock().set(Instant.parse("2026-11-05T11:00:00Z"));
         var whoami = s.bean(WhoamiService.class).whoami(author, Channel.AUTHOR);
         assertThat(whoami.grants()).containsExactly(new GrantView(s.projectId(), "defect",
