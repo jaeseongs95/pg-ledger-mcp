@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,11 +18,13 @@ import org.pgledger.database.repository.SessionKeyRepository;
 import org.pgledger.database.repository.SessionKeyStateRepository;
 import org.pgledger.database.support.DatabaseTest;
 import org.pgledger.database.support.LedgerTestContext;
+import org.pgledger.database.support.Parallel;
 import org.pgledger.domain.model.SessionPublicKey;
 import org.pgledger.domain.value.AuthorId;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.support.TransactionTemplate;
 
-/** REPO-050 .. REPO-053: the session key table (one live key per author, one author per live key, rows never deleted). */
+/** REPO-050 .. REPO-054: the session key table (one live key per author, one author per live key, rows never deleted). */
 @DatabaseTest
 class SessionKeyStateTest {
 
@@ -70,6 +76,42 @@ class SessionKeyStateTest {
         assertThat(ctx.tx(() -> state.close(key.id(), CLOSED))).isTrue();
         assertThat(state.findLive(author)).isEmpty();
         assertThat(state.findLiveByFingerprint(fingerprint)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("REPO-054 holdLive checks the key and locks its row until the transaction ends: closing the key waits for the writer, and a closed or unknown key is false")
+    void holdLiveSerialisesWithClose() throws Exception {
+        AuthorId author = newAuthor();
+        SessionPublicKey key = register(author, newFingerprint());
+        assertThat(ctx.tx(() -> state.holdLive(key.id() + 1_000_000))).isFalse();
+        TransactionTemplate tx = ctx.bean(TransactionTemplate.class);
+        CountDownLatch held = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Future<Boolean> writer = Parallel.start(() -> tx.execute(status -> {
+            boolean live = state.holdLive(key.id());
+            held.countDown();
+            await(release);
+            return live;
+        }));
+        assertThat(held.await(10, TimeUnit.SECONDS)).isTrue();
+        Future<Boolean> closer = Parallel.start(() -> tx.execute(status -> state.close(key.id(), CLOSED)));
+        assertThatThrownBy(() -> closer.get(1500, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+        release.countDown();
+        assertThat(writer.get(10, TimeUnit.SECONDS)).isTrue();
+        assertThat(closer.get(10, TimeUnit.SECONDS)).isTrue();
+        assertThat(ctx.tx(() -> state.holdLive(key.id()))).as("a committed close makes the check fail").isFalse();
+        assertThat(state.findLive(author)).isEmpty();
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(30, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("latch not released");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
 
     @Test

@@ -97,7 +97,8 @@ class SessionKeyTest {
     }
 
     private static org.pgledger.application.write.WriteResult.SaveResult asSave(Scenario s, String token, String request) {
-        return ScopedValue.where(org.pgledger.domain.context.ToolScope.CURRENT, "ledger_save").call(
+        return ScopedValue.where(org.pgledger.domain.context.ToolScope.CURRENT, "ledger_save")
+                .where(org.pgledger.domain.context.ToolScope.ARGUMENTS_DIGEST, TestKeyRing.DIRECT_DIGEST).call(
                 () -> s.bean(SaveService.class).save(token, new org.pgledger.application.write.SaveCommand(request,
                         "defect", null, 0L, s.defectFields("by key"), Scenario.REASON)));
     }
@@ -153,7 +154,7 @@ class SessionKeyTest {
         assertThat(keys.history(author)).hasSize(1).allSatisfy(row -> assertThat(row.revokedAt()).isNotNull());
         String request = UUID.randomUUID().toString();
         String token = s.ctx().keys().token(author, "ledger_save", request, s.ctx().clock().instant());
-        Expect.failure(() -> asSave(s, token, request), TrustCode.SESSION_KEY_NOT_REGISTERED);
+        Expect.failure(() -> asSave(s, token, request), TrustCode.ATTESTATION_SIGNATURE_INVALID);
         keys.register(new RegisterCommand(author, publicKey(s.ctx().keys().pairOf(author)), null));
         assertThat(asSave(s, token, request).author()).isEqualTo(author);
         assertThat(keys.history(author)).hasSize(2);

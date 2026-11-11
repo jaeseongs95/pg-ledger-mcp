@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.pgledger.attestation.ArgumentsDigest;
 import org.pgledger.domain.value.AuthorId;
 import org.springframework.context.ApplicationContext;
 import tools.jackson.core.type.TypeReference;
@@ -63,7 +64,8 @@ public final class Attester {
             call.put(REQUEST_ID, requestId);
         }
         keys.enroll(author);
-        call.put(ATTESTATION, keys.token(author, tool, requestId));
+        // the hook signs the arguments it hands the host: the request id is in, the attestation itself is not
+        call.put(ATTESTATION, keys.token(author, tool, requestId, ArgumentsDigest.of(call)));
         return call;
     }
 }

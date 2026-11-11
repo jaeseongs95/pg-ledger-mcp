@@ -18,20 +18,25 @@ import java.util.regex.Pattern;
  * The value of {@code _hostAttestation}: the claims and the Ed25519 signature over them (RFC 8032, through the JDK
  * {@code Signature} of algorithm "Ed25519").
  *
- * <p>Text form: {@code pgla1.<author>.<tool>.<request id>.<issued at>.<signature>}. Author, tool and request id are
- * the UTF-8 bytes of the value in unpadded base64url (so none of them can hold the separator and an empty value is an
- * empty part), the issued-at time is decimal epoch seconds without leading zeros, the signature is the 64 signature
- * bytes in unpadded base64url. A text is accepted only in exactly that canonical form, so one token has one text.
+ * <p>Text form (version 2): {@code pgla2.<author>.<tool>.<request id>.<arguments digest>.<issued at>.<signature>}.
+ * Author, tool and request id are the UTF-8 bytes of the value in unpadded base64url (so none of them can hold the
+ * separator and an empty value is an empty part), the arguments digest is 64 lower-case hex characters, the issued-at
+ * time is decimal epoch seconds without leading zeros, the signature is the 64 signature bytes in unpadded base64url.
+ * A text is accepted only in exactly that canonical form, so one token has one text. The prefix of version 1
+ * ({@code pgla1}, without the arguments digest) is refused with {@link AttestationException.Reason#VERSION_UNSUPPORTED}.
  */
 public final class AttestationToken {
 
     /** The prefix that names the format and its version. */
-    public static final String PREFIX = "pgla1";
+    public static final String PREFIX = "pgla2";
+
+    /** The prefix of the retired version 1: it signed no arguments, so a captured token could carry other content. */
+    public static final String RETIRED_PREFIX = "pgla1";
 
     /** The longest text that is parsed at all (a real token is far shorter). */
     static final int MAX_LENGTH = 2048;
 
-    private static final int PARTS = 6;
+    private static final int PARTS = 7;
     private static final int SIGNATURE_LENGTH = 64;
     private static final String ALGORITHM = "Ed25519";
     private static final Pattern EPOCH = Pattern.compile("0|[1-9][0-9]{0,14}");
@@ -69,6 +74,9 @@ public final class AttestationToken {
         if (text == null || text.length() > MAX_LENGTH) {
             throw new AttestationException(AttestationException.Reason.MALFORMED);
         }
+        if (text.startsWith(RETIRED_PREFIX + ".")) {
+            throw new AttestationException(AttestationException.Reason.VERSION_UNSUPPORTED);
+        }
         String[] parts = text.split("\\.", -1);
         if (parts.length != PARTS || !PREFIX.equals(parts[0])) {
             throw new AttestationException(AttestationException.Reason.MALFORMED);
@@ -76,12 +84,15 @@ public final class AttestationToken {
         String author = decodeText(parts[1]);
         String tool = decodeText(parts[2]);
         String requestId = decodeText(parts[3]);
-        long issuedAt = parseEpoch(parts[4]);
-        byte[] signature = decodeBytes(parts[5]);
+        if (!ArgumentsDigest.isWellFormed(parts[4])) {
+            throw new AttestationException(AttestationException.Reason.MALFORMED);
+        }
+        long issuedAt = parseEpoch(parts[5]);
+        byte[] signature = decodeBytes(parts[6]);
         if (signature.length != SIGNATURE_LENGTH) {
             throw new AttestationException(AttestationException.Reason.MALFORMED);
         }
-        return new AttestationToken(new AttestationClaims(author, tool, requestId, issuedAt), signature);
+        return new AttestationToken(new AttestationClaims(author, tool, requestId, parts[4], issuedAt), signature);
     }
 
     public AttestationClaims claims() {
@@ -91,7 +102,8 @@ public final class AttestationToken {
     /** The text form that {@link #parse} reads back. */
     public String text() {
         return String.join(".", PREFIX, encodeText(claims.author()), encodeText(claims.tool()),
-                encodeText(claims.requestId()), Long.toString(claims.issuedAt()), ENCODER.encodeToString(signature));
+                encodeText(claims.requestId()), claims.argumentsDigest(), Long.toString(claims.issuedAt()),
+                ENCODER.encodeToString(signature));
     }
 
     /**

@@ -17,8 +17,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Decides whether a write may start. The order is fixed: a verification through the author channel, the host
- * attestation (present; a signed token with an author of the right format; the live key of the author; the
- * signature; the tool and request id of the call; the time window), the project, the grant. The attestation is
+ * attestation (present; a signed token with an author of the right format; the signature under the live key of the
+ * author, which is locked until the write ends; the tool, request id and arguments digest of the call; the time
+ * window), the project, the grant. The attestation is
  * checked by the {@link AttestationVerifier}: nothing is looked up for a caller that cannot prove its author, and the
  * grant is only asked for the author the signature proves. The grant check is a conditional UPDATE in the
  * transaction of the write: it affects one row only for a live grant, stamps its last use, and keeps the row
@@ -50,7 +51,8 @@ public class WriteGate {
         if (early instanceof Resolution.Resolved resolved) {
             requireReviewerForVerification(channel, resolved.targets());
         }
-        AuthorId author = attestation.verify(actor, ToolScope.current(), requestId);
+        AuthorId author = attestation.verifyForWrite(actor, ToolScope.current(), requestId,
+                ToolScope.argumentsDigest());
         Resolution resolution = early != null ? early : lookup.find().get();
         return switch (resolution) {
             case Resolution.Unresolved unresolved -> throw unresolved.failure();

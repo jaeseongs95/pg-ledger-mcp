@@ -11,8 +11,10 @@ import org.springframework.validation.annotation.Validated;
  * @param window how far the issue time of an attestation may be from the server time, in either direction. The hook
  *               issues a token for every call, so the window only has to cover the clock difference between the
  *               machine of the hook and the server plus the time a call takes. A token that is replayed inside the
- *               window cannot write anything new (it is bound to one request id, and a request id carries one
- *               payload), so the window is not the replay protection
+ *               window cannot write anything new: it is signed for one request id and for the digest of the exact
+ *               arguments of the call (a batch: every operation, its content, its order and its request id), and a
+ *               request id carries one payload, so the same call again is the same request (receipt idempotency) and
+ *               any other content is refused. The window is not the replay protection
  */
 @Validated
 @ConfigurationProperties(prefix = "ledger.attestation")

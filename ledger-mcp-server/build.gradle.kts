@@ -13,6 +13,9 @@ val hookJar by configurations.creating {
 dependencies {
     // The services of the ledger (write gate, receipts, history, queries) with the database module and the domain.
     implementation(project(":ledger-application"))
+    // The digest of the arguments of a call (RFC 8785 canonical form, SHA-256): the tool binding computes it with the
+    // class the client hook signs with, so the signed arguments and the received arguments are compared by one rule.
+    implementation(project(":ledger-attestation"))
     // Spring AI MCP server over Streamable HTTP on Spring MVC (version from the Spring AI BOM declared at the root).
     implementation("org.springframework.ai:spring-ai-starter-mcp-server-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
@@ -27,7 +30,6 @@ dependencies {
 
     testImplementation(testFixtures(project(":ledger-domain")))
     // The tests play the client hook (they sign attestations with the shared token format) and start the built hook jar.
-    testImplementation(project(":ledger-attestation"))
     hookJar(project(":ledger-client-hook")) { isTransitive = false }
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: not in the Boot BOM, see gradle/libs.versions.toml

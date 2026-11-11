@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.pgledger.attestation.ArgumentsDigest;
 import org.pgledger.domain.context.ToolScope;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
@@ -101,8 +102,9 @@ public final class ToolBinding {
     }
 
     /**
-     * Binds the arguments and calls the tool. The name of the tool is bound to {@link ToolScope} for the call, which is
-     * how the write gate learns which tool the author attestation of the call has to be signed for.
+     * Binds the arguments and calls the tool. The name of the tool and the digest of the arguments are bound to
+     * {@link ToolScope} for the call, which is how the write gate learns which tool and which arguments the author
+     * attestation of the call has to be signed for.
      *
      * @throws ValidationException when the arguments do not fit the tool
      */
@@ -139,8 +141,27 @@ public final class ToolBinding {
             throw new ValidationException(ValidationCode.VALIDATION_FAILED, List.of(issues.getFirst().path()),
                     issues, Map.of(), causes.isEmpty() ? null : causes.getFirst());
         }
-        // the gate compares the tool the author attestation was signed for with the tool of this call
-        return ScopedValue.where(ToolScope.CURRENT, name).call(() -> invoke(values));
+        // the gate compares the tool and the arguments the author attestation was signed for with those of this call
+        return ScopedValue.where(ToolScope.CURRENT, name).where(ToolScope.ARGUMENTS_DIGEST, argumentsDigest(given))
+                .call(() -> invoke(values));
+    }
+
+    /**
+     * The digest of the arguments exactly as they arrived ({@link ArgumentsDigest}: RFC 8785 canonical form, SHA-256,
+     * the same class the client hook signs with), so the attestation covers what was sent and nothing else: a captured
+     * token cannot carry other content (F1/F3). A call without {@code _hostAttestation} has nothing signed (the gate
+     * refuses it before it looks at a digest), and arguments that are no JSON (which the wire cannot carry) have none
+     * either: {@code null} equals no signed digest.
+     */
+    private static String argumentsDigest(Map<String, Object> given) {
+        if (!given.containsKey(ArgumentsDigest.ATTESTATION_MEMBER)) {
+            return null;
+        }
+        try {
+            return ArgumentsDigest.of(given);
+        } catch (IllegalArgumentException notJson) {
+            return null;
+        }
     }
 
     private Object bind(ToolParameter parameter, Object raw, List<ValidationIssue> issues,

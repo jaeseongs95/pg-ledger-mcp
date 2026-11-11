@@ -34,6 +34,24 @@ public class SessionKeyStateRepository {
                 .list().stream().findFirst();
     }
 
+    /**
+     * Checks that the key is still live and keeps it that way until the transaction ends: a conditional UPDATE that
+     * changes nothing ({@code note = note}) but takes the row lock, exactly as {@link GrantStateRepository#markUsed}
+     * does for a grant. {@link #close} of the same key then waits for the write that holds it (the write commits first),
+     * and a close that committed before makes this return false, so a write that verified the key before a close
+     * committed cannot commit after it. A plain SELECT would not do that: under snapshot reads the close would not wait
+     * and the write would commit with a key that was already closed.
+     *
+     * <p>Must be called inside the transaction of the write.
+     *
+     * @return true when the key is live (and now locked), false when it is closed or does not exist
+     */
+    public boolean holdLive(long id) {
+        return jdbc.sql("UPDATE session_key SET note = note WHERE id = :id AND revoked_at IS NULL")
+                .param("id", id)
+                .update() == 1;
+    }
+
     /** The author that holds the key with this fingerprint now, if any. */
     public Optional<SessionPublicKey> findLiveByFingerprint(String fingerprint) {
         return jdbc.sql("SELECT " + COLUMNS + " FROM session_key WHERE fingerprint = :fingerprint "

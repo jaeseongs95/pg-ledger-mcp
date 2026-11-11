@@ -12,6 +12,8 @@ public final class AttestationException extends RuntimeException {
     public enum Reason {
         /** The text is not a token of this format (wrong shape, bad encoding, wrong sizes). */
         MALFORMED,
+        /** The text has the prefix of a retired token format (version 1, which did not cover the arguments). */
+        VERSION_UNSUPPORTED,
         /** The signature does not belong to the claims and the key. */
         SIGNATURE_INVALID,
         /** The text is not an Ed25519 public key in X.509 form. */

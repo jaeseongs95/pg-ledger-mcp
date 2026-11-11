@@ -61,13 +61,14 @@ class HookRoundTripTest {
         String author = "claude:" + hostId;
 
         // 1. the session asks the hook for its key and shows the fingerprint to the owner
-        HookProcess.Result printed = HookProcess.run(work, keys, "", "session-key", author);
+        HookProcess.Result printed = HookProcess.run(work, keys, "", "session-key", "ledger", author);
         assertThat(printed.exit()).as(printed.err()).isZero();
         List<String> lines = printed.out().lines().toList();
-        assertThat(lines).hasSize(3);
-        assertThat(lines.get(0)).isEqualTo("author: " + author);
-        String publicKey = lines.get(1).substring("public-key: ".length());
-        String fingerprint = lines.get(2).substring("fingerprint: ".length());
+        assertThat(lines).hasSize(4);
+        assertThat(lines.get(0)).isEqualTo("server: ledger");
+        assertThat(lines.get(1)).isEqualTo("author: " + author);
+        String publicKey = lines.get(2).substring("public-key: ".length());
+        String fingerprint = lines.get(3).substring("fingerprint: ".length());
         assertThat(PublicKeys.fingerprint(PublicKeys.decode(publicKey))).isEqualTo(fingerprint);
 
         // 2. the owner compares the fingerprint, registers the key and grants the session
@@ -79,7 +80,7 @@ class HookRoundTripTest {
         Calls.Save call = Calls.Save.create("defect", Fields.defect(scenario.projectId(), "round trip"), null);
         Args signed = hooked(mapper, work, keys, "ledger_save", hostId, call);
         assertThat(signed.values()).containsKeys("_hostAttestation", "request_id");
-        assertThat(String.valueOf(signed.values().get("_hostAttestation"))).startsWith("pgla1.");
+        assertThat(String.valueOf(signed.values().get("_hostAttestation"))).startsWith("pgla2.");
 
         WriteOutputs.Saved saved = session.ok("ledger_save", signed, WriteOutputs.Saved.class);
         assertThat(saved.author()).isEqualTo(author);
@@ -98,10 +99,10 @@ class HookRoundTripTest {
         assertThat(session.failed("ledger_save", signed.with("request_id", UUID.randomUUID().toString())).code())
                 .isEqualTo("ATTESTATION_BINDING_MISMATCH");
         assertThat(session.failed("ledger_save", signed.with("fields",
-                Fields.defect(scenario.projectId(), "other content"))).code()).isEqualTo("REQUEST_CONFLICT");
+                Fields.defect(scenario.projectId(), "other content"))).code()).isEqualTo("ATTESTATION_BINDING_MISMATCH");
         CallToolResult asOther = session.callUnsigned("ledger_save",
                 signed.with("_hostAttestation", String.valueOf(signed.values().get("_hostAttestation"))
-                        .replace("pgla1.", "pgla1.AA")));
+                        .replace("pgla2.", "pgla2.AA")));
         assertThat(asOther.isError()).isTrue();
         assertThat(Ledger.history(session, scenario.projectId())).hasSize(1);
     }

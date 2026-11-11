@@ -314,6 +314,8 @@ class ReceiptTest {
         String token = s.ctx().keys().token(Scenario.AUTHOR, "ledger_save", id, s.ctx().clock().instant());
         LedgerTestRunners.restartOf(s.ctx(), restarted -> assertThat(ScopedValue
                 .where(org.pgledger.domain.context.ToolScope.CURRENT, "ledger_save")
+                .where(org.pgledger.domain.context.ToolScope.ARGUMENTS_DIGEST,
+                        org.pgledger.apptest.TestKeyRing.DIRECT_DIGEST)
                 .call(() -> restarted.getBean(SaveService.class).save(token, create(s, id, "d")))).isEqualTo(first));
         assertThat(defects(s)).isEqualTo(1);
     }

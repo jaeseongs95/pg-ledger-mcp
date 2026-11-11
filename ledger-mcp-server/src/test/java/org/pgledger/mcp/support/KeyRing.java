@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.pgledger.application.admin.SessionKeyService;
+import org.pgledger.attestation.ArgumentsDigest;
 import org.pgledger.attestation.AttestationClaims;
 import org.pgledger.attestation.AttestationToken;
 import org.pgledger.attestation.PublicKeys;
@@ -56,15 +57,19 @@ public final class KeyRing {
         }
     }
 
-    /** The attestation for the call, signed now with the key of the author. */
-    public String token(String author, String tool, String requestId) {
-        return token(pairOf(author), author, tool, requestId, clock.instant());
+    /**
+     * The attestation for the call, signed now with the key of the author, for the digest of the arguments of the call
+     * (what the hook signs after it has put the request id in: {@link ArgumentsDigest#of}).
+     */
+    public String token(String author, String tool, String requestId, String argumentsDigest) {
+        return token(pairOf(author), author, tool, requestId, argumentsDigest, clock.instant());
     }
 
     /** The attestation for {@code author} signed with any key pair at the given time. */
-    public static String token(KeyPair signer, String author, String tool, String requestId, Instant issuedAt) {
-        return AttestationToken.sign(new AttestationClaims(author, tool, requestId, issuedAt.getEpochSecond()),
-                signer.getPrivate()).text();
+    public static String token(KeyPair signer, String author, String tool, String requestId, String argumentsDigest,
+            Instant issuedAt) {
+        return AttestationToken.sign(new AttestationClaims(author, tool, requestId, argumentsDigest,
+                issuedAt.getEpochSecond()), signer.getPrivate()).text();
     }
 
     public Clock clock() {

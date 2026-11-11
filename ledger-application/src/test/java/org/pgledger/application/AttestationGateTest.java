@@ -46,9 +46,23 @@ class AttestationGateTest {
 
     private static final String SAVE = "ledger_save";
 
-    /** Runs the call as the tool binding of the MCP server does: with the name of the tool called. */
+    /** The arguments digest of the calls of these tests unless a test binds another (see {@link TestKeyRing}). */
+    private static final String DIGEST = TestKeyRing.DIRECT_DIGEST;
+
+    /** The digest of other arguments: what a captured token meets when the call carries other content. */
+    private static final String OTHER_DIGEST = org.pgledger.attestation.ArgumentsDigest.of(Map.of("other", "content"));
+
+    /**
+     * Runs the call as the tool binding of the MCP server does: with the name of the tool called and the digest of the
+     * arguments that the binding computed from the raw call.
+     */
     private static <T> T asTool(String tool, Supplier<T> call) {
-        return ScopedValue.where(ToolScope.CURRENT, tool).call(call::get);
+        return asTool(tool, DIGEST, call);
+    }
+
+    private static <T> T asTool(String tool, String argumentsDigest, Supplier<T> call) {
+        return ScopedValue.where(ToolScope.CURRENT, tool).where(ToolScope.ARGUMENTS_DIGEST, argumentsDigest)
+                .call(call::get);
     }
 
     private static String newRequestId() {
@@ -90,22 +104,43 @@ class AttestationGateTest {
     void gate21_unsignedOldFormat(Scenario s) {
         SignedAttestationVerifier verifier = s.bean(SignedAttestationVerifier.class);
         String author = s.actorWith("defect");
-        assertThat(Expect.failure(() -> verifier.verify(author, SAVE, ""), TrustCode.ATTESTATION_UNSIGNED).args())
+        assertThat(Expect.failure(() -> verifier.verify(author, SAVE, "", DIGEST), TrustCode.ATTESTATION_UNSIGNED).args())
                 .isEmpty();
-        assertThat(Expect.failure(() -> verifier.verify("user:owner", SAVE, ""), TrustCode.ATTESTATION_UNSIGNED)
+        assertThat(Expect.failure(() -> verifier.verify("user:owner", SAVE, "", DIGEST), TrustCode.ATTESTATION_UNSIGNED)
                 .args()).isEmpty();
-        for (String text : List.of("", "claude", "user:someone", "claude:bad id", "PGLA1.x")) {
-            Expect.failure(() -> verifier.verify(text, SAVE, ""), TrustCode.AUTHOR_ID_FORMAT);
+        for (String text : List.of("", "claude", "user:someone", "claude:bad id", "PGLA2.x")) {
+            Expect.failure(() -> verifier.verify(text, SAVE, "", DIGEST), TrustCode.AUTHOR_ID_FORMAT);
         }
-        Expect.failure(() -> verifier.verify(null, SAVE, ""), TrustCode.HOST_ATTESTATION_REQUIRED);
+        Expect.failure(() -> verifier.verify(null, SAVE, "", DIGEST), TrustCode.HOST_ATTESTATION_REQUIRED);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"pgla1.", "pgla1.a.b.c.d", "pgla1.a.b.c.d.e.f", "pgla1.!.b.c.1.AAAA", "pgla1.YQ.Yg.Yw.01.AAAA"})
+    @ValueSource(strings = {"pgla2.", "pgla2.a.b.c.d.e", "pgla2.a.b.c.d.e.f.g",
+            "pgla2.!.b.c.44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a.1.AAAA",
+            "pgla2.YQ.Yg.Yw.44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a.01.AAAA",
+            "pgla2.YQ.Yg.Yw.44136FA355B3678A1146AD16F7E8649E94FB4FC21FE77E8310C060F61CAAFF8A.1.AAAA"})
     @DisplayName("SVC-GATE-22: text with the prefix of a token that is not a canonical token is ATTESTATION_MALFORMED")
     void gate22_malformedToken(String text, Scenario s) {
         SignedAttestationVerifier verifier = s.bean(SignedAttestationVerifier.class);
-        Expect.failure(() -> verifier.verify(text, SAVE, ""), TrustCode.ATTESTATION_MALFORMED);
+        Expect.failure(() -> verifier.verify(text, SAVE, "", DIGEST), TrustCode.ATTESTATION_MALFORMED);
+    }
+
+    @Test
+    @DisplayName("SVC-GATE-40: a token of the retired version 1 (pgla1, no arguments digest) is ATTESTATION_VERSION_UNSUPPORTED for save, batch and whoami, and writes nothing")
+    void gate40_versionOneIsRefused(Scenario s) {
+        String author = s.actorWith("defect");
+        String requestId = newRequestId();
+        String signature = "A".repeat(86);
+        String encodedAuthor = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(author.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String versionOne = String.join(".", "pgla1", encodedAuthor, "bGVkZ2VyX3NhdmU", "", "1700000000", signature);
+        Expect.failure(() -> save(s, versionOne, create(s, requestId, "v1")), TrustCode.ATTESTATION_VERSION_UNSUPPORTED);
+        Expect.failure(() -> asTool("ledger_batch", () -> s.bean(BatchService.class).batch(versionOne, requestId,
+                List.of(new BatchOpInput.Save("defect", s.defectFields("v1"), Scenario.REASON, null, null, null)))),
+                TrustCode.ATTESTATION_VERSION_UNSUPPORTED);
+        Expect.failure(() -> asTool("ledger_whoami", () -> s.bean(WhoamiService.class).whoami(versionOne,
+                Channel.AUTHOR)), TrustCode.ATTESTATION_VERSION_UNSUPPORTED);
+        assertThat(s.count("SELECT COUNT(*) FROM request_receipt WHERE request_id = ?", requestId)).isZero();
     }
 
     @Test
@@ -116,7 +151,8 @@ class AttestationGateTest {
         String forged = TestKeyRing.token(TestKeyRing.newPair(), author, SAVE, requestId, s.ctx().clock().instant());
         LedgerException failure = refused(s, forged, create(s, requestId, "forged"),
                 TrustCode.ATTESTATION_SIGNATURE_INVALID);
-        assertThat(failure.args()).containsExactly(author);
+        // the author is not in the failure: a caller that cannot sign learns nothing about the author (F5)
+        assertThat(failure.args()).isEmpty();
         assertThat(s.count("SELECT COUNT(*) FROM request_receipt WHERE request_id = ?", requestId)).isZero();
     }
 
@@ -204,7 +240,7 @@ class AttestationGateTest {
     }
 
     @Test
-    @DisplayName("SVC-GATE-28: an author whose key was never registered is SESSION_KEY_NOT_REGISTERED, whatever grants exist")
+    @DisplayName("SVC-GATE-28: an author whose key was never registered is ATTESTATION_SIGNATURE_INVALID (F5: not told apart from a wrong signature), whatever grants exist; the message names the session-key command and not the author")
     void gate28_keyNotRegistered(Scenario s) {
         String author = "claude:nokey" + UUID.randomUUID().toString().substring(0, 8);
         s.bean(org.pgledger.application.admin.GrantService.class).grant(new org.pgledger.application.admin.GrantService
@@ -212,13 +248,14 @@ class AttestationGateTest {
         String requestId = newRequestId();
         KeyPair unregistered = TestKeyRing.newPair();
         String token = TestKeyRing.token(unregistered, author, SAVE, requestId, s.ctx().clock().instant());
-        LedgerException failure = refused(s, token, create(s, requestId, "no key"), TrustCode.SESSION_KEY_NOT_REGISTERED);
-        assertThat(failure.args()).containsExactly(author);
-        assertThat(Expect.message(failure)).contains(author).contains("session-key");
+        LedgerException failure = refused(s, token, create(s, requestId, "no key"),
+                TrustCode.ATTESTATION_SIGNATURE_INVALID);
+        assertThat(failure.args()).isEmpty();
+        assertThat(Expect.message(failure)).doesNotContain(author).contains("session-key");
     }
 
     @Test
-    @DisplayName("SVC-GATE-29: a revoked key is SESSION_KEY_NOT_REGISTERED; after the owner registers a new key the old key signs ATTESTATION_SIGNATURE_INVALID and the new one writes")
+    @DisplayName("SVC-GATE-29: a revoked key is ATTESTATION_SIGNATURE_INVALID; after the owner registers a new key the old key still is, and the new one writes")
     void gate29_revokedKey(Scenario s) {
         String author = s.actorWith("defect");
         SessionKeyService keys = s.bean(SessionKeyService.class);
@@ -227,7 +264,7 @@ class AttestationGateTest {
 
         assertThat(keys.revoke(author)).isTrue();
         String revoked = newRequestId();
-        refused(s, now(s, author, SAVE, revoked), create(s, revoked, "revoked"), TrustCode.SESSION_KEY_NOT_REGISTERED);
+        refused(s, now(s, author, SAVE, revoked), create(s, revoked, "revoked"), TrustCode.ATTESTATION_SIGNATURE_INVALID);
 
         KeyPair replacement = TestKeyRing.newPair();
         keys.register(new SessionKeyService.RegisterCommand(author,
@@ -271,10 +308,13 @@ class AttestationGateTest {
         String stranger = "claude:order" + UUID.randomUUID().toString().substring(0, 8);
         String strangerToken = TestKeyRing.token(TestKeyRing.newPair(), stranger, "ledger_link", requestId,
                 at.minusSeconds(86400));
-        Expect.failure(() -> save(s, strangerToken, unknownProject), TrustCode.SESSION_KEY_NOT_REGISTERED);
+        Expect.failure(() -> save(s, strangerToken, unknownProject), TrustCode.ATTESTATION_SIGNATURE_INVALID);
         // a valid signature with the wrong tool and a stale time: the binding comes before the window
         String wrongBoth = s.ctx().keys().token(granted, "ledger_link", requestId, at.minusSeconds(86400));
         Expect.failure(() -> save(s, wrongBoth, unknownProject), TrustCode.ATTESTATION_BINDING_MISMATCH);
+        // the arguments digest is part of the binding: it comes after the tool and the request id, before the window
+        String wrongDigest = s.ctx().keys().token(granted, SAVE, requestId, OTHER_DIGEST, at.minusSeconds(86400));
+        Expect.failure(() -> save(s, wrongDigest, unknownProject), TrustCode.ATTESTATION_BINDING_MISMATCH);
         // a valid binding with a stale time: the window comes before the project
         String stale = s.ctx().keys().token(granted, SAVE, requestId, at.minusSeconds(86400));
         Expect.failure(() -> save(s, stale, unknownProject), TrustCode.ATTESTATION_TIME_WINDOW);
@@ -353,6 +393,72 @@ class AttestationGateTest {
         }
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new AttestationProperties(null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("SVC-GATE-36: the token of a batch is bound to the digest of the arguments of the whole batch: another digest is ATTESTATION_BINDING_MISMATCH (arguments) at operation 1 and writes nothing")
+    void gate36_batchTokenIsBoundToTheArguments(Scenario s) {
+        String author = s.actorWith("defect");
+        String batchId = newRequestId();
+        List<BatchOpInput> ops = List.of(
+                new BatchOpInput.Save("defect", s.defectFields("one"), Scenario.REASON, null, null, null));
+        String token = s.ctx().keys().token(author, "ledger_batch", batchId, OTHER_DIGEST, s.ctx().clock().instant());
+
+        LedgerException failure = Expect.failure(() -> asTool("ledger_batch", DIGEST,
+                () -> s.bean(BatchService.class).batch(token, batchId, ops)), TrustCode.ATTESTATION_BINDING_MISMATCH);
+        assertThat(failure.args()).containsExactly("arguments");
+        assertThat(failure.details()).containsEntry("op_index", List.of("1")).containsEntry("field",
+                List.of("arguments"));
+        // a call outside a tool call has no digest at all
+        Expect.failure(() -> s.bean(BatchService.class).batch(token, batchId, ops),
+                TrustCode.ATTESTATION_BINDING_MISMATCH);
+        assertThat(s.count("SELECT COUNT(*) FROM defect WHERE project_id = ?", s.projectId())).isZero();
+        assertThat(s.count("SELECT COUNT(*) FROM request_receipt WHERE request_id = ?", batchId)).isZero();
+
+        assertThat(asTool("ledger_batch", OTHER_DIGEST, () -> s.bean(BatchService.class).batch(token, batchId, ops))
+                .results()).hasSize(1);
+        assertThat(asTool("ledger_batch", OTHER_DIGEST, () -> s.bean(BatchService.class).batch(token, batchId, ops))
+                .results()).hasSize(1);
+        assertThat(s.count("SELECT COUNT(*) FROM defect WHERE project_id = ?", s.projectId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("SVC-GATE-37: the token of a save cannot be used for other arguments, before or after the legitimate call; the legitimate call is not blocked")
+    void gate37_saveTokenIsBoundToTheArguments(Scenario s) {
+        String author = s.actorWith("defect");
+        String requestId = newRequestId();
+        String token = s.ctx().keys().token(author, SAVE, requestId, OTHER_DIGEST, s.ctx().clock().instant());
+
+        LedgerException raced = Expect.failure(() -> asTool(SAVE, DIGEST,
+                () -> s.bean(SaveService.class).save(token, create(s, requestId, "attacker content"))),
+                TrustCode.ATTESTATION_BINDING_MISMATCH);
+        assertThat(raced.args()).containsExactly("arguments");
+        assertThat(s.count("SELECT COUNT(*) FROM request_receipt WHERE request_id = ?", requestId)).isZero();
+
+        SaveResult written = asTool(SAVE, OTHER_DIGEST,
+                () -> s.bean(SaveService.class).save(token, create(s, requestId, "signed content")));
+        assertThat(written.author()).isEqualTo(author);
+        Expect.failure(() -> asTool(SAVE, DIGEST,
+                () -> s.bean(SaveService.class).save(token, create(s, requestId, "attacker content"))),
+                TrustCode.ATTESTATION_BINDING_MISMATCH);
+        assertThat(s.count("SELECT COUNT(*) FROM defect WHERE project_id = ?", s.projectId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("SVC-GATE-38: after the legitimate call failed (its receipt rolled back) the captured token is still bound to its arguments")
+    void gate38_tokenAfterAFailedCall(Scenario s) {
+        String author = s.actorWith("defect");
+        String requestId = newRequestId();
+        String token = s.ctx().keys().token(author, SAVE, requestId, OTHER_DIGEST, s.ctx().clock().instant());
+        Map<String, String> fields = s.defectFields("fails");
+        fields.put("project_id", "no-such-project");
+        Expect.failure(() -> asTool(SAVE, OTHER_DIGEST, () -> s.bean(SaveService.class).save(token,
+                new SaveCommand(requestId, "defect", null, 0L, fields, Scenario.REASON))), LookupCode.NOT_FOUND);
+        assertThat(s.count("SELECT COUNT(*) FROM request_receipt WHERE request_id = ?", requestId)).isZero();
+
+        Expect.failure(() -> asTool(SAVE, DIGEST, () -> s.bean(SaveService.class).save(token,
+                create(s, requestId, "captured token, other content"))), TrustCode.ATTESTATION_BINDING_MISMATCH);
+        assertThat(s.count("SELECT COUNT(*) FROM defect WHERE project_id = ?", s.projectId())).isZero();
     }
 
     /** The token text with the 64 signature bytes replaced by zeros: well formed, never valid. */

@@ -52,7 +52,7 @@ public class WhoamiService {
     public Whoami whoami(String actor, Channel channel) {
         AuthorId author;
         try {
-            author = attestation.verify(actor, ToolScope.current(), "");
+            author = attestation.verify(actor, ToolScope.current(), "", ToolScope.argumentsDigest());
         } catch (TrustException failure) {
             if (failure.code() == TrustCode.AUTHOR_ID_FORMAT) {
                 return new Whoami(failure.args().getFirst(), false, channel == Channel.REVIEWER, channel.login(),

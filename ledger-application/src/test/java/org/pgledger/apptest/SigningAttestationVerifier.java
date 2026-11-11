@@ -47,16 +47,33 @@ public final class SigningAttestationVerifier implements AttestationVerifier {
     }
 
     @Override
-    public AuthorId verify(String presented, String tool, String requestId) {
-        if (presented == null || presented.startsWith(AttestationToken.PREFIX + ".")) {
-            return real.verify(presented, tool, requestId);
+    public AuthorId verify(String presented, String tool, String requestId, String argumentsDigest) {
+        return check(presented, tool, requestId, argumentsDigest, false);
+    }
+
+    @Override
+    public AuthorId verifyForWrite(String presented, String tool, String requestId, String argumentsDigest) {
+        return check(presented, tool, requestId, argumentsDigest, true);
+    }
+
+    private AuthorId check(String presented, String tool, String requestId, String argumentsDigest, boolean write) {
+        if (presented == null || presented.startsWith(AttestationToken.PREFIX + ".")
+                || presented.startsWith(AttestationToken.RETIRED_PREFIX + ".")) {
+            return call(presented, tool, requestId, argumentsDigest, write);
         }
         if (AuthorId.matches(presented)) {
             enroll(presented);
         }
         String signedTool = tool == null ? DIRECT_TOOL : tool;
-        String token = keys.token(presented, signedTool, requestId == null ? "" : requestId, clock.instant());
-        return real.verify(token, signedTool, requestId);
+        String signedDigest = argumentsDigest == null ? TestKeyRing.DIRECT_DIGEST : argumentsDigest;
+        String token = keys.token(presented, signedTool, requestId == null ? "" : requestId, signedDigest,
+                clock.instant());
+        return call(token, signedTool, requestId, signedDigest, write);
+    }
+
+    private AuthorId call(String token, String tool, String requestId, String argumentsDigest, boolean write) {
+        return write ? real.verifyForWrite(token, tool, requestId, argumentsDigest)
+                : real.verify(token, tool, requestId, argumentsDigest);
     }
 
     /**
