@@ -3,7 +3,12 @@ package org.pgledger.hook;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.tngtech.archunit.core.domain.JavaClasses;
+import java.nio.file.Path;
+import org.pgledger.testing.ArchitectureRules;
+import org.pgledger.testing.SourceRules;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.BeforeAll;
@@ -50,6 +55,14 @@ class ArchitectureTest {
                 .orShould().callMethod(System.class, "getProperty", String.class, String.class)
                 .orShould().callMethod(System.class, "getProperties")
                 .check(hook);
+    }
+
+    @Test
+    @DisplayName("ARC-033 no operating system detection in main and test code")
+    void noOperatingSystemDetection() {
+        ArchitectureRules.noOperatingSystemDetection().check(hook);
+        assertThat(SourceRules.operatingSystemDetection(Path.of("src", "main", "java"), Path.of("src", "test", "java")))
+                .isEmpty();
     }
 
     @Test

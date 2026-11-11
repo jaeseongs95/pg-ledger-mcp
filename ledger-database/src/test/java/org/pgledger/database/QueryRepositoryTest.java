@@ -50,6 +50,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 @DatabaseTest
 class QueryRepositoryTest implements DbmsAware {
 
+    private static final java.util.regex.Pattern ROW_LIMIT_KEYWORD = java.util.regex.Pattern.compile(
+            "\\b(LIMIT|FETCH|TOP|ROWNUM|OFFSET)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
     @Parameter
     Dbms dbms;
 
@@ -94,8 +97,7 @@ class QueryRepositoryTest implements DbmsAware {
                 Order.NEWEST_FIRST, null);
         assertThat(page.rows()).hasSize(size.rows());
         assertThat(page.truncated()).isEqualTo(size.truncated());
-        assertThat(ctx.spy().statements()).isNotEmpty().noneMatch(s -> s.toUpperCase().matches(
-                "(?s).*\\b(LIMIT|FETCH|TOP|ROWNUM|OFFSET)\\b.*"));
+        assertThat(ctx.spy().statements()).isNotEmpty().noneMatch(s -> ROW_LIMIT_KEYWORD.matcher(s).find());
     }
 
     /** All ids of a list, two rows per page, following the position of each page's last row. */

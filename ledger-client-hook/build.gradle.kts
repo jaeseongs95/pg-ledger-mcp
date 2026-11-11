@@ -10,6 +10,9 @@ dependencies {
 
     // ArchUnit 1.5.1: not in the Boot BOM, see gradle/libs.versions.toml; checks the no-network/no-file rules of HK-018.
     testImplementation(libs.archunit)
+    // The shared architecture and source rules (ARC-033: no operating system detection) live in the domain test fixtures.
+    // Test classpath only: the hook jar is built from the runtime classpath and stays free of the domain module.
+    testImplementation(testFixtures(project(":ledger-domain")))
 }
 
 tasks.jar {

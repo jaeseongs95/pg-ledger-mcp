@@ -5,8 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assumptions.assumeThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.condition.OS.LINUX;
-import static org.junit.jupiter.api.condition.OS.WINDOWS;
 
 import java.io.IOException;
 import java.nio.file.FileSystem;
@@ -23,10 +21,11 @@ import java.util.stream.Stream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.io.TempDir;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
+import org.pgledger.cli.support.RequiresNonPosixFileSystem;
+import org.pgledger.cli.support.RequiresPosixPermissions;
 
 class SecretStoreTest {
 
@@ -57,7 +56,7 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-001 creates the directory 0700 and the file 0600 with the exact UTF-8 bytes and no trailing newline")
     void sec001_createsDirectoryAndFileWithOwnerOnlyModes() throws IOException {
         Path parent = Files.createDirectories(tmp.resolve("etc").resolve("pg-ledger-mcp"));
@@ -74,7 +73,7 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-002 the same name again is replaced through a new 0600 file and a move, leaving no temporary file")
     void sec002_replacesAtomically() throws IOException {
         Path directory = tmp.resolve("secrets");
@@ -93,7 +92,7 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-002 a value that cannot be encoded leaves the old content and no temporary file")
     void sec002_failedWriteKeepsOldValue() throws IOException {
         Path directory = tmp.resolve("secrets");
@@ -107,7 +106,7 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-006 an existing directory with mode 0755 is refused with its path and mode and is not narrowed")
     void sec006_refusesLooseDirectory() throws IOException {
         Path directory = tmp.resolve("secrets");
@@ -122,7 +121,7 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-006 an existing file with mode 0644 is refused with its path and mode and keeps its content and mode")
     void sec006_refusesLooseFile() throws IOException {
         Path directory = tmp.resolve("secrets");
@@ -138,7 +137,7 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-006 a symbolic link in place of the secret file is refused")
     void sec006_refusesSymbolicLinkTarget() throws IOException {
         Path directory = tmp.resolve("secrets");
@@ -168,7 +167,7 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-013 the real process user owns what the store creates, so the owner check passes")
     void sec013_processUserIsTheOwnerOfCreatedFiles() throws IOException {
         Path directory = tmp.resolve("secrets");
@@ -179,7 +178,7 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-013 a directory owned by another user is refused naming path, owner and current user, before any prompt")
     void sec013_refusesDirectoryOfAnotherOwner() throws IOException {
         Path directory = tmp.resolve("secrets");
@@ -195,7 +194,7 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-013 an existing secret file owned by another user is refused even when the directory is ours")
     void sec013_refusesFileOfAnotherOwner() throws IOException {
         Path directory = tmp.resolve("secrets");
@@ -224,7 +223,7 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(LINUX)
+    @RequiresPosixPermissions
     @DisplayName("SEC-014 only the secrets directory itself is created, with mode 0700, inside an existing parent")
     void sec014_createsOnlyTheSecretsDirectory() throws IOException {
         Path parent = Files.createDirectory(tmp.resolve("pg-ledger-mcp"));
@@ -250,9 +249,9 @@ class SecretStoreTest {
     }
 
     @Test
-    @EnabledOnOs(WINDOWS)
-    @DisplayName("SEC-012 on Windows the default file system is refused and nothing is created")
-    void sec012_windowsIsRefused() {
+    @RequiresNonPosixFileSystem
+    @DisplayName("SEC-012 on a default file system without POSIX permissions it is refused and nothing is created")
+    void sec012_defaultFileSystemWithoutPosixIsRefused() {
         Path directory = tmp.resolve("secrets");
 
         assertRefused(() -> store(directory).store(NAME, "v".toCharArray()), ErrorCode.NON_POSIX_FILESYSTEM, directory.toString());

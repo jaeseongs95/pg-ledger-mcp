@@ -1,6 +1,7 @@
 package org.pgledger.cli;
 
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.belongToAnyOf;
+import static org.assertj.core.api.Assertions.assertThat;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
@@ -15,6 +16,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pgledger.cli.secret.ConsoleSecretInput;
 import org.pgledger.cli.secret.SecretInput;
+import org.pgledger.testing.ArchitectureRules;
+import org.pgledger.testing.SourceRules;
 import org.springframework.beans.factory.annotation.Value;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -68,6 +71,14 @@ class ArchitectureTest {
     @DisplayName("Console output goes through one place only: no System.out/err or printStackTrace elsewhere")
     void consoleOutputHasOneSink() {
         noClasses().that().areNotAssignableTo(CliOutputConfiguration.class).should(ACCESS_STANDARD_STREAMS).check(MAIN);
+    }
+
+    @Test
+    @DisplayName("ARC-033 no operating system detection in main and test code")
+    void noOperatingSystemDetection() {
+        ArchitectureRules.noOperatingSystemDetection().check(MAIN);
+        assertThat(SourceRules.operatingSystemDetection(Path.of("src", "main", "java"), Path.of("src", "test", "java")))
+                .isEmpty();
     }
 
     @Test

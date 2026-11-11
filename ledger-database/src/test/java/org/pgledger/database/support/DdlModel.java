@@ -32,7 +32,8 @@ public record DdlModel(List<Table> tables, List<Index> indexes) {
     public record Index(String name, String table, List<String> columns) {
     }
 
-    private static final Pattern TABLE = Pattern.compile("(?is)^\\s*CREATE\\s+TABLE\\s+(\\w+)\\s*\\((.*)\\)\\s*$");
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+    private static final Pattern TABLE =Pattern.compile("(?is)^\\s*CREATE\\s+TABLE\\s+(\\w+)\\s*\\((.*)\\)\\s*$");
     private static final Pattern INDEX = Pattern.compile(
             "(?is)^\\s*CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+(\\w+)\\s+ON\\s+(\\w+)\\s*\\(([^)]*)\\)\\s*$");
     private static final Pattern CONSTRAINT = Pattern.compile(
@@ -62,7 +63,7 @@ public record DdlModel(List<Table> tables, List<Index> indexes) {
             Matcher constraint = CONSTRAINT.matcher(element);
             Matcher column = COLUMN.matcher(element);
             if (constraint.matches()) {
-                constraints.add(new Constraint(constraint.group(1), constraint.group(2).replaceAll("\\s+", " ")
+                constraints.add(new Constraint(constraint.group(1), WHITESPACE.matcher(constraint.group(2)).replaceAll(" ")
                         .toUpperCase(), constraint.group(3)));
             } else if (column.matches()) {
                 columns.add(new Column(column.group(1), column.group(2).toUpperCase(),

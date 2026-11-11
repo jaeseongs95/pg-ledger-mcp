@@ -37,6 +37,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 @DatabaseTest
 class SchemaCatalogTest implements DbmsAware {
 
+    private static final java.util.regex.Pattern TIME_DEFAULT =
+            java.util.regex.Pattern.compile("CURRENT_|LOCALTIME|NOW|SYSDATE");
+
     static final Set<String> TABLES = Set.of("project", "task", "defect", "defect_fix", "defect_case", "defect_task",
             "defect_relation", "release_condition", "condition_link", "session_grant", "history", "request_receipt",
             "common_code", "code_revision", "id_counter", "schema_history");
@@ -236,6 +239,6 @@ class SchemaCatalogTest implements DbmsAware {
                 || c.type() == Types.TIME_WITH_TIMEZONE);
         // ANSI-014 (catalog): no column of any type has a time default
         assertThat(columns()).noneMatch(c -> c.defaultValue() != null
-                && c.defaultValue().toUpperCase(Locale.ROOT).matches(".*(CURRENT_|LOCALTIME|NOW|SYSDATE).*"));
+                && TIME_DEFAULT.matcher(c.defaultValue().toUpperCase(Locale.ROOT)).find());
     }
 }

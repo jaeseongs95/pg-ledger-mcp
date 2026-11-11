@@ -317,9 +317,10 @@ class DriverBoundaryTest {
     }
 
     static Stream<RegistrationFile> registrationFiles() {
-        String jar = h2Jar().toString().replace('\\', '/');
+        String jar = h2Jar().toString();
         String sha = sha(h2Jar());
-        String head = "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n    driver:\n      jar: \"" + jar + "\"\n";
+        // A YAML single-quoted scalar keeps the path exactly as the file system writes it.
+        String head = "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n    driver:\n      jar: '" + jar + "'\n";
         return Stream.of(
                 new RegistrationFile("complete", head + "      class-name: org.h2.Driver\n      sha256: " + sha
                         + "\n      registered-at: 2026-11-05T10:00:00Z\n", null),

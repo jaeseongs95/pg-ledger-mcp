@@ -92,7 +92,7 @@ class JarProcessTest {
         assertThat(timed.run().document()).isEqualTo(codex.allowed(KOREAN_INPUT, "codex:" + HookFixture.HOST_ID));
         String report = "HK-017 start " + start + ": java -jar wall time " + timed.millis()
                 + " ms ; limit " + HOST_LIMIT_MILLIS + " ms ; jar " + HookJar.JAR.toFile().length() + " bytes ; "
-                + System.getProperty("java.vendor.version") + " ; os " + System.getProperty("os.name");
+                + System.getProperty("java.vendor.version");
         Path dir = Path.of(System.getProperty("ledger.hook.metrics"));
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("hk-017-cold-start-" + start + ".txt"), report + "\n", StandardCharsets.UTF_8);

@@ -5,10 +5,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.lang.ArchRule;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.pgledger.testing.ArchitectureRules;
 import org.pgledger.testing.SourceRules;
 
@@ -61,6 +64,19 @@ class ArchitectureTest {
     void arc025_032_noUtilityNamesNoVendorNames() {
         assertThat(SourceRules.utilityNames(MAIN_JAVA)).isEmpty();
         assertThat(SourceRules.vendorNames(MAIN_JAVA)).isEmpty();
+    }
+
+    @Test
+    void arc033_noOperatingSystemDetectionInMainAndTest() {
+        ArchitectureRules.noOperatingSystemDetection().check(MAIN);
+        assertThat(SourceRules.operatingSystemDetection(MAIN_JAVA, Path.of("src", "test", "java"))).isEmpty();
+    }
+
+    @Test
+    void negativeControl_theOperatingSystemRuleDetectsTheOsName(@TempDir Path dir) throws IOException {
+        Files.writeString(dir.resolve("Bad.java"), "class Bad { String s = System.getProperty(\"os.name\"); }");
+
+        assertThat(SourceRules.operatingSystemDetection(dir)).hasSize(1);
     }
 
     @Test

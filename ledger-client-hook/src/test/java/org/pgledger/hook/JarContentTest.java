@@ -21,6 +21,9 @@ class JarContentTest {
     private static final Path JAR = Path.of(System.getProperty("ledger.hook.jar"));
 
     /** Everything a hook jar may hold; anything else fails the test. A change of this list needs review. */
+    private static final Pattern SIGNATURE_FILE = Pattern.compile("META-INF/.*\\.(SF|DSA|RSA)");
+    private static final Pattern SECRET_NAME = Pattern.compile("secret|token|credential|password",
+            Pattern.CASE_INSENSITIVE);
     private static final List<Pattern> ALLOWED = List.of(
             Pattern.compile("org/pgledger/hook/.*"),
             Pattern.compile("tools/jackson/(core|databind)/.*"),
@@ -64,10 +67,10 @@ class JarContentTest {
                 .noneMatch(n -> n.startsWith("BOOT-INF/") || n.startsWith("META-INF/spring"))
                 .noneMatch(n -> n.endsWith(".properties") || n.endsWith(".yml") || n.endsWith(".yaml") || n.endsWith(".xml")
                         || n.endsWith(".toml") || n.endsWith(".env") || n.endsWith(".pem") || n.endsWith(".key") || n.endsWith(".json"))
-                .noneMatch(n -> n.matches("META-INF/.*\\.(SF|DSA|RSA)"))
+                .noneMatch(n -> SIGNATURE_FILE.matcher(n).matches())
                 .noneMatch(n -> n.endsWith("module-info.class"))
                 // class names such as JsonToken are fine; a non-class resource with such a name is not
-                .noneMatch(n -> !n.endsWith(".class") && !n.startsWith("META-INF/services/") && n.matches("(?i).*(secret|token|credential|password).*"));
+                .noneMatch(n -> !n.endsWith(".class") && !n.startsWith("META-INF/services/") && SECRET_NAME.matcher(n).find());
     }
 
     @Test

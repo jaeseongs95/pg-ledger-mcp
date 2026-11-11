@@ -1,10 +1,3 @@
-// The embedded PostgreSQL binaries depend on the build machine; they exist only on the test runtime classpath.
-val pgBinaries = if (System.getProperty("os.name").lowercase().contains("win")) {
-    libs.embedded.postgres.binaries.windows.amd64
-} else {
-    libs.embedded.postgres.binaries.linux.amd64
-}
-
 dependencies {
     api(project(":ledger-domain"))
     // Spring JDBC, Spring Data JDBC and Hikari. No JDBC driver: the driver is registered by the user at run time.
@@ -20,5 +13,8 @@ dependencies {
     // Drivers are test-only: H2 in default mode and PostgreSQL.
     testImplementation("com.h2database:h2")
     testRuntimeOnly("org.postgresql:postgresql")
-    testRuntimeOnly(pgBinaries)
+    // zonky picks the binary archive of the running platform from the classpath (DefaultPostgresBinaryResolver: postgres-<OS>-<arch>.txz),
+    // so the build does not decide by operating system; both archives are on the test runtime classpath.
+    testRuntimeOnly(libs.embedded.postgres.binaries.windows.amd64)
+    testRuntimeOnly(libs.embedded.postgres.binaries.linux.amd64)
 }
