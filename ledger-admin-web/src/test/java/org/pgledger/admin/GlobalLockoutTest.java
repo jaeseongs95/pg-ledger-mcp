@@ -11,7 +11,7 @@ import org.pgledger.admin.support.AdminTestSettings;
 import org.pgledger.admin.support.Browser;
 import org.pgledger.admin.support.MutableClock;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
