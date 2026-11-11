@@ -26,6 +26,8 @@ class JarContentTest {
             Pattern.CASE_INSENSITIVE);
     private static final List<Pattern> ALLOWED = List.of(
             Pattern.compile("org/pgledger/hook/.*"),
+            // the attestation token and key text forms (JDK only), merged in from the ledger-attestation module
+            Pattern.compile("org/pgledger/attestation/[A-Za-z0-9$]+\\.class"),
             Pattern.compile("tools/jackson/(core|databind)/.*"),
             Pattern.compile("com/fasterxml/jackson/annotation/.*"),
             Pattern.compile("META-INF/MANIFEST\\.MF"),
@@ -46,12 +48,13 @@ class JarContentTest {
     }
 
     @Test
-    @DisplayName("HK-018 the jar holds only the module's classes, Jackson (core, annotations, databind) and the licence texts")
+    @DisplayName("HK-018 the jar holds only the module's classes, the attestation classes, Jackson (core, annotations, databind) and the licence texts")
     void onlyModuleAndJackson() throws IOException {
         List<String> names = entries();
         assertThat(names).isNotEmpty();
         assertThat(names).allSatisfy(name -> assertThat(ALLOWED.stream().anyMatch(p -> p.matcher(name).matches())).as(name).isTrue());
         assertThat(names).anyMatch(n -> n.startsWith("org/pgledger/hook/Main"));
+        assertThat(names).contains("org/pgledger/attestation/AttestationToken.class", "org/pgledger/attestation/PublicKeys.class");
         assertThat(names).anyMatch(n -> n.startsWith("tools/jackson/core/"));
         assertThat(names).anyMatch(n -> n.startsWith("tools/jackson/databind/"));
         assertThat(names).anyMatch(n -> n.startsWith("com/fasterxml/jackson/annotation/"));

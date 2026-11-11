@@ -13,7 +13,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import tools.jackson.databind.JsonNode;
 
-/** HK-001..HK-006, HK-009, HK-020: the stamping rules, identical for the three clients. */
+/** HK-001..HK-006, HK-009, HK-020: the stamping rules (a token signed with the author's key), identical for the three clients. */
 @ExtendWith(HookExtension.class)
 class StampingTest {
 
@@ -29,10 +29,14 @@ class StampingTest {
 
     @ParameterizedTest
     @MethodSource("org.pgledger.hook.Hosts#withWriteOps")
-    @DisplayName("HK-001 each write tool: stamp with <vendor>:<host id>, every other field unchanged, exactly the host's answer shape")
+    @DisplayName("HK-001 each write tool: _hostAttestation is a token signed by the author's key (author <vendor>:<host id>, tool ledger_<op>, request id, fixed issue time), every other field unchanged, exactly the host's answer shape")
     void stampsWriteTool(HostScenario host, String op, HookFixture fixture) {
         Run run = fixture.runClean(host, host.event(host.toolName(op), NESTED_INPUT));
-        assertThat(run.document()).isEqualTo(host.allowed(NESTED_INPUT, host.attestation(HookFixture.HOST_ID)));
+        Attestations.Stamp stamp = fixture.stamp(host, op, NESTED_INPUT, run);
+        assertThat(stamp.claims().author()).isEqualTo(host.author(HookFixture.HOST_ID));
+        assertThat(stamp.claims().tool()).isEqualTo("ledger_" + op);
+        assertThat(stamp.claims().issuedAt()).isEqualTo(HookFixture.NOW.getEpochSecond());
+        assertThat(run.document()).isEqualTo(host.allowed(NESTED_INPUT, stamp.token(), stamp.addedRequestId()));
     }
 
     @ParameterizedTest
@@ -41,7 +45,8 @@ class StampingTest {
     void doesNotCreateAuthorId(HostScenario host, HookFixture fixture) {
         JsonNode input = Json.tree(Map.of("project", "TEST"));
         Run run = fixture.runClean(host, host.event(host.toolName("whoami"), input));
-        assertThat(run.document()).isEqualTo(host.allowed(input, host.attestation(HookFixture.HOST_ID)));
+        Attestations.Stamp stamp = fixture.stamp(host, "whoami", input, run);
+        assertThat(run.document()).isEqualTo(host.allowed(input, stamp.token(), stamp.addedRequestId()));
     }
 
     @ParameterizedTest
@@ -50,26 +55,34 @@ class StampingTest {
     void keepsExistingAuthorId(HostScenario host, String op, HookFixture fixture) {
         JsonNode input = Json.tree(Map.of("author_id", "other:declared", "marker", "cached-schema"));
         Run run = fixture.runClean(host, host.event(host.toolName(op), input));
-        assertThat(run.document()).isEqualTo(host.allowed(input, host.attestation(HookFixture.HOST_ID)));
+        Attestations.Stamp stamp = fixture.stamp(host, op, input, run);
+        assertThat(stamp.claims().author()).isEqualTo(host.author(HookFixture.HOST_ID));
+        assertThat(run.document()).isEqualTo(host.allowed(input, stamp.token(), stamp.addedRequestId()));
     }
 
-    /** Reserved values: every JSON type, the value the hook would write itself and another id. */
+    /** A text in the form of a token (six parts, the format prefix); it is a forgery attempt like any other value. */
+    private static final String TOKEN_LOOKALIKE =
+            "pgla1.Y2xhdWRlOnBhcmVudA.bGVkZ2VyX3NhdmU.cmVxLTE.1794387600.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    /** Reserved values: every JSON type, the value the hook would write itself, a token-like text and another id. */
     static Stream<Arguments> reservedValues() {
         return Hosts.ALL.stream().flatMap(host -> Stream.of(
                         Json.of("null"), Json.text(""), Json.of("false"), Json.of("0"), Json.of("{}"), Json.of("[]"),
-                        Json.text(host.attestation(HookFixture.HOST_ID)), Json.text("other:forged"))
+                        Json.text(host.author(HookFixture.HOST_ID)), Json.text("other:forged"), Json.text(TOKEN_LOOKALIKE))
                 .flatMap(value -> Hosts.WRITE_OPS.stream()
                         .map(op -> Arguments.argumentSet(host + " " + op + " " + value, host, op, value))));
     }
 
     @ParameterizedTest
     @MethodSource("reservedValues")
-    @DisplayName("HK-004 a model-supplied _hostAttestation of any value is denied as reserved, nothing is rewritten")
+    @DisplayName("HK-004 a model-supplied _hostAttestation of any value (token look-alikes included) is denied as reserved, nothing is rewritten or signed, no key is created")
     void deniesReservedKey(HostScenario host, String op, JsonNode value, HookFixture fixture) {
         JsonNode input = Json.tree(Map.of(Json.RESERVED_KEY, value));
         Run run = fixture.runClean(host, host.event(host.toolName(op), input));
         assertThat(run.document()).isEqualTo(host.denied(Refusal.RESERVED_FIELD));
-        assertThat(run.out()).contains("reserved").doesNotContain("updatedInput").doesNotContain("overwrite");
+        assertThat(run.out()).contains("reserved").doesNotContain("updatedInput").doesNotContain("overwrite")
+                .doesNotContain("pgla1");
+        assertThat(fixture.keyDirectory()).as("no key folder, so no key was created").doesNotExist();
     }
 
     static final List<JsonNode> INVALID_IDS = List.of(
@@ -85,7 +98,7 @@ class StampingTest {
     @MethodSource("invalidIds")
     @DisplayName("HK-005 an invalid host id is denied, with no fallback to an agent id or author_id")
     void deniesInvalidHostId(HostScenario host, JsonNode hostId, HookFixture fixture) {
-        JsonNode input = Json.tree(Map.of("author_id", host.attestation("fallback")));
+        JsonNode input = Json.tree(Map.of("author_id", host.author("fallback")));
         Run run = fixture.runClean(host, host.event(host.toolName("save"), input, hostId));
         assertThat(run.document()).isEqualTo(host.denied(Refusal.HOST_ID_INVALID));
         assertThat(run.out()).doesNotContain("fallback").doesNotContain("child-");
@@ -110,7 +123,9 @@ class StampingTest {
     void acceptsValidIds(HostScenario host, String id, HookFixture fixture) {
         JsonNode input = Json.of("{}");
         Run run = fixture.runClean(host, host.event(host.toolName("whoami"), input, Json.text(id)));
-        assertThat(run.document()).isEqualTo(host.allowed(input, host.attestation(id)));
+        Attestations.Stamp stamp = fixture.stamp(host, id, "whoami", input, run);
+        assertThat(stamp.claims().author()).isEqualTo(host.author(id));
+        assertThat(run.document()).isEqualTo(host.allowed(input, stamp.token(), stamp.addedRequestId()));
     }
 
     /** Two ids one after the other, the second equal to the first or not. */
@@ -128,7 +143,9 @@ class StampingTest {
         JsonNode input = Json.of("{}");
         fixture.runClean(host, host.event(host.toolName("save"), input, Json.text(first)));
         Run run = fixture.runClean(host, host.event(host.toolName("save"), input, Json.text(second)));
-        assertThat(run.document()).isEqualTo(host.allowed(input, host.attestation(second)));
+        Attestations.Stamp stamp = fixture.stamp(host, second, "save", input, run);
+        assertThat(stamp.claims().author()).isEqualTo(host.author(second));
+        assertThat(run.document()).isEqualTo(host.allowed(input, stamp.token(), stamp.addedRequestId()));
     }
 
     static Stream<Arguments> vendorPrefixes() {
@@ -140,11 +157,13 @@ class StampingTest {
 
     @ParameterizedTest
     @MethodSource("vendorPrefixes")
-    @DisplayName("HK-020 the vendor prefix of the stamped id follows the client enum (claude:, codex:, gemini:)")
+    @DisplayName("HK-020 the vendor prefix of the signed author follows the client enum (claude:, codex:, gemini:)")
     void vendorPrefixFollowsClient(HostScenario host, String prefix, HookFixture fixture) {
         JsonNode input = Json.of("{}");
         Run run = fixture.runClean(host, host.event(host.toolName("whoami"), input));
-        assertThat(run.document()).isEqualTo(host.allowed(input, prefix + ":" + HookFixture.HOST_ID));
+        Attestations.Stamp stamp = fixture.stamp(host, "whoami", input, run);
+        assertThat(stamp.claims().author()).isEqualTo(prefix + ":" + HookFixture.HOST_ID);
+        assertThat(run.document()).isEqualTo(host.allowed(input, stamp.token(), stamp.addedRequestId()));
     }
 
 }

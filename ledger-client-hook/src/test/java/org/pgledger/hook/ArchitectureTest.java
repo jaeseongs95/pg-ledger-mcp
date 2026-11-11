@@ -16,24 +16,23 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** HK-018 (code side): no network, file, environment, process, reflection or framework access in the hook classes. */
+/**
+ * HK-018 (code side): no network, process, reflection or framework access in any hook class; file system access only in
+ * the {@code keys} package; the process (System) only in Main.
+ */
 class ArchitectureTest {
+
+    private static final String KEYS_PACKAGE = "org.pgledger.hook.keys..";
 
     private static final JavaClasses hook = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS).importPackages("org.pgledger.hook");
 
     @Test
-    @DisplayName("HK-018 the hook classes use no network, file system, process, reflection, JDBC, Spring or Lombok API")
+    @DisplayName("HK-018 no hook class uses a network, process, reflection, foreign-memory, JDBC, Spring or Lombok API")
     void noForbiddenApi() {
         noClasses().should().dependOnClassesThat().resideInAnyPackage(
-                        "java.net..", "javax.net..", "java.nio.file..", "java.nio.channels..", "java.sql..", "javax.sql..",
+                        "java.net..", "javax.net..", "java.sql..", "javax.sql..",
                         "java.lang.reflect..", "java.lang.foreign..", "org.springframework..", "lombok..")
-                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.File")
-                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.FileInputStream")
-                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.FileOutputStream")
-                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.FileReader")
-                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.FileWriter")
-                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.RandomAccessFile")
                 .orShould().dependOnClassesThat().haveFullyQualifiedName("java.lang.ProcessBuilder")
                 .orShould().dependOnClassesThat().haveFullyQualifiedName("java.lang.Process")
                 .orShould().dependOnClassesThat().haveFullyQualifiedName("java.lang.Runtime")
@@ -41,16 +40,35 @@ class ArchitectureTest {
     }
 
     @Test
-    @DisplayName("HK-018 only Main touches java.lang.System (stdin, stdout, stderr, exit); nothing reads the environment or properties")
+    @DisplayName("HK-018 file system APIs (java.nio.file, java.nio.channels, java.io.File*) are used only by the classes of the keys package")
+    void fileSystemOnlyInKeysPackage() {
+        noClasses().that().resideOutsideOfPackage(KEYS_PACKAGE)
+                .should().dependOnClassesThat().resideInAnyPackage("java.nio.file..", "java.nio.channels..")
+                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.File")
+                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.FileInputStream")
+                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.FileOutputStream")
+                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.FileReader")
+                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.FileWriter")
+                .orShould().dependOnClassesThat().haveFullyQualifiedName("java.io.RandomAccessFile")
+                .check(hook);
+        // the package exists in the imported classes: the rule above is not vacuous for it
+        assertThat(hook.stream().anyMatch(type -> "org.pgledger.hook.keys".equals(type.getPackageName()))).isTrue();
+    }
+
+    @Test
+    @DisplayName("HK-018 only Main touches java.lang.System, and only for stdin, stdout, stderr, exit, System.getenv(String) and System.getProperty(String)")
     void systemOnlyInMain() {
         noClasses().that().doNotHaveFullyQualifiedName("org.pgledger.hook.Main")
                 .should().dependOnClassesThat().haveFullyQualifiedName("java.lang.System")
                 .check(hook);
+        // Main reads one named environment variable and one named property, never the whole environment or all properties
         noClasses().should().callMethod(System.class, "getenv")
-                .orShould().callMethod(System.class, "getenv", String.class)
-                .orShould().callMethod(System.class, "getProperty", String.class)
                 .orShould().callMethod(System.class, "getProperty", String.class, String.class)
                 .orShould().callMethod(System.class, "getProperties")
+                .check(hook);
+        noClasses().that().doNotHaveFullyQualifiedName("org.pgledger.hook.Main")
+                .should().callMethod(System.class, "getenv", String.class)
+                .orShould().callMethod(System.class, "getProperty", String.class)
                 .check(hook);
     }
 

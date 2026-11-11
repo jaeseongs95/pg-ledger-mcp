@@ -31,6 +31,11 @@ abstract class FlatHost implements HostScenario {
         return run.json().at("/hookSpecificOutput/updatedInput");
     }
 
+    @Override
+    public JsonNode stampedPart(Run run) {
+        return echoed(run);
+    }
+
     protected static Optional<JsonNode> answer(Specific specific) {
         return Optional.of(Json.tree(new Answer(specific)));
     }

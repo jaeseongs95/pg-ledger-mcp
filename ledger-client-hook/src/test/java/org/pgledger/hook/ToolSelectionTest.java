@@ -50,7 +50,8 @@ class ToolSelectionTest {
     @DisplayName("HK-011 Antigravity MCP name candidates mcp:ledger_save, mcp:test:ledger_save, mcp:test/ledger_save, mcp:test_ledger_save are all stamped")
     void antigravityNameCandidatesAreStamped(String name, HookFixture fixture) {
         Run run = fixture.runClean(AGY, AGY.event(name, EMPTY));
-        assertThat(run.document()).isEqualTo(AGY.allowed(EMPTY, "gemini:" + ID));
+        Attestations.Stamp stamp = fixture.stamp(AGY, "save", EMPTY, run);
+        assertThat(run.document()).isEqualTo(AGY.allowed(EMPTY, stamp.token(), stamp.addedRequestId()));
     }
 
     @ParameterizedTest
@@ -75,7 +76,8 @@ class ToolSelectionTest {
     void codexNamespaceIsStamped(String op, HookFixture fixture) {
         JsonNode input = Json.tree(Map.of("marker", "namespace"));
         Run run = fixture.runClean(CODEX, CODEX.event(codexNamespace(op), input));
-        assertThat(run.document()).isEqualTo(CODEX.allowed(input, "codex:" + ID));
+        Attestations.Stamp stamp = fixture.stamp(CODEX, op, input, run);
+        assertThat(run.document()).isEqualTo(CODEX.allowed(input, stamp.token(), stamp.addedRequestId()));
     }
 
     @ParameterizedTest
@@ -110,16 +112,13 @@ class ToolSelectionTest {
         return new Envelope("t0001sink", toolName, arguments, new Keep(true));
     }
 
-    private static JsonNode stampedInput() {
-        return Json.stamped(INPUT, "gemini:" + ID);
-    }
-
     @ParameterizedTest
     @MethodSource("writeOps")
     @DisplayName("HK-012 call_mcp_tool with Arguments as an object: only Arguments is overwritten, still an object, envelope untouched")
     void wrapperObjectArguments(String op, HookFixture fixture) {
         Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("app_ledger_ledger_" + op, INPUT)));
-        assertThat(run.document()).isEqualTo(AGY.allowedWrapped(stampedInput()));
+        Attestations.Stamp stamp = fixture.stampCarrier(AGY.author(ID), op, INPUT, AGY.echoed(run));
+        assertThat(run.document()).isEqualTo(AGY.allowedWrapped(Json.stamped(INPUT, stamp.token(), stamp.addedRequestId())));
     }
 
     @ParameterizedTest
@@ -127,7 +126,11 @@ class ToolSelectionTest {
     @DisplayName("HK-012 call_mcp_tool with Arguments as JSON text: only Arguments is overwritten, still JSON text, envelope untouched")
     void wrapperTextArguments(String op, HookFixture fixture) {
         Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("app_ledger_ledger_" + op, Json.MAPPER.writeValueAsString(INPUT))));
-        assertThat(run.document()).isEqualTo(AGY.allowedWrapped(Json.MAPPER.writeValueAsString(stampedInput())));
+        JsonNode text = AGY.echoed(run);
+        assertThat(text.isString()).as("Arguments stays JSON text").isTrue();
+        Attestations.Stamp stamp = fixture.stampCarrier(AGY.author(ID), op, INPUT, Json.of(text.stringValue()));
+        assertThat(run.document()).isEqualTo(AGY.allowedWrapped(
+                Json.MAPPER.writeValueAsString(Json.stamped(INPUT, stamp.token(), stamp.addedRequestId()))));
     }
 
     private static final List<JsonNode> RESERVED_VALUES = List.of(
@@ -223,6 +226,7 @@ class ToolSelectionTest {
     void wrapperUnknownFieldsSurvive(HookFixture fixture) {
         JsonNode input = Json.tree(new UnknownFields(new Unknown(List.of(1, 2, Map.of("b", Json.of("null")))), "한글"));
         Run run = fixture.runClean(AGY, AGY.wrapperEvent(envelope("ledger_batch", input)));
-        assertThat(run.document()).isEqualTo(AGY.allowedWrapped(Json.stamped(input, "gemini:" + ID)));
+        Attestations.Stamp stamp = fixture.stampCarrier(AGY.author(ID), "batch", input, AGY.echoed(run));
+        assertThat(run.document()).isEqualTo(AGY.allowedWrapped(Json.stamped(input, stamp.token(), stamp.addedRequestId())));
     }
 }

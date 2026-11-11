@@ -13,7 +13,8 @@ import tools.jackson.databind.JsonNode;
  * (tool name {@code mcp:...}, arguments in {@code toolCall.args}) or wrapped in {@code call_mcp_tool}, whose
  * {@code args} carry {@code ServerName}, {@code ToolName} and {@code Arguments} (an object or a JSON object text).
  * {@code overwrite} is merged into the host's tool args, so a direct call overwrites only {@code _hostAttestation}
- * and a wrapped call overwrites only {@code Arguments}, in its original form. Only {@code allow} is used: no
+ * (and {@code request_id} when the hook had to generate one) and a wrapped call overwrites only {@code Arguments},
+ * in its original form. Only {@code allow} is used: no
  * auto-approval, the host's permission policy stays in force. The host ignores a failing hook process, so
  * malformed input is denied explicitly with exit 0.
  */
@@ -41,8 +42,11 @@ record AntigravityDialect(JsonCodec codec) implements HostDialect {
         if (WRAPPER_TOOL.equals(toolName)) {
             return readWrapped(args, event.conversationId());
         }
-        if (toolName.startsWith(DIRECT_PREFIX) && LEDGER_WRITE_TOOL.matcher(toolName).find()) {
-            return new Intake.Attest(args, event.conversationId(), Intake.ArgumentForm.DIRECT);
+        if (toolName.startsWith(DIRECT_PREFIX)) {
+            Optional<WriteTool> tool = WriteTool.find(LEDGER_WRITE_TOOL, toolName);
+            if (tool.isPresent()) {
+                return new Intake.Attest(args, event.conversationId(), Intake.ArgumentForm.DIRECT, tool.get());
+            }
         }
         return new Intake.Skip();
     }
@@ -53,8 +57,11 @@ record AntigravityDialect(JsonCodec codec) implements HostDialect {
             return new Intake.Skip();
         }
         WrapperCall wrapper = bound.get();
-        if (wrapper.serverName() == null || wrapper.serverName().isEmpty() || wrapper.toolName() == null
-                || !LEDGER_WRITE_TOOL.matcher(wrapper.toolName()).find()) {
+        if (wrapper.serverName() == null || wrapper.serverName().isEmpty() || wrapper.toolName() == null) {
+            return new Intake.Skip();
+        }
+        Optional<WriteTool> tool = WriteTool.find(LEDGER_WRITE_TOOL, wrapper.toolName());
+        if (tool.isEmpty()) {
             return new Intake.Skip();
         }
         if (wrapper.hostAttestation() != null) {
@@ -62,11 +69,11 @@ record AntigravityDialect(JsonCodec codec) implements HostDialect {
         }
         JsonNode arguments = wrapper.arguments();
         if (arguments == null || !arguments.isString()) {
-            return new Intake.Attest(arguments, hostId, Intake.ArgumentForm.EMBEDDED_OBJECT);
+            return new Intake.Attest(arguments, hostId, Intake.ArgumentForm.EMBEDDED_OBJECT, tool.get());
         }
         try {
             return new Intake.Attest(codec.read(arguments.stringValue().getBytes(StandardCharsets.UTF_8)), hostId,
-                    Intake.ArgumentForm.EMBEDDED_TEXT);
+                    Intake.ArgumentForm.EMBEDDED_TEXT, tool.get());
         } catch (JacksonException notJson) {
             LOG.log(Level.FINE, "the Arguments text is not JSON", notJson);
             return new Intake.Refuse(Refusal.ARGUMENTS_NOT_JSON_OBJECT);
@@ -91,7 +98,7 @@ record AntigravityDialect(JsonCodec codec) implements HostDialect {
     @Override
     public Response allow(Intake.Attest call, Verdict.Stamped stamped) {
         HostDocument.Overwrite overwrite = switch (call.form()) {
-            case DIRECT -> new HostDocument.Overwrite.Attestation(stamped.attestation());
+            case DIRECT -> new HostDocument.Overwrite.Attestation(stamped.attestation(), stamped.generatedRequestId());
             case EMBEDDED_OBJECT -> new HostDocument.Overwrite.ObjectArguments(stamped.arguments());
             case EMBEDDED_TEXT -> new HostDocument.Overwrite.TextArguments(codec.writeText(stamped.arguments()));
         };
