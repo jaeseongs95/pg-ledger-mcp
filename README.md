@@ -15,7 +15,8 @@ Agents read and write through MCP tools. They never get a database login of thei
   The hook keeps one Ed25519 key pair per MCP server name of the host and author in an owner-only folder (an absolute path:
   `LEDGER_HOOK_KEY_DIR`, default `~/.pg-ledger-mcp/session-keys`; POSIX mode or, on Windows, an ACL that grants the owner alone);
   it signs only `mcp__<server>__ledger_<op>` (or `mcp__<server>__<server>_ledger_<op>`) with a known operation, so a signature made
-  for one server (the test server, a look-alike server) never verifies on another.
+  for one server (the test server, a look-alike server) never verifies on another. Codex Apps (`mcp__codex_apps__app_<app>_ledger_<op>`)
+  is keyed by the app: the server name for `session-key` is `codex_apps.<app>`, for example `codex_apps.ledger`.
   `java -jar ledger-client-hook.jar session-key <server> <author>` prints the public key and its fingerprint. The owner registers each
   server's key separately (`ledger-cli key-register <author> <public-key> <fingerprint>` on that server, after comparing the fingerprint);
   the server verifies the signature (a missing key and a wrong signature are the same refusal, `ATTESTATION_SIGNATURE_INVALID`), the tool,

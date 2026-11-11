@@ -80,10 +80,12 @@ class ToolSelectionTest {
         return "mcp__test__test_ledger_" + op;
     }
 
-    /** CHANGED by attest-fix (F2): the Codex Apps namespace has a prefix (app_ledger) that is not the server (codex_apps). */
+    /** The Codex Apps namespace (a real path): the audience is the app, so the server identity is codex_apps.<app>. */
     private static String codexAppsNamespace(String op) {
         return "mcp__codex_apps__app_ledger_ledger_" + op;
     }
+
+    private static final String CODEX_APP_SERVER = "codex_apps.ledger";
 
     @ParameterizedTest
     @MethodSource("writeOps")
@@ -106,9 +108,33 @@ class ToolSelectionTest {
 
     @ParameterizedTest
     @MethodSource("writeOps")
-    @DisplayName("HK-013 (changed) the Codex Apps namespace mcp__codex_apps__app_ledger_ledger_<op> is not signed for: its prefix is not the server segment")
-    void codexAppsNamespaceIsNotSigned(String op, HookFixture fixture) {
-        Run run = fixture.runClean(CODEX, CODEX.event(codexAppsNamespace(op), EMPTY));
+    @DisplayName("HK-013 Codex Apps namespace mcp__codex_apps__app_ledger_ledger_<op>: all ten are stamped, with the key of the server identity codex_apps.ledger")
+    void codexAppsNamespaceIsStamped(String op, HookFixture fixture) {
+        JsonNode input = Json.tree(Map.of("marker", "codex apps"));
+        Run run = fixture.runClean(CODEX, CODEX.event(codexAppsNamespace(op), input));
+        Attestations.Stamp stamp = fixture.stampCarrier(CODEX_APP_SERVER, CODEX.author(ID), op, input,
+                CODEX.stampedPart(run));
+        assertThat(stamp.claims().tool()).isEqualTo("ledger_" + op);
+        assertThat(run.document()).isEqualTo(CODEX.allowed(input, stamp.token(), stamp.addedRequestId()));
+    }
+
+    @ParameterizedTest
+    @MethodSource("writeOps")
+    @DisplayName("HK-013 Codex Apps namespace: a reserved key is denied for all ten")
+    void codexAppsNamespaceDeniesReservedKey(String op, HookFixture fixture) {
+        JsonNode input = Json.tree(Map.of(Json.RESERVED_KEY, Json.of("null")));
+        Run run = fixture.runClean(CODEX, CODEX.event(codexAppsNamespace(op), input));
+        assertThat(run.document()).isEqualTo(CODEX.denied(Refusal.RESERVED_FIELD));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"mcp__codex_apps__app_ledger_ledger_get", "mcp__codex_apps__app_ledger_ledger_history",
+            "mcp__codex_apps__app_ledger_ledger_save_extra", "mcp__codex_apps__app_ledger_save",
+            "mcp__codex_apps__app_ledger_ledger_Save", "mcp__codex_apps__app__ledger_save",
+            "mcp__other__app_ledger_ledger_save", "mcp__codex_apps__ledger_ledger_get", "mcp__codex_apps__apps_ledger_ledger_save"})
+    @DisplayName("HK-013 Codex Apps namespace: a non-ledger or read operation, a malformed app segment, or another pseudo server is not touched")
+    void codexAppsNamespaceOtherNamesAreUntouched(String name, HookFixture fixture) {
+        Run run = fixture.runClean(CODEX, CODEX.event(name, EMPTY));
         assertThat(run.document()).isEqualTo(CODEX.untouched());
     }
 

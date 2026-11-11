@@ -20,10 +20,15 @@ import java.util.regex.Pattern;
  *     audience and is not signed.
  * <li>Antigravity, {@code call_mcp_tool}: the {@code ServerName} of the envelope, and a {@code ToolName} of
  *     {@code ledger_<op>} or {@code <ServerName>_ledger_<op>}.
+ * <li>Codex only, the Codex Apps namespace {@code mcp__codex_apps__app_<app>_ledger_<op>} (a real path: the tool of the
+ *     app {@code <app>} reaches Codex as {@code app_<app>_ledger_<op>} in the pseudo server {@code codex_apps}, for
+ *     example {@code mcp__codex_apps__app_ledger_ledger_save} for the app {@code ledger}). The audience here is the app,
+ *     not the pseudo server that every app shares, so the server identity is {@code codex_apps.<app>} and the key is
+ *     kept per (that identity, author): the owner registers the key printed by
+ *     {@code session-key codex_apps.<app> <author>}. An app with another name gets another identity and another key,
+ *     so a look-alike app never gets a signature that verifies for the real one.
  * </ul>
- * The operation is one of the ten known ones, exactly. The Codex Apps namespace
- * {@code mcp__codex_apps__app_ledger_ledger_<op>} is none of these shapes (its prefix is not the server segment) and is
- * not signed for.
+ * The operation is one of the ten known ones, exactly.
  *
  * @param server the server name, 1 to 100 characters of {@code A-Za-z0-9._-} (for the {@code mcp__} names of Claude
  *               Code and Codex, whose server names are made of {@code A-Za-z0-9_-}, without the dot)
@@ -38,6 +43,10 @@ record McpToolName(String server, WriteTool tool) {
     private static final Pattern SERVER = Pattern.compile("[" + SERVER_CHARACTERS + "]{1," + MAX_SERVER_LENGTH + "}");
     private static final Pattern DOUBLE_UNDERSCORE = Pattern.compile(
             "^mcp__([A-Za-z0-9_-]{1," + MAX_SERVER_LENGTH + "}?)__(?:\\1_)?ledger_" + OPERATIONS + "$");
+    private static final String CODEX_APPS = "codex_apps";
+    private static final int MAX_APP_LENGTH = MAX_SERVER_LENGTH - CODEX_APPS.length() - 1;
+    private static final Pattern CODEX_APP = Pattern.compile(
+            "^mcp__" + CODEX_APPS + "__app_([A-Za-z0-9_-]{1," + MAX_APP_LENGTH + "}?)_ledger_" + OPERATIONS + "$");
     private static final Pattern ANTIGRAVITY_DIRECT = Pattern.compile(
             "^mcp:([" + SERVER_CHARACTERS + "]{1," + MAX_SERVER_LENGTH + "}?)[:/_](?:\\1_)?ledger_" + OPERATIONS + "$");
 
@@ -49,6 +58,19 @@ record McpToolName(String server, WriteTool tool) {
     /** Claude Code and Codex: {@code mcp__<server>__[<server>_]ledger_<op>}. */
     static Optional<McpToolName> ofDoubleUnderscore(String hostToolName) {
         return of(DOUBLE_UNDERSCORE.matcher(hostToolName));
+    }
+
+    /** Codex: the shapes of {@link #ofDoubleUnderscore}, or the Codex Apps namespace with the app as the audience. */
+    static Optional<McpToolName> ofCodex(String hostToolName) {
+        Optional<McpToolName> plain = ofDoubleUnderscore(hostToolName);
+        if (plain.isPresent()) {
+            return plain;
+        }
+        Matcher app = CODEX_APP.matcher(hostToolName);
+        if (!app.matches()) {
+            return Optional.empty();
+        }
+        return WriteTool.ofOperation(app.group(2)).map(op -> new McpToolName(CODEX_APPS + "." + app.group(1), op));
     }
 
     /** Antigravity, a direct MCP call: {@code mcp:<server><sep>[<server>_]ledger_<op>}. */

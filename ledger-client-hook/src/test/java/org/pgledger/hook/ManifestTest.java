@@ -59,8 +59,11 @@ class ManifestTest {
      */
     private static Stream<String> names(Client client, String op) {
         return switch (client) {
-            case CLAUDE, CODEX -> SERVERS.stream().flatMap(server -> Stream.of(
+            case CLAUDE -> SERVERS.stream().flatMap(server -> Stream.of(
                     "mcp__" + server + "__ledger_" + op, "mcp__" + server + "__" + server + "_ledger_" + op));
+            case CODEX -> Stream.concat(SERVERS.stream().flatMap(server -> Stream.of(
+                    "mcp__" + server + "__ledger_" + op, "mcp__" + server + "__" + server + "_ledger_" + op)),
+                    Stream.of("mcp__codex_apps__app_ledger_ledger_" + op));
             case ANTIGRAVITY -> Stream.of("mcp:test:ledger_" + op, "mcp:test/ledger_" + op, "mcp:test_ledger_" + op,
                     "mcp:ledger_ledger_" + op, "mcp:t0001sink_isolated-01:t0001sink_isolated-01_ledger_" + op);
         };

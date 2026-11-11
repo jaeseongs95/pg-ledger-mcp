@@ -25,7 +25,9 @@ class SigningTest {
             Client.CLAUDE, List.of(new Naming("mcp__ledger__ledger_%s", "ledger"), new Naming("mcp__srv__ledger_%s", "srv"),
                     new Naming("mcp__ledger__ledger_ledger_%s", "ledger"), new Naming("mcp__srv-1__srv-1_ledger_%s", "srv-1")),
             Client.CODEX, List.of(new Naming("mcp__test__ledger_%s", "test"), new Naming("mcp__srv__ledger_%s", "srv"),
-                    new Naming("mcp__test__test_ledger_%s", "test")),
+                    new Naming("mcp__test__test_ledger_%s", "test"),
+                    new Naming("mcp__codex_apps__app_ledger_ledger_%s", "codex_apps.ledger"),
+                    new Naming("mcp__codex_apps__app_my-app_ledger_%s", "codex_apps.my-app")),
             Client.ANTIGRAVITY, List.of(new Naming("mcp:test:ledger_%s", "test"), new Naming("mcp:test/ledger_%s", "test"),
                     new Naming("mcp:test_ledger_%s", "test"), new Naming("mcp:ledger_ledger_%s", "ledger"),
                     new Naming("mcp:test:test_ledger_%s", "test")));

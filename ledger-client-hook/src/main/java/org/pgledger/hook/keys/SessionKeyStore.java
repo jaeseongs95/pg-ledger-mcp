@@ -26,7 +26,6 @@ import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.attribute.UserPrincipal;
-import java.nio.file.attribute.UserPrincipalNotFoundException;
 import java.security.InvalidKeyException;
 import java.security.KeyFactory;
 import java.security.KeyPair;
@@ -97,9 +96,14 @@ import org.pgledger.hook.keys.SessionKeyException.Reason;
  *     machine that are not administrators, and an entry for them would add nothing but exposure.
  * <li>Both: the owner of the folder and of the file must be the current user ({@link Reason#WRONG_OWNER}); the current
  *     user is the account name that {@link Main} reads from {@code user.name}, resolved by the file system's
- *     {@code UserPrincipalLookupService}. With ACLs the group Administrators is accepted as owner too: it is what an
- *     elevated administrator's process creates, and an account that is not an administrator cannot make it the owner
- *     of its own file.
+ *     {@code UserPrincipalLookupService}. The group Administrators is not accepted as owner: Microsoft documents that
+ *     for objects such as files created by members of Domain Admins "the default owner is the Administrators group"
+ *     (https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/understand-security-groups, "Domain
+ *     Admins"). That page says nothing about local administrators or an elevated token, and the policy page of
+ *     "System objects: Default owner for objects created by members of the Administrators group" could not be opened
+ *     (the guessed Learn URLs answered 404), so no claim beyond that sentence is made. The consequence is on the safe
+ *     side: a hook that an administrator runs with a token whose files are owned by that group is refused
+ *     ({@link Reason#WRONG_OWNER}); the host starts hooks as the signed-in user, so run it that way.
  * <li>Neither view: nothing is set, the default protection of the user profile applies.
  * </ul>
  *
@@ -116,8 +120,6 @@ public final class SessionKeyStore {
     private static final String PUBLIC_PREFIX = "public-key=";
     private static final String FILE_SUFFIX = ".key";
     private static final String ACL_ATTRIBUTE = "acl:acl";
-    /** The well-known SID of the group Administrators. */
-    private static final String ADMINISTRATORS_SID = "S-1-5-32-544";
     private static final int MAX_FILE_BYTES = 16 * 1024;
     private static final byte[] PROBE = "pg-ledger-mcp/session-key/probe".getBytes(StandardCharsets.US_ASCII);
     private static final Set<PosixFilePermission> DIRECTORY_MODE = PosixFilePermissions.fromString("rwx------");
@@ -248,23 +250,10 @@ public final class SessionKeyStore {
         if (posix) {
             return new Posix(current);
         }
-        // The default owner of an object that an elevated administrator creates is the group Administrators (the
-        // Windows security policy "Default owner for objects created by members of the Administrators group"). A
-        // principal that is not an administrator cannot make that group the owner of its own object, so accepting it
-        // lets no other account in (administrators can take ownership of any file anyway); a hook that runs elevated
-        // is not refused for its own files. The well-known SID text is understood by the lookup in any language.
-        return new Acl(current, lookupOrNull(system, ADMINISTRATORS_SID));
+        return new Acl(current);
     }
 
-    private static UserPrincipal lookupOrNull(FileSystem system, String name) throws IOException {
-        try {
-            return system.getUserPrincipalLookupService().lookupPrincipalByName(name);
-        } catch (UserPrincipalNotFoundException unknown) {
-            return null;
-        }
-    }
-
-    /** Refuses a path whose owner is none of the accepted principals (the current user, or also Administrators on ACL systems). */
+    /** Refuses a path whose owner is not the current user (the group Administrators is not accepted, see the class comment). */
     private static void requireOwner(Path path, List<UserPrincipal> accepted, LinkOption... options) throws IOException {
         if (!accepted.contains(Files.getOwner(path, options))) {
             throw new SessionKeyException(Reason.WRONG_OWNER);
@@ -320,7 +309,7 @@ public final class SessionKeyStore {
         }
     }
 
-    private record Acl(UserPrincipal current, UserPrincipal administrators) implements Protection {
+    private record Acl(UserPrincipal current) implements Protection {
 
         /** One ALLOW entry that grants the current user everything; a folder's entry is inherited by what it holds. */
         private List<AclEntry> ownerOnly(boolean folder) {
@@ -343,7 +332,7 @@ public final class SessionKeyStore {
 
         @Override
         public void requireOwnerOnly(Path path, LinkOption... options) throws IOException {
-            requireOwner(path, administrators == null ? List.of(current) : List.of(current, administrators), options);
+            requireOwner(path, List.of(current), options);
             AclFileAttributeView view = Files.getFileAttributeView(path, AclFileAttributeView.class, options);
             for (AclEntry entry : view.getAcl()) {
                 // only an ALLOW entry grants anything; DENY, AUDIT and ALARM entries do not

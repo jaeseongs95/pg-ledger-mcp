@@ -63,8 +63,8 @@ class KeyAuditTest {
                 Arguments.argumentSet("claude codex_apps namespace", claude, "mcp__codex_apps__app_ledger_ledger_save"),
                 Arguments.argumentSet("claude no server", claude, "mcp__ledger_save"),
                 Arguments.argumentSet("codex prefix is not the server", codex, "mcp__a__b_ledger_save"),
-                Arguments.argumentSet("codex codex_apps namespace", codex, "mcp__codex_apps__app_ledger_ledger_save"),
                 Arguments.argumentSet("codex no server", codex, "mcp__ledger_save"),
+                Arguments.argumentSet("codex apps: app is not an op prefix", codex, "mcp__codex_apps__app_ledger_save"),
                 Arguments.argumentSet("antigravity prefix is not the server", agy, "mcp:test:other_ledger_save"),
                 Arguments.argumentSet("antigravity no server", agy, "mcp:ledger_save"));
     }
@@ -110,6 +110,22 @@ class KeyAuditTest {
             assertThat(files.map(path -> path.getFileName().toString()).toList()).containsExactlyInAnyOrder(
                     Attestations.keyFileName("ledger", author), Attestations.keyFileName("ledger-test", author));
         }
+    }
+
+    @Test
+    @DisplayName("HK-033 Codex Apps: a look-alike app (app_evil) is signed for under its own identity codex_apps.evil, with its own key: its signature never verifies under the key of codex_apps.ledger")
+    void aLookAlikeCodexAppHasItsOwnKey(HookFixture fixture) {
+        HostScenario codex = new CodexHost();
+        JsonNode input = Json.of("{\"marker\":\"apps\"}");
+        String author = codex.author(HookFixture.HOST_ID);
+        Run real = fixture.runClean(codex, codex.event("mcp__codex_apps__app_ledger_ledger_save", input));
+        Run evil = fixture.runClean(codex, codex.event("mcp__codex_apps__app_evil_ledger_save", input));
+        Attestations.Stamp onLedger = fixture.stampCarrier("codex_apps.ledger", author, "save", input, codex.stampedPart(real));
+        Attestations.Stamp onEvil = fixture.stampCarrier("codex_apps.evil", author, "save", input, codex.stampedPart(evil));
+        PublicKey ledgerKey = Attestations.publicKey(fixture.keyDirectory(), "codex_apps.ledger", author);
+        assertThatThrownBy(() -> AttestationToken.parse(onEvil.token()).verify(ledgerKey))
+                .isInstanceOf(AttestationException.class);
+        AttestationToken.parse(onLedger.token()).verify(ledgerKey);
     }
 
     @Test
