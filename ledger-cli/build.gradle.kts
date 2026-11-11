@@ -7,6 +7,8 @@ dependencies {
     // Plain starter only (Spring Boot core, logging, MessageSource): no JDBC, no DataSource auto-configuration, because
     // secret-set and driver-register must run before any JDBC driver exists on this machine.
     implementation("org.springframework.boot:spring-boot-starter")
+    // Bean Validation for the @Validated settings records: a bad value stops the startup (version from the Boot BOM)
+    implementation("org.springframework.boot:spring-boot-starter-validation")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: see gradle/libs.versions.toml

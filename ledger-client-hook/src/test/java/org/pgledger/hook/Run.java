@@ -7,6 +7,7 @@ import tools.jackson.databind.JsonNode;
 /** The result of one hook invocation: exit code and the bytes on stdout and stderr. */
 record Run(int exit, byte[] stdout, byte[] stderr) {
 
+    /** The captured bytes become text only for the assertion; no file or stream API applies to an in-memory byte[]. */
     String out() {
         return new String(stdout, StandardCharsets.UTF_8);
     }

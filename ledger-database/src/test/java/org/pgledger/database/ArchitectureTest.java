@@ -4,8 +4,14 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaCodeUnit;
+import com.tngtech.archunit.core.domain.TryCatchBlock;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -24,6 +30,7 @@ class ArchitectureTest {
 
     private static final JavaClasses MAIN = ArchitectureRules.productionClasses("org.pgledger.database");
     private static final Path MAIN_JAVA = Path.of("src", "main", "java");
+    private static final Path TEST_JAVA = Path.of("src", "test", "java");
 
     /** One rule of the catalogue under its ID. */
     private record Rule(String id, ArchRule rule) {
@@ -93,6 +100,44 @@ class ArchitectureTest {
     @DisplayName("ARC-017: configuration properties are records")
     void configurationPropertiesAreRecords() {
         classes().that().areAnnotatedWith(ConfigurationProperties.class).should().beRecords().check(MAIN);
+    }
+
+    /** A class with a code unit that has a catch block for {@code throwable}. */
+    private static ArchCondition<JavaClass> notCatch(String throwable) {
+        return new ArchCondition<>("not catch " + throwable) {
+            @Override
+            public void check(JavaClass type, ConditionEvents events) {
+                for (JavaCodeUnit unit : type.getCodeUnits()) {
+                    for (TryCatchBlock block : unit.getTryCatchBlocks()) {
+                        for (JavaClass caught : block.getCaughtThrowables()) {
+                            if (throwable.equals(caught.getName())) {
+                                events.add(SimpleConditionEvent.violated(unit,
+                                        unit.getFullName() + " catches " + throwable));
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    @Test
+    @DisplayName("ARC-036 catch rules: no SQLException catch outside the driver boundary, no empty catch, no broad catch")
+    void arc036_catchRules() {
+        classes().that().resideOutsideOfPackage("org.pgledger.database.driver..")
+                .should(notCatch("java.sql.SQLException")).check(MAIN);
+        assertThat(CodingScan.catchProblems(Set.of(), "driver", MAIN_JAVA, TEST_JAVA)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ARC-037 string rules: literal first in equals, no == on strings, no string switch, no intern(), no new String(")
+    void arc037_stringRules() {
+        noClasses().should().callMethod(String.class, "intern")
+                .orShould().callConstructor(String.class, String.class)
+                .orShould().callConstructor(String.class, byte[].class)
+                .orShould().callConstructor(String.class, byte[].class, java.nio.charset.Charset.class)
+                .check(MAIN);
+        assertThat(CodingScan.stringProblems(Set.of(), MAIN_JAVA, TEST_JAVA)).isEmpty();
     }
 
     @Test

@@ -272,7 +272,7 @@ class DriverBoundaryTest {
     }
 
     @Test
-    void drv019_closingReleasesTheJarSoItCanBeDeleted(Databases databases) throws IOException {
+    void drv019_closingReleasesTheJarSoItCanBeDeleted(Databases databases) throws IOException, SQLException {
         Path copy = Files.copy(h2Jar(), temp.resolve("release.jar"));
         String url = databases.newUrl();
         DriverRegistration registration = DriverLoader.describe(copy.toString(), "org.h2.Driver", url, NOW);
@@ -281,8 +281,6 @@ class DriverBoundaryTest {
                         new LedgerJdbcProperties(url, null, null, 1, registration), null);
                 Connection c = pool.getConnection()) {
             assertThat(c.isValid(2)).isTrue();
-        } catch (SQLException e) {
-            throw new IllegalStateException(e);
         }
         Files.delete(copy);
         assertThat(copy).doesNotExist();

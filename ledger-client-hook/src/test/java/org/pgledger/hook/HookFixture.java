@@ -4,8 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 
 /** Per-test fixture: runs the hook in process. */
 final class HookFixture {
@@ -18,12 +16,8 @@ final class HookFixture {
     Run run(String[] args, byte[] stdin) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ByteArrayOutputStream err = new ByteArrayOutputStream();
-        try {
-            int exit = new HookCli(codec).run(args, new ByteArrayInputStream(stdin), out, err);
-            return new Run(exit, out.toByteArray(), err.toByteArray());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        int exit = new HookCli(codec).run(args, new ByteArrayInputStream(stdin), out, err);
+        return new Run(exit, out.toByteArray(), err.toByteArray());
     }
 
     Run run(HostScenario host, byte[] stdin) {

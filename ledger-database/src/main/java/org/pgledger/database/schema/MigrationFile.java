@@ -1,7 +1,6 @@
 package org.pgledger.database.schema;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,8 +34,7 @@ public record MigrationFile(int version, String fileName, String text, Sha256 di
                     throw new SchemaMigrationException("bad schema file name '" + name
                             + "': expected V<number>__<description>.sql (lower case, number without leading zero)");
                 }
-                String text = new String(resource.getContentAsByteArray(), StandardCharsets.UTF_8)
-                        .replace("\r\n", "\n");
+                String text = resource.getContentAsString(StandardCharsets.UTF_8).replace("\r\n", "\n");
                 MigrationFile file = new MigrationFile(Integer.parseInt(matcher.group(1)), name, text,
                         Sha256.ofText(text));
                 if (byVersion.put(file.version(), file) != null) {
@@ -45,7 +43,7 @@ public record MigrationFile(int version, String fileName, String text, Sha256 di
             }
             return List.copyOf(new ArrayList<>(byVersion.values()));
         } catch (IOException e) {
-            throw new UncheckedIOException("cannot read the schema files at " + location, e);
+            throw new SchemaMigrationException("cannot read the schema files at " + location, e);
         }
     }
 

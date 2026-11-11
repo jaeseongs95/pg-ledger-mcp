@@ -153,7 +153,7 @@ class TimeZoneTest {
                     java.time.OffsetDateTime.class, java.time.ZonedDateTime.class};
             assertThat(bound).as("no timestamp is bound in any other way").noneMatch(
                     b -> b.type() != null && List.of(forbidden).contains(b.type()));
-            assertThat(bound).noneMatch(b -> b.setter().equals("setTimestamp"));
+            assertThat(bound).noneMatch(b -> "setTimestamp".equals(b.setter()));
             assertThat(bound.stream().filter(b -> b.type() == LocalDateTime.class).count())
                     .isGreaterThanOrEqualTo(15);
             // the stored wall clock of every column is the UTC time that was written

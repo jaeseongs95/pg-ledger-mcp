@@ -1,5 +1,7 @@
 package org.pgledger.hook;
 
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -10,6 +12,7 @@ import tools.jackson.databind.node.ObjectNode;
  */
 record LedgerHook(HostDialect dialect, JsonCodec codec) {
 
+    private static final Logger LOG = Logger.getLogger(LedgerHook.class.getName());
     private static final String RESERVED_KEY = Intake.RESERVED_KEY;
 
     /** Turns the raw stdin bytes of one invocation into the answer for the host. */
@@ -21,6 +24,8 @@ record LedgerHook(HostDialect dialect, JsonCodec codec) {
         try {
             intake = dialect.read(stdin);
         } catch (JacksonException malformed) {
+            // the one place where malformed input becomes the host's answer (the stderr contract allows no log line)
+            LOG.log(Level.FINE, "the hook input is not valid JSON", malformed);
             return dialect.malformedInput();
         }
         return switch (intake) {

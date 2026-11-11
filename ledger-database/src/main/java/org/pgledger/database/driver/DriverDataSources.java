@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.pgledger.database.repository.SchemaHistoryRepository;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import java.util.List;
 
@@ -39,7 +40,8 @@ public final class DriverDataSources {
     private static String foldedSchema(SimpleDriverDataSource simple, String schema) {
         try {
             return SchemaHistoryRepository.inspect(simple, metaData -> SchemaHistoryRepository.fold(metaData, schema));
-        } catch (RuntimeException e) {
+        } catch (DataAccessException | InfrastructureException e) {
+            // a refused connection (Spring DataAccessException) or an unreadable metadata (INTERNAL_ERROR)
             throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID,
                     List.of("cannot connect with the registered driver: " + e.getMessage()), e);
         }

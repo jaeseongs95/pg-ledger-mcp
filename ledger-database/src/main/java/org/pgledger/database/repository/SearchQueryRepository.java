@@ -130,10 +130,10 @@ public class SearchQueryRepository {
         for (String status : filter.excludeStatuses()) {
             sql.append(" AND ").append(stateColumn).append(" <> :x").append(status);
         }
-        if (filter.createdFrom() != null && created.equals("created_at")) {
+        if (filter.createdFrom() != null) {
             sql.append(" AND created_at >= :from");
         }
-        if (filter.createdTo() != null && created.equals("created_at")) {
+        if (filter.createdTo() != null) {
             sql.append(" AND created_at <= :to");
         }
         return sql.toString();

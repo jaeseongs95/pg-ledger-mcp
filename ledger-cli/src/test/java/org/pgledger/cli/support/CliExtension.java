@@ -68,6 +68,8 @@ public final class CliExtension implements ParameterResolver {
                 ConfigurableApplicationContext context = builder.run(all.toArray(String[]::new));
                 return new Outcome(SpringApplication.exit(context), null, context);
             } catch (RuntimeException failure) {
+                // The test entry plays the CLI boundary (what main() does): whatever the start throws is handed to the
+                // test in the Outcome, which asserts on it. Nothing is swallowed.
                 return new Outcome(exitCodes.code.get(), failure, started.get());
             }
         }

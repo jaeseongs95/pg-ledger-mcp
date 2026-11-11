@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
@@ -100,7 +101,7 @@ class AnsiRulesTest {
 
     /** Everything that holds SQL except the one class that reads the session clock for the UTC guard. */
     static Stream<SqlText> sqlWithoutTheGuard() {
-        return Stream.concat(schemaFiles(), repositorySources().filter(s -> !s.name().equals("SessionClockRepository.java")));
+        return Stream.concat(schemaFiles(), repositorySources().filter(s -> !"SessionClockRepository.java".equals(s.name())));
     }
 
     static Stream<SqlText> sqlOfTheApplication() {
@@ -124,7 +125,7 @@ class AnsiRulesTest {
                 .isSubsetOf("CREATE", "INSERT", "GRANT");
         assertThat(Stream.of(sql.stripped().split(";")).map(String::strip).filter(s -> s.toUpperCase(Locale.ROOT)
                 .startsWith("CREATE")).map(s -> WHITESPACE.split(s)[1].toUpperCase(Locale.ROOT)).toList())
-                .allMatch(kind -> kind.equals("TABLE") || kind.equals("INDEX") || kind.equals("UNIQUE"));
+                .allMatch(kind -> "TABLE".equals(kind) || "INDEX".equals(kind) || "UNIQUE".equals(kind));
     }
 
     @ParameterizedTest
@@ -167,9 +168,9 @@ class AnsiRulesTest {
     void keys(SqlText sql) {
         DdlModel model = DdlModel.parse(sql.stripped());
         assertThat(model.tables().stream().flatMap(t -> t.constraints().stream()
-                .filter(c -> c.kind().equals("PRIMARY KEY") || c.kind().equals("UNIQUE"))
+                .filter(c -> "PRIMARY KEY".equals(c.kind()) || "UNIQUE".equals(c.kind()))
                 .flatMap(c -> c.columns().stream().filter(col -> t.columns().stream()
-                        .noneMatch(column -> column.name().equals(col) && column.notNull())))))
+                        .noneMatch(column -> Objects.equals(column.name(), col) && column.notNull())))))
                 .as("nullable columns in keys").isEmpty();
         assertThat(model.indexes().stream().flatMap(i -> i.columns().stream())).allMatch(
                 c -> IDENTIFIER.matcher(c).matches());
@@ -180,7 +181,7 @@ class AnsiRulesTest {
     @DisplayName("ANSI-008 / REPO-004: CHECK clauses use only lists, comparisons and NULL tests")
     void checks(SqlText sql) {
         assertThat(DdlModel.parse(sql.stripped()).tables().stream().flatMap(t -> t.constraints().stream())
-                .filter(c -> c.kind().equals("CHECK")).map(DdlModel.Constraint::body))
+                .filter(c -> "CHECK".equals(c.kind())).map(DdlModel.Constraint::body))
                 .noneMatch(body -> FUNCTION_CALL.matcher(body).find() || body.contains("~"));
     }
 

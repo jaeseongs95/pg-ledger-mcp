@@ -37,16 +37,16 @@ final class SchemaDataSource extends DelegatingDataSource {
     }
 
     private Connection withSchema(Connection connection) throws SQLException {
+        // No catch: the connection is closed again unless it is handed out (JDBC methods declare SQLException).
+        boolean ready = false;
         try {
             connection.setSchema(SchemaHistoryRepository.fold(connection.getMetaData(), schema));
+            ready = true;
             return connection;
-        } catch (SQLException | RuntimeException e) {
-            try {
+        } finally {
+            if (!ready) {
                 connection.close();
-            } catch (SQLException closing) {
-                e.addSuppressed(closing);
             }
-            throw e;
         }
     }
 

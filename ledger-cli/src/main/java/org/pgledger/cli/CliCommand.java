@@ -1,5 +1,6 @@
 package org.pgledger.cli;
 
+import java.util.Objects;
 import java.util.Optional;
 
 /** The commands this tool offers. Only implemented commands are listed here. */
@@ -25,7 +26,7 @@ public enum CliCommand {
     /** The one place where a command line word becomes a command. */
     public static Optional<CliCommand> parse(String word) {
         for (CliCommand command : values()) {
-            if (command.cliName.equals(word)) {
+            if (Objects.equals(command.cliName, word)) {
                 return Optional.of(command);
             }
         }

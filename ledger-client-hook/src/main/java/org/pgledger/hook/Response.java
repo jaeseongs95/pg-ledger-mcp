@@ -11,4 +11,7 @@ sealed interface Response {
 
     /** A message on stderr and exit 2 (for Claude Code: the call is blocked). */
     record Failure(String message) implements Response {}
+
+    /** Stdin could not be read: logged with its cause, exit 2. */
+    record InputFailure(java.io.IOException cause) implements Response {}
 }

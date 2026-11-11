@@ -1,6 +1,8 @@
 package org.pgledger.hook;
 
 import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.StreamReadConstraints;
@@ -29,6 +31,8 @@ public final class JsonCodec {
 
     /** Deeper input is refused as malformed. Real tool calls are a handful of levels deep. */
     private static final int MAX_NESTING_DEPTH = 256;
+
+    private static final Logger LOG = Logger.getLogger(JsonCodec.class.getName());
 
     private final JsonMapper mapper;
 
@@ -67,6 +71,7 @@ public final class JsonCodec {
             return mapper.readValue(json, type);
         } catch (DatabindException notThisShape) {
             if (isOneJsonDocument(json)) {
+                LOG.log(Level.FINE, "the JSON document is not an event of the host", notThisShape);
                 return null;
             }
             throw notThisShape;

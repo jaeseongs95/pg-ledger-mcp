@@ -11,6 +11,8 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
 import org.pgledger.database.time.UtcTime;
+import org.pgledger.domain.error.InfrastructureCode;
+import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.domain.value.Sha256;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.support.DatabaseMetaDataCallback;
@@ -58,7 +60,8 @@ public final class SchemaHistoryRepository {
         try {
             return JdbcUtils.extractDatabaseMetaData(dataSource, callback);
         } catch (MetaDataAccessException e) {
-            throw new IllegalStateException("cannot inspect the database", e);
+            throw new InfrastructureException(InfrastructureCode.INTERNAL_ERROR,
+                    List.of("cannot inspect the database"), e);
         }
     }
 

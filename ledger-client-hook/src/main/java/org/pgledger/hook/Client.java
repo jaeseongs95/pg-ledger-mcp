@@ -1,6 +1,7 @@
 package org.pgledger.hook;
 
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -23,7 +24,7 @@ public enum Client {
 
     /** Parses the command line argument; only the exact spellings are accepted. */
     public static Optional<Client> fromArgument(String argument) {
-        return Arrays.stream(values()).filter(client -> client.argument.equals(argument)).findFirst();
+        return Arrays.stream(values()).filter(client -> Objects.equals(client.argument, argument)).findFirst();
     }
 
     /** {@code claude|codex|antigravity}, for the usage message. */

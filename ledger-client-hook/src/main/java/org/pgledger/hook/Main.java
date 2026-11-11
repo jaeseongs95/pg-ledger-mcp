@@ -1,6 +1,5 @@
 package org.pgledger.hook;
 
-import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 
@@ -16,14 +15,7 @@ public final class Main {
     private Main() {}
 
     public static void main(String[] args) {
-        int status;
-        try {
-            status = new HookCli(JsonCodec.create()).run(args, System.in, System.out, System.err);
-        } catch (IOException e) {
-            byte[] message = ("ledger: hook I/O failure: " + e.getClass().getSimpleName() + "\n").getBytes(StandardCharsets.UTF_8);
-            System.err.write(message, 0, message.length);
-            status = 2;
-        }
+        int status = new HookCli(JsonCodec.create()).run(args, System.in, System.out, System.err);
         PrintStream stdout = System.out;
         stdout.flush();
         if (stdout.checkError() && status == 0) {
