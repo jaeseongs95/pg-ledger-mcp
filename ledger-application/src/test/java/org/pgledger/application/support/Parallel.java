@@ -26,8 +26,13 @@ public final class Parallel {
 
     /** Runs all tasks concurrently (all start together) and returns the outcome of each, in task order. */
     public static <T> List<Outcome<T>> all(List<Callable<T>> tasks) {
+        return all(tasks, tasks.size());
+    }
+
+    /** Same with at most {@code threads} tasks running at a time. */
+    public static <T> List<Outcome<T>> all(List<Callable<T>> tasks, int threads) {
         java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
-        try (ExecutorService executor = Executors.newFixedThreadPool(tasks.size())) {
+        try (ExecutorService executor = Executors.newFixedThreadPool(threads)) {
             List<Future<Outcome<T>>> futures = new ArrayList<>();
             for (Callable<T> task : tasks) {
                 futures.add(executor.submit(() -> {

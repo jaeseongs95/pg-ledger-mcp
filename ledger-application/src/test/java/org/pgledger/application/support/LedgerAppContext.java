@@ -40,17 +40,25 @@ public final class LedgerAppContext implements AutoCloseable {
         this.spy = new RecordingDataSource(pool);
         new SchemaMigrator(spy, new PathMatchingResourcePatternResolver(),
                 new SchemaProperties(null, dbms.longText(), true, null), clock).migrate();
-        this.context = new SpringApplicationBuilder(TestApplication.class).web(WebApplicationType.NONE)
+        this.context = startApplication();
+        this.jdbc = JdbcClient.create(pool);
+        CommonCodeService codes = bean(CommonCodeService.class);
+        codes.set(new CodeCommand("DEFECT_CATEGORY", "ARC", "구조", "Architecture", null, null, 1, "ACTIVE"));
+        codes.set(new CodeCommand("DEFECT_CATEGORY", "RETIRED", "폐기", "Retired", null, null, 9, "INACTIVE"));
+    }
+
+    /**
+     * Starts one more application (a restart of the server) on the same database and clock; the caller closes it.
+     * The database stays open.
+     */
+    public ConfigurableApplicationContext startApplication() {
+        return new SpringApplicationBuilder(TestApplication.class).web(WebApplicationType.NONE)
                 .properties("spring.main.banner-mode=off", "logging.level.root=WARN", "spring.jmx.enabled=false")
                 .initializers(ctx -> {
                     ctx.getBeanFactory().registerSingleton("dataSource", spy);
                     ctx.getBeanFactory().registerSingleton("clock", clock);
                 })
                 .run();
-        this.jdbc = JdbcClient.create(pool);
-        CommonCodeService codes = bean(CommonCodeService.class);
-        codes.set(new CodeCommand("DEFECT_CATEGORY", "ARC", "구조", "Architecture", null, null, 1, "ACTIVE"));
-        codes.set(new CodeCommand("DEFECT_CATEGORY", "RETIRED", "폐기", "Retired", null, null, 9, "INACTIVE"));
     }
 
     public static LedgerAppContext create(Databases databases, Dbms dbms) {
