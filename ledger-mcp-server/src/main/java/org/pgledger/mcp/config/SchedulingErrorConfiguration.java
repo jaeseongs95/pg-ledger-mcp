@@ -12,6 +12,10 @@ public class SchedulingErrorConfiguration {
 
     private static final Logger LOG = LoggerFactory.getLogger(SchedulingErrorConfiguration.class);
 
+    /**
+     * A {@code @Bean} method because the customizer is the one-method interface of Spring Boot, which the scheduler
+     * auto-configuration looks up by type; it is made from a lambda, not from a class.
+     */
     @Bean
     ThreadPoolTaskSchedulerCustomizer scheduledTaskErrorLogging() {
         return scheduler -> scheduler.setErrorHandler(failure -> LOG.error("a scheduled task failed", failure));

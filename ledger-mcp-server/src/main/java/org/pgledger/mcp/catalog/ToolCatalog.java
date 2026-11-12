@@ -11,7 +11,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Stream;
 import org.pgledger.application.admin.CommonCodeService;
-import org.pgledger.database.repository.CodeRevisionRepository;
 import org.pgledger.domain.model.CommonCode;
 import org.pgledger.domain.rule.CodeGroup;
 import org.pgledger.mcp.error.ToolResults;
@@ -54,7 +53,6 @@ public class ToolCatalog implements SmartInitializingSingleton {
     private final List<ToolAdapter> adapters;
     private final ToolBindings bindings;
     private final CommonCodeService codes;
-    private final CodeRevisionRepository revision;
     private final ToolResults results;
     private final MessageSourceAccessor messages;
 
@@ -68,14 +66,13 @@ public class ToolCatalog implements SmartInitializingSingleton {
 
     public ToolCatalog(@Lazy McpSyncServer server,
             @Lazy @Qualifier("toolSpecs") List<SyncToolSpecification> annotatedSpecs, List<ToolAdapter> adapters,
-            ToolBindings bindings, CommonCodeService codes, CodeRevisionRepository revision, ToolResults results,
+            ToolBindings bindings, CommonCodeService codes, ToolResults results,
             MessageSourceAccessor modelMessages) {
         this.server = server;
         this.annotatedSpecs = annotatedSpecs;
         this.adapters = adapters;
         this.bindings = bindings;
         this.codes = codes;
-        this.revision = revision;
         this.results = results;
         this.messages = modelMessages;
     }
@@ -100,7 +97,7 @@ public class ToolCatalog implements SmartInitializingSingleton {
 
     /** Registers the tools again when the common codes changed since the last registration. */
     public synchronized void refreshIfChanged() {
-        long current = revision.current();
+        long current = codes.revision();
         if (current != registeredRevision) {
             LOG.info("the common codes changed (revision {}), the tools are registered again", current);
             registerAll();
@@ -108,7 +105,7 @@ public class ToolCatalog implements SmartInitializingSingleton {
     }
 
     private void registerAll() {
-        long readRevision = revision.current();
+        long readRevision = codes.revision();
         Map<String, Tool> registered = new LinkedHashMap<>();
         server.listTools().forEach(tool -> registered.put(tool.name(), tool));
         List<SyncToolSpecification> added = new ArrayList<>();

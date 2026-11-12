@@ -11,6 +11,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthenticationToken;
+import org.springframework.stereotype.Component;
 
 /**
  * Accepts the one bearer token of the agents. Both tokens are hashed first (the shared SHA-256 of the domain) and
@@ -18,6 +19,7 @@ import org.springframework.security.oauth2.server.resource.authentication.Bearer
  * neither the content nor the length of the token can be guessed from the response time. The token is never
  * written to a message or a log.
  */
+@Component
 public final class AgentTokenProvider implements AuthenticationProvider {
 
     /** The shortest token that is accepted as the secret of the agents. */

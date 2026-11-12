@@ -9,12 +9,14 @@ import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
+import org.springframework.stereotype.Component;
 
 /**
  * A request that carries an Origin header comes from a browser page; it is allowed only for an origin of the
  * configured list (the guard against a web page that reaches the local server). A request without an Origin is
  * not a browser request and passes.
  */
+@Component
 public final class TransportOriginAuthorization implements AuthorizationManager<RequestAuthorizationContext> {
 
     private final Set<String> allowed;

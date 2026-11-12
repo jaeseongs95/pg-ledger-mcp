@@ -86,6 +86,17 @@ class ArchitectureTest {
                 new Rule("the tools call services only: no class of the tool package depends on a repository",
                         noClasses().that().resideInAPackage("org.pgledger.mcp.tool..").should().dependOnClassesThat()
                                 .haveSimpleNameEndingWith("Repository")),
+                new Rule("MCC-PRN-03 the adapters reach the database through the application: only the configuration "
+                        + "and the application class name the database module",
+                        noClasses().that().resideOutsideOfPackage("org.pgledger.mcp.config..")
+                                .and().doNotHaveSimpleName("LedgerMcpServerApplication").should().dependOnClassesThat()
+                                .resideInAPackage("org.pgledger.database..")),
+                new Rule("MCC-PRN-03 the MCP server names no admin error code",
+                        noClasses().should().dependOnClassesThat().haveFullyQualifiedName(
+                                "org.pgledger.domain.error.AdminCode")),
+                new Rule("MCC-PRN-02 the size filter only throws: it builds no problem detail",
+                        noClasses().that().haveSimpleName("RequestSizeFilter").should().dependOnClassesThat()
+                                .haveFullyQualifiedName("org.springframework.http.ProblemDetail")),
                 new Rule("ARC-020 the security package compares nothing with String.equals or Arrays.equals",
                         noOrdinaryComparisonIn("org.pgledger.mcp.security..")),
                 new Rule("ARC-020 the agent token is compared with MessageDigest.isEqual",
