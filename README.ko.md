@@ -397,9 +397,30 @@ JDK 25와 Gradle 래퍼만 있으면 되며, 래퍼가 Gradle을 직접 내려�
 ./gradlew build
 ```
 
-빌드는 경고를 오류로 보고 컴파일하며, 모든 모듈의 시험을 내장 데이터베이스에서 실행하고(외부 데이터베이스가 필요하지 않습니다), JDBC 드라이버, JPA, 마이그레이션 도구, Lombok이
+빌드는 경고를 오류로 보고 컴파일하며, 모든 모듈의 시험을 그 컴퓨터에 설치된 PostgreSQL에서 실행하고(아래 시험 데이터베이스 참조, 내장 데이터베이스는 없으며 빌드가 데이터베이스를
+띄우지도 않습니다), JDBC 드라이버, JPA, 마이그레이션 도구, Lombok이
 런타임 클래스패스에 없는지 확인합니다. `ledger-cli`의 문서 시험(DOC-001부터 DOC-029까지, [docs/testing/TEST_CASES.md](docs/testing/TEST_CASES.md))은 이 README, 영문 README,
 릴리스 노트를 코드와 대조합니다.
+
+### 시험 데이터베이스
+
+모듈 시험에는 이미 설치되어 실행 중인 PostgreSQL 18 이상이 필요합니다. 기본값으로 `127.0.0.1:55432`의 `ledger_test` 데이터베이스에 그 데이터베이스의 소유자 계정으로 접속하며,
+두 번째 로그인인 최소 권한 응용 계정은 계정 권한을 다루는 시험이 사용합니다. 각 시험은 자기만의 스키마를 만들어 쓰고 끝나면 삭제하므로 그 데이터베이스 밖에는 아무것도 남지 않으며,
+시험 JVM 하나는 연결을 최대 10개까지만 유지합니다. 데이터베이스에 접속할 수 없는 시험은 접속 오류로 실패하며, 건너뛰지도 않고 다른 데이터베이스로 대체하지도 않습니다.
+
+접속 정보는 명령줄 또는 `gradle.properties`의 Gradle 속성으로 지정합니다. 아래 값이 기본값이며, 두 비밀번호 파일 속성만은 기본값이 루트 `build.gradle.kts`에 적힌 시험 컴퓨터의 파일입니다.
+
+```sh
+./gradlew test \
+  -Pledger.test.jdbc-url=jdbc:postgresql://127.0.0.1:55432/ledger_test \
+  -Pledger.test.jdbc-user=ledger_test \
+  -Pledger.test.app-user=ledger_test_app \
+  -Pledger.test.jdbc-password-file=<소유자 비밀번호를 한 줄로 적은 파일의 경로> \
+  -Pledger.test.app-password-file=<응용 계정 비밀번호를 한 줄로 적은 파일의 경로>
+```
+
+비밀번호는 속성 값으로 주지 않습니다. 두 비밀번호 파일 속성은 첫 줄이 비밀번호인 파일의 경로이며 시험 JVM만 그 파일을 읽습니다. 속성을 지정하지 않으면 드라이버에 비밀번호를 주지 않으므로
+PostgreSQL JDBC 드라이버가 사용자의 비밀번호 파일(Windows는 `pgpass.conf`, Linux는 `.pgpass`)을 읽습니다. 비밀번호는 코드, 설정, 로그, 커밋 메시지에 적지 않습니다.
 
 ### 자원이 작은 기계에서 시험 JVM을 제한하는 선택 속성
 
