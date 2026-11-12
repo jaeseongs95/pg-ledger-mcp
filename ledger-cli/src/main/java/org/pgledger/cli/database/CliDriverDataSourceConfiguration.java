@@ -39,14 +39,17 @@ import org.springframework.core.io.support.ResourcePatternResolver;
 @Import({LedgerDataSourceConfiguration.class, LegacySourceConfiguration.class})
 public class CliDriverDataSourceConfiguration {
 
+    private static final String ATTACHED_VIEW = "configurationProperties";
+
     /** A {@code @Bean} method because the settings are bound from a filtered view of the environment, which no annotation can say. */
     @Bean
     ApplicationAccountAccess applicationAccountAccess(RegisteredDriver driver, ConfigurableEnvironment environment,
             ResourcePatternResolver resolver, SchemaProperties schema) {
         MutablePropertySources sources = new MutablePropertySources(environment.getPropertySources());
         sources.remove(OwnerAccountPropertySource.NAME);
-        // the attached view of the environment would show the owner account again
-        sources.remove(ConfigurationPropertySources.ATTACHED_PROPERTY_SOURCE_NAME);
+        // the attached view of the environment would show the owner account again (Boot names it "configurationProperties",
+        // ConfigurationPropertySources.attach, the name itself is not public)
+        sources.remove(ATTACHED_VIEW);
         Binder binder = new Binder(ConfigurationPropertySources.from(sources), new PropertySourcesPlaceholdersResolver(sources));
         return binder.bind("ledger.jdbc", LedgerJdbcProperties.class)
                 .map(application -> DriverDataSources.applicationAccess(driver, application, resolver, schema))

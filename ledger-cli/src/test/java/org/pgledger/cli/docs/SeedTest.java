@@ -30,6 +30,7 @@ import org.pgledger.seed.SeedBundle;
 import org.pgledger.seed.SeedCode;
 import org.pgledger.seed.SeedSources;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.util.StreamUtils;
 
 /**
  * SET-001 .. SET-004, SET-006, SET-015, SET-053: the text source of the seed, the bundle the build made from it, and what the
@@ -107,7 +108,7 @@ class SeedTest {
         }
         try (InputStream stream = new ClassPathResource(SeedBundle.RESOURCE).getInputStream()) {
             // the bytes of the file as they are: whatever is in it, text or not, is looked at
-            texts.add(new String(stream.readAllBytes(), StandardCharsets.ISO_8859_1));
+            texts.add(StreamUtils.copyToString(stream, StandardCharsets.ISO_8859_1));
         }
         return texts;
     }
@@ -182,7 +183,7 @@ class SeedTest {
         String name = new InstallDefaults(new PackagedSeed()).instanceName();
         String built;
         try (InputStream stream = new ClassPathResource("application.properties").getInputStream()) {
-            built = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            built = StreamUtils.copyToString(stream, StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

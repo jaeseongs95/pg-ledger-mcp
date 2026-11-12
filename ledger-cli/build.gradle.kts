@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     // Spring Boot Gradle plugin: bootJar builds the one executable jar (java -jar ledger-cli.jar); the version is the catalog Boot version.
     id("org.springframework.boot") version libs.versions.springBoot.get()
@@ -61,7 +63,7 @@ val generateSeed = tasks.register<JavaExec>("generateSeed") {
 // The one place of the install defaults is src/seed/install-defaults.properties: the seed bundle carries it for the Java code, and
 // this puts the instance name into application.properties, whose placeholders are read before any bean exists (SET-053).
 val installDefaultsFile = seedSources.file("install-defaults.properties")
-val installDefaults = java.util.Properties().apply {
+val installDefaults = Properties().apply {
     installDefaultsFile.asFile.reader(Charsets.UTF_8).use { load(it) }
 }
 tasks.processResources {
