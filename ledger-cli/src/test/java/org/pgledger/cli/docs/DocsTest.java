@@ -438,23 +438,23 @@ class DocsTest {
 
     @ParameterizedTest
     @EnumSource(Language.class)
-    @DisplayName("DOC-033 the License section of the README states AGPL-3.0-only, the MIT License of the releases up to 1.x and the copyright line")
+    @DisplayName("DOC-033 the License section of the README states AGPL-3.0-or-later, the MIT License of the releases up to 1.x and the copyright line")
     void readmeStatesTheLicense(Language language) {
         String heading = language == Language.EN ? "License" : "라이선스";
         String section = language.readme().part(heading).text();
 
-        assertThat(section).contains("`AGPL-3.0-only`").contains("Copyright (C) 2026 Jaeseong Song").contains("](LICENSE)")
+        assertThat(section).contains("`AGPL-3.0-or-later`").contains("Copyright (C) 2026 Jaeseong Song").contains("](LICENSE)")
                 .contains("MIT").contains("1.x");
         assertThat(section.lines().filter(line -> !line.isBlank()).toList()).hasSizeGreaterThan(3);
     }
 
     @ParameterizedTest
     @EnumSource(Language.class)
-    @DisplayName("DOC-033 each part of the 2.0.0 note names AGPL-3.0-only and the MIT License")
+    @DisplayName("DOC-033 each part of the 2.0.0 note names AGPL-3.0-or-later and the MIT License")
     void noteNamesTheLicense(Language language) {
         String part = note().part(language.partHeading()).text();
 
-        assertThat(part).contains("`AGPL-3.0-only`").contains("MIT");
+        assertThat(part).contains("`AGPL-3.0-or-later`").contains("MIT");
     }
 
     // ---- both languages say the same ----
