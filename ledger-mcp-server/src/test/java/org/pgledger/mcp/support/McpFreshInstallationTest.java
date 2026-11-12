@@ -10,7 +10,8 @@ import org.pgledger.mcp.LedgerMcpServerApplication;
 import org.pgledger.testing.database.TestSchemaInitializer;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ActiveProfiles;
+import org.pgledger.testing.database.TestDatabaseScanFilter;
+import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
@@ -25,7 +26,7 @@ import org.springframework.test.context.ContextConfiguration;
 @SpringBootTest(classes = LedgerMcpServerApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {McpTestSettings.QUIET_BANNER, McpTestSettings.QUIET_LOG, McpTestSettings.NO_JMX,
             McpTestSettings.TOKEN_PROPERTY, McpTestSettings.POLL_PROPERTY, McpTestSettings.ORIGIN_PROPERTY})
-@ActiveProfiles("embedded")
+@TypeExcludeFilters(TestDatabaseScanFilter.class)
 @Import(McpTestSchema.class)
 @ExtendWith(McpExtension.class)
 public @interface McpFreshInstallationTest {

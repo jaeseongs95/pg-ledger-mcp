@@ -87,6 +87,17 @@ class PrincipleRulesTest {
     }
 
     @Test
+    @DisplayName("W7-EMB-01 the profile name embedded, as a profile of a configuration or a negated one, is found; the word in a comment is not")
+    void embeddedProfile() throws IOException {
+        source("Planted.java", "@Profile(\"!embedded\") class Planted { }");
+        source("PlantedMatch.java", "class PlantedMatch { boolean a(Environment e) { return e.matchesProfiles(\"embedded\"); } }");
+        source("Clean.java", "// the embedded database of the seed bundle\nclass Clean { }");
+
+        assertThat(keys(PrincipleRules.embeddedProfile(sources))).containsExactlyInAnyOrder("Planted.java",
+                "PlantedMatch.java");
+    }
+
+    @Test
     @DisplayName("ARC-PRN-07 the allow list: a finding with an entry is allowed, an entry without a reason and an entry that nothing uses are problems")
     void allowList() {
         List<Finding> findings = List.of(new Finding("A.a", "found a"), new Finding("B.b", "found b"));

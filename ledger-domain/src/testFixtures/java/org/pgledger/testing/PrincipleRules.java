@@ -41,6 +41,8 @@ public final class PrincipleRules {
     public static final String OR_ELSE_NULL = "ARC-PRN-04";
     public static final String FILE_WRITE_IN_TRANSACTION = "ARC-PRN-05";
     public static final String VARIABLE_EQUALS = "ARC-PRN-06";
+    /** W7-EMB-01: the product has no profile of the name that used to let a test bring its own database. */
+    public static final String NO_EMBEDDED_PROFILE = "W7-EMB-01";
 
     private static final String OWN_PACKAGE = "org.pgledger.";
     private static final String BEAN = "org.springframework.context.annotation.Bean";
@@ -54,6 +56,7 @@ public final class PrincipleRules {
     private static final Pattern OR_ELSE_NULL_CALL = Pattern.compile("\\.\\s*orElse\\s*\\(\\s*null\\s*\\)");
     /** {@code equals} only: {@code equalsIgnoreCase} has no null-safe static form, so two variables are compared with it. */
     private static final Pattern EQUALS_CALL = Pattern.compile("\\.\\s*equals\\s*\\(");
+    private static final Pattern EMBEDDED_PROFILE = Pattern.compile("\"!?embedded\"");
     private static final Pattern CONSTANT_NAME = Pattern.compile("[A-Z][A-Z0-9_]*");
 
     private PrincipleRules() {
@@ -84,7 +87,7 @@ public final class PrincipleRules {
     }
 
     /**
-     * The six rules for a module.
+     * The six rules of the principles and the one of W7-EMB-01 for a module.
      *
      * @param classes  the production classes
      * @param mainJava the main sources
@@ -97,7 +100,24 @@ public final class PrincipleRules {
                 rule(OPTIONAL_GET, () -> optionalGet(classes), allowed),
                 rule(OR_ELSE_NULL, () -> orElseNull(mainJava), allowed),
                 rule(FILE_WRITE_IN_TRANSACTION, () -> fileWritesInTransactions(classes), allowed),
-                rule(VARIABLE_EQUALS, () -> variableEquals(mainJava), allowed));
+                rule(VARIABLE_EQUALS, () -> variableEquals(mainJava), allowed),
+                rule(NO_EMBEDDED_PROFILE, () -> embeddedProfile(mainJava), allowed));
+    }
+
+    /** W7-EMB-01: the text {@code "embedded"} (or {@code "!embedded"}) as a string in a main source: a profile that only tests use. */
+    public static List<Finding> embeddedProfile(Path mainJava) {
+        List<Finding> found = new ArrayList<>();
+        for (Path file : javaFiles(mainJava)) {
+            try {
+                if (EMBEDDED_PROFILE.matcher(Files.readString(file)).find()) {
+                    found.add(new Finding(file.getFileName().toString(), file + ": the profile \"embedded\": a bypass of the "
+                            + "product for tests; the test brings its own database from its own sources"));
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+        return found;
     }
 
     private static Rule rule(String id, Supplier<List<Finding>> findings, Map<String, Map<String, String>> allowed) {

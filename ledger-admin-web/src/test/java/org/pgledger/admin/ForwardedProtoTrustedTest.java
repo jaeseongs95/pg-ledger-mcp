@@ -12,18 +12,20 @@ import org.pgledger.admin.support.RealHttp;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ActiveProfiles;
+import org.pgledger.testing.database.TestDatabaseScanFilter;
+import org.pgledger.testing.database.TestDriverRegistration;
+import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 
 /**
  * ADM-026 (trusted proxy): behind a reverse proxy that Tomcat trusts (here the loopback address, one of the internal
  * proxies of Tomcat by default), {@code X-Forwarded-Proto: https} makes the session cookie {@code Secure}.
  */
-@ContextConfiguration(initializers = TestSchemaInitializer.class)
+@ContextConfiguration(initializers = {TestSchemaInitializer.class, TestDriverRegistration.class})
 @SpringBootTest(classes = LedgerAdminApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.INSECURE_COOKIE,
             AdminTestSettings.NO_GLOBAL_CAP, AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
             AdminTestSettings.NO_JMX})
-@ActiveProfiles("embedded")
+@TypeExcludeFilters(TestDatabaseScanFilter.class)
 @Import(AdminTestInfrastructure.class)
 class ForwardedProtoTrustedTest {
 

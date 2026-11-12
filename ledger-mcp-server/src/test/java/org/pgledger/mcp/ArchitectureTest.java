@@ -47,6 +47,20 @@ class ArchitectureTest {
     void thePrincipleRuleHolds(PrincipleRules.Rule rule) {
         assertThat(rule.problems()).isEmpty();
     }
+
+    @Test
+    @DisplayName("W7-AGPL-02 the source link (ledger.source.url) is for the users of the admin web: nothing of the MCP server, its sources and its resources, mentions it")
+    void noSourceLinkInTheMcpServer() throws java.io.IOException {
+        try (Stream<Path> files = java.nio.file.Files.walk(Path.of("src", "main"))) {
+            assertThat(files.filter(java.nio.file.Files::isRegularFile).filter(file -> {
+                try {
+                    return java.nio.file.Files.readString(file).contains("ledger.source");
+                } catch (java.io.IOException e) {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            }).toList()).isEmpty();
+        }
+    }
     private static final Path TEST_JAVA = Path.of("src", "test", "java");
 
     /** One rule of the catalogue under its ID. */

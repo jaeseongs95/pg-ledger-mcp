@@ -33,19 +33,21 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ActiveProfiles;
+import org.pgledger.testing.database.TestDatabaseScanFilter;
+import org.pgledger.testing.database.TestDriverRegistration;
+import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 
 /**
  * The cases that need a real servlet container, because they are about what Tomcat and the firewall do with HTTP
  * itself: the attributes of the session cookie and the session id after the sign-in (ADM-009, ADM-014, fixation), the
  * end of a session (ADM-012), the Host allow list (ADM-027) and the paths that must never reach a handler (ADM-035).
  */
-@ContextConfiguration(initializers = TestSchemaInitializer.class)
+@ContextConfiguration(initializers = {TestSchemaInitializer.class, TestDriverRegistration.class})
 @SpringBootTest(classes = LedgerAdminApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.INSECURE_COOKIE,
             AdminTestSettings.NO_GLOBAL_CAP, AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
             AdminTestSettings.NO_JMX})
-@ActiveProfiles("embedded")
+@TypeExcludeFilters(TestDatabaseScanFilter.class)
 @Import({AdminTestInfrastructure.class, RealServerTest.Sessions.class})
 class RealServerTest {
 

@@ -29,8 +29,9 @@ if not defined JAVA echo install.cmd: java is not installed& exit /b 1
 set "JAVA=%JAVA:\=/%"
 rem The default name and the default MCP port are install defaults of the seed bundle, the one place the defaults are written: Java tells them.
 set "NAME=%~8"
-if "%NAME%"=="" for /f "usebackq delims=" %%N in (`""%JAVA%" -Duser.timezone=UTC -jar "%~1\ledger-cli.jar" --ledger.secrets.home=C:/nonexistent install-default instance-name"`) do set "NAME=%%N"
-for /f "usebackq delims=" %%P in (`""%JAVA%" -Duser.timezone=UTC -jar "%~1\ledger-cli.jar" --ledger.secrets.home=C:/nonexistent install-default mcp-port"`) do set "MCPPORT=%%P"
+set "CLIJAR=%~1\ledger-cli.jar"
+if "%NAME%"=="" call :ask instance-name NAME abcdefghijklmnopqrstuvwxyz0123456789- || exit /b 1
+call :ask mcp-port MCPPORT 0123456789 || exit /b 1
 set "SVC=%NAME%"
 set "ADMIN=%NAME%-admin"
 set "ACCOUNT=NT AUTHORITY\LocalService"
@@ -76,3 +77,14 @@ rem The service account gets its access and the secrets are handed over to it (J
 
 for %%S in (%SVC% %ADMIN%) do "%WHOME%\lib\%%S.exe" start || exit /b 1
 echo install.cmd: done. Check the MCP server with: %CLI% mcp-check --url=http://127.0.0.1:%MCPPORT%/mcp
+exit /b 0
+
+:ask
+rem An install default from Java: %1 its name, %2 the variable that gets it, %3 the characters its form has. A command that fails prints a
+rem "!" after its own output (no default has one), and cmd has no pattern match, so delims= the characters of the form leaves nothing of a good value.
+set "%2="
+for /f "usebackq delims=" %%V in (`""%JAVA%" -Duser.timezone=UTC -jar "%CLIJAR%" --ledger.secrets.home=C:/nonexistent install-default %1 || echo !"`) do set "%2=%%V"
+if not defined %2 echo install.cmd: install-default %1 gave no value& exit /b 1
+call set "VALUE=%%%2%%"
+for /f "delims=%~3" %%X in ("%VALUE%") do echo install.cmd: install-default %1 is not of the form its value has& exit /b 1
+exit /b 0

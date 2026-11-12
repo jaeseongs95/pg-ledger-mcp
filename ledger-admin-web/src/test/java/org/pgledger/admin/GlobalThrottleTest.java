@@ -22,7 +22,9 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
+import org.pgledger.testing.database.TestDatabaseScanFilter;
+import org.pgledger.testing.database.TestDriverRegistration;
+import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
@@ -31,13 +33,13 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  * the budget of the global throttle is counted and decided in one atomic step, so checks that arrive together cannot
  * overshoot it. The budget is 8 checks per window and a check beyond it waits 400 ms.
  */
-@ContextConfiguration(initializers = TestSchemaInitializer.class)
+@ContextConfiguration(initializers = {TestSchemaInitializer.class, TestDriverRegistration.class})
 @SpringBootTest(classes = LedgerAdminApplication.class, properties = {AdminTestSettings.TOKEN_PROPERTY,
     AdminTestSettings.AGENT_TOKEN_PROPERTY, "ledger.admin.lockout.global-max-failures=8",
     "ledger.admin.lockout.global-delay=400ms", AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
     AdminTestSettings.NO_JMX})
 @AutoConfigureMockMvc
-@ActiveProfiles("embedded")
+@TypeExcludeFilters(TestDatabaseScanFilter.class)
 @Import(AdminTestInfrastructure.class)
 class GlobalThrottleTest {
 

@@ -11,7 +11,9 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ActiveProfiles;
+import org.pgledger.testing.database.TestDatabaseScanFilter;
+import org.pgledger.testing.database.TestDriverRegistration;
+import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 
 /**
  * A test class of the admin web: the real application in a Spring Boot context (the whole Spring Security chain, the
@@ -23,13 +25,13 @@ import org.springframework.test.context.ActiveProfiles;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-@ContextConfiguration(initializers = TestSchemaInitializer.class)
+@ContextConfiguration(initializers = {TestSchemaInitializer.class, TestDriverRegistration.class})
 @SpringBootTest(classes = LedgerAdminApplication.class, properties = {AdminTestSettings.TOKEN_PROPERTY,
     AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.INSECURE_COOKIE, AdminTestSettings.NO_GLOBAL_CAP,
     AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
     AdminTestSettings.NO_JMX})
 @AutoConfigureMockMvc
-@ActiveProfiles("embedded")
+@TypeExcludeFilters(TestDatabaseScanFilter.class)
 @Import({AdminTestInfrastructure.class, Seeds.class, ProbeController.class})
 public @interface AdminTest {
 }

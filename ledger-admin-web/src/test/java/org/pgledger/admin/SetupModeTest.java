@@ -162,6 +162,8 @@ class SetupModeTest {
                 new Invalid("empty file", empty.toString(), TestDriverJar.DRIVER_CLASS),
                 new Invalid("class absent from the jar", jar, "org.example.NoSuchDriver"),
                 new Invalid("class that is not a Driver", jar, TestDriverJar.NOT_A_DRIVER_CLASS),
+                // SET-033: the form takes its checks from DriverRegistrar.check, so the refusal of the embedded database holds
+                new Invalid("the driver class of H2 (SET-033)", jar, "org.h2.Driver"),
                 new Invalid("a valid jar outside the allowed directory", outsideDriverJar().toString(), TestDriverJar.DRIVER_CLASS),
                 new Invalid("no jar given", "", TestDriverJar.DRIVER_CLASS),
                 new Invalid("no class given", jar, ""));

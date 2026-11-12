@@ -18,7 +18,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
+import org.pgledger.testing.database.TestDatabaseScanFilter;
+import org.pgledger.testing.database.TestDriverRegistration;
+import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -28,13 +30,13 @@ import org.springframework.test.web.servlet.ResultActions;
  * all are the budget and every check beyond it waits 300 ms: a client with a new address that never failed, the owner
  * with the right token, still logs in (a global lock would be a denial of service of the only login).
  */
-@ContextConfiguration(initializers = TestSchemaInitializer.class)
+@ContextConfiguration(initializers = {TestSchemaInitializer.class, TestDriverRegistration.class})
 @SpringBootTest(classes = LedgerAdminApplication.class, properties = {AdminTestSettings.TOKEN_PROPERTY,
     AdminTestSettings.AGENT_TOKEN_PROPERTY, "ledger.admin.lockout.global-max-failures=3",
     "ledger.admin.lockout.global-delay=300ms", AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
     AdminTestSettings.NO_JMX})
 @AutoConfigureMockMvc
-@ActiveProfiles("embedded")
+@TypeExcludeFilters(TestDatabaseScanFilter.class)
 @Import(AdminTestInfrastructure.class)
 class GlobalLockoutTest {
 

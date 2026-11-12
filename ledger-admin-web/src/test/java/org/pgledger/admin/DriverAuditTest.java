@@ -23,24 +23,26 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.test.context.ActiveProfiles;
+import org.pgledger.testing.database.TestDatabaseScanFilter;
+import org.pgledger.testing.database.TestDriverRegistration;
+import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * ADM-072 (audit2 N3): a driver registration made on the driver page of a console that has its database (the embedded
- * profile of the tests) is recorded in the owner audit trail with the signed-in owner, in the transaction of the file
+ * ADM-072 (audit2 N3): a driver registration made on the driver page of a console that has its database (the test
+ * database of the admin tests) is recorded in the owner audit trail with the signed-in owner, in the transaction of the file
  * replacement. In setup mode there is no database and the registration is logged instead (SetupModeTest).
  */
-@ContextConfiguration(initializers = TestSchemaInitializer.class)
+@ContextConfiguration(initializers = {TestSchemaInitializer.class, TestDriverRegistration.class})
 @SpringBootTest(classes = LedgerAdminApplication.class,
     properties = {AdminTestSettings.TOKEN_PROPERTY,
     AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.NO_GLOBAL_CAP, AdminTestSettings.INSECURE_COOKIE,
     AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG, AdminTestSettings.NO_JMX,
     TestDriverJar.URL_PROPERTY})
 @AutoConfigureMockMvc
-@ActiveProfiles("embedded")
+@TypeExcludeFilters(TestDatabaseScanFilter.class)
 @Import(AdminTestInfrastructure.class)
 class DriverAuditTest {
 

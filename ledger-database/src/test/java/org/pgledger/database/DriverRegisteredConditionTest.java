@@ -22,7 +22,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * DRV-050 .. DRV-054: the one condition of the admin web and the command line tool, tested with the Spring Boot
  * {@code ApplicationContextRunner} (principle 7.2: the condition of a bean is tested with the runner): a bean behind it
- * exists only for the {@code embedded} profile or with a registered driver that the loader accepts.
+ * exists only with a registered driver that the loader accepts.
  */
 class DriverRegisteredConditionTest {
 
@@ -84,13 +84,6 @@ class DriverRegisteredConditionTest {
     }
 
     @Test
-    @DisplayName("DRV-051 the embedded profile: the database is made whatever is registered (the test brings its own DataSource)")
-    void theEmbeddedProfile() {
-        runner.withInitializer(context -> context.getEnvironment().setActiveProfiles("embedded"))
-                .run(context -> assertThat(context).hasNotFailed().hasBean("database"));
-    }
-
-    @Test
     @DisplayName("DRV-052 a registered driver that the loader accepts: the database is made")
     void aUsableRegistration() {
         runner.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(DRIVER_JAR),
@@ -113,14 +106,12 @@ class DriverRegisteredConditionTest {
     }
 
     @Test
-    @DisplayName("DRV-054 a program that does not need the database for what it runs gets none, even with a usable registration, and the embedded profile still wins")
+    @DisplayName("DRV-054 a program that does not need the database for what it runs gets none, even with a usable registration")
     void theProgramMayNotNeedTheDatabase() {
         ApplicationContextRunner program = new ApplicationContextRunner()
                 .withUserConfiguration(GuardedByAProgramThatDoesNotNeedIt.class);
         program.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(DRIVER_JAR),
                 "ledger.jdbc.driver.class-name=" + PostgresDriver.CLASS_NAME, "ledger.jdbc.driver.sha256=" + sha())
                 .run(context -> assertThat(context).hasNotFailed().doesNotHaveBean("database"));
-        program.withInitializer(context -> context.getEnvironment().setActiveProfiles("embedded"))
-                .run(context -> assertThat(context).hasNotFailed().hasBean("database"));
     }
 }

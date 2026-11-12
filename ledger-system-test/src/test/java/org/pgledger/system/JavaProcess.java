@@ -28,7 +28,9 @@ final class JavaProcess {
 
     /** The limits of every child JVM of the system test (the resources of the test PC are shared). */
     private static final List<String> LIMITS = List.of("-Xmx512m", "-XX:ActiveProcessorCount=1", "-Duser.timezone=UTC",
-            "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8");
+            // the messages the tests read are the English ones, whatever the language of the machine is
+            "-Duser.language=en", "-Duser.country=US", "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8",
+            "-Dstderr.encoding=UTF-8");
 
     /** What a finished process wrote and how it ended. */
     record Result(int exit, String out, String err) {

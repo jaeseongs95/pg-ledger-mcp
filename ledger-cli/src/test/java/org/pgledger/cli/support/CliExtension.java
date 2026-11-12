@@ -25,6 +25,8 @@ import org.pgledger.cli.secret.StandardInput;
 import org.pgledger.database.repository.LegacySourceRepository;
 import org.pgledger.database.schema.ApplicationAccountAccess;
 import org.pgledger.database.schema.SchemaProperties;
+import org.pgledger.testing.database.TestDatabaseScanFilter;
+import org.pgledger.testing.database.TestDriverRegistration;
 import org.springframework.boot.ExitCodeEvent;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -100,9 +102,10 @@ public final class CliExtension implements ParameterResolver {
         }
 
         /**
-         * A Cli whose application runs on the {@code embedded} profile (the way the admin web tests do): the ledger beans
+         * A Cli whose application has the PostgreSQL driver registered (so the condition of the product holds by its own path)
+         * and leaves the product's DataSource configuration out of its scan (the way the admin web tests do): the ledger beans
          * (the real services, repositories and transaction manager) are created over this database, which the test has
-         * built with the real migrator, instead of over the DataSource of a registered driver. The DataSource is handed
+         * built with the real migrator, instead of over the DataSource of the registered driver. The DataSource is handed
          * in without a close method, so it is still open when the run has closed the context and the test reads the rows.
          */
         public Cli withDatabase(DataSource dataSource) {
@@ -155,6 +158,9 @@ public final class CliExtension implements ParameterResolver {
                         started.set(ctx);
                         GenericApplicationContext generic = (GenericApplicationContext) ctx;
                         if (database != null) {
+                            generic.getBeanFactory().registerSingleton("testDatabaseScanFilter", new TestDatabaseScanFilter());
+                        }
+                        if (database != null) {
                             generic.registerBean("testDataSource", DataSource.class, () -> new DelegatingDataSource(database));
                         }
                         if (applicationAccount != null) {
@@ -189,7 +195,9 @@ public final class CliExtension implements ParameterResolver {
                         }
                     });
             if (database != null) {
-                builder.profiles("embedded");
+                // the test brings its own database: the product's configuration of the DataSource is left out of the scan, and
+                // the registration of the PostgreSQL driver lets the product's own condition hold (TestDatabaseScanFilter)
+                builder.properties(TestDriverRegistration.settings());
             }
             try {
                 ConfigurableApplicationContext context = builder.run(all.toArray(String[]::new));

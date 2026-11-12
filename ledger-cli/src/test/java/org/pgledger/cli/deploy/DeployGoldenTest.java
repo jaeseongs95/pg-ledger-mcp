@@ -10,8 +10,14 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.pgledger.cli.secret.ProcessUser;
+import org.pgledger.cli.seed.InstallDefaults;
+import org.pgledger.cli.seed.PackagedSeed;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
  * SET-008: the install defaults moved into the seed bundle, the rendered files did not change. The digests are those of the
@@ -99,6 +105,24 @@ class DeployGoldenTest {
         targets().forEach((name, values) -> actual.put(name, digest(DeployTestBeans.render(values))));
 
         assertThat(actual).isEqualTo(BEFORE_SETUP);
+    }
+
+    @Test
+    @DisplayName("W7-SP-01 the production wiring (the components found by an ApplicationContextRunner: ServicePlatforms, both platforms, the reader and the renderer, no hand assembly) renders the files of SET-008 byte for byte")
+    void w7sp01_theProductionWiringRendersTheSameFiles() {
+        new ApplicationContextRunner().withBean(ProcessUser.class, () -> fileSystem -> () -> "tester")
+                .withBean(Validator.class, () -> Validation.buildDefaultValidatorFactory().getValidator())
+                .withUserConfiguration(ServicePlatforms.class, LinuxPlatform.class, WindowsPlatform.class, DeployRenderer.class,
+                        DeployInputReader.class, DeployFiles.class, HostFiles.class, WindowsAccess.class,
+                        SystemHostAccounts.class, InstallDefaults.class, PackagedSeed.class)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    Map<String, String> actual = new LinkedHashMap<>();
+                    targets().forEach((name, values) -> actual.put(name, digest(context.getBean(DeployRenderer.class)
+                            .render(context.getBean(DeployInputReader.class).parameters(values)))));
+
+                    assertThat(actual).isEqualTo(BEFORE_SETUP);
+                });
     }
 
     @Test

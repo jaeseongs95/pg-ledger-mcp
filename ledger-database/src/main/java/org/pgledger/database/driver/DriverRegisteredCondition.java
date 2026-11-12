@@ -11,9 +11,8 @@ import org.springframework.context.annotation.ConditionContext;
 import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /**
- * True when an application can have its database: the {@code embedded} profile (tests; the test brings its own
- * DataSource), or a registered JDBC driver that the product's own loader accepts (jar present, digest as registered,
- * class loadable). Otherwise none of the database beans exists: the admin web starts in setup mode (login and driver
+ * True when an application can have its database: a registered JDBC driver that the product's own loader accepts (jar
+ * present, digest as registered, class loadable). Otherwise none of the database beans exists: the admin web starts in setup mode (login and driver
  * registration only), and the command line tool refuses a command that needs the database with DRIVER_NOT_CONFIGURED
  * while {@code secret-set} and {@code driver-register} still run on a machine that has no JDBC driver. The admin web and
  * the command line tool use this one condition; the command line tool adds only the question which commands use the
@@ -36,9 +35,6 @@ public class DriverRegisteredCondition implements Condition {
 
     @Override
     public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
-        if (context.getEnvironment().matchesProfiles("embedded")) {
-            return true;
-        }
         if (!needsDatabase(context)) {
             LOG.debug("the command does not use the ledger database: no database bean is made, whatever is registered");
             return false;

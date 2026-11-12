@@ -3,8 +3,9 @@ package org.pgledger.admin.support;
 /**
  * The configuration properties of the admin test contexts: the PostgreSQL of the test PC is brought by the test
  * configuration ({@code TestDataSourceConfiguration}); these are the secrets (generated test values, not real ones)
- * and the quiet logging. The embedded profile makes the application take that database from the context instead of
- * the registered JDBC driver.
+ * and the quiet logging. The test sources leave the product's configuration of the DataSource out of the scan
+ * ({@code TestDatabaseScanFilter}) and register the PostgreSQL driver ({@code TestDriverRegistration}), so the application
+ * takes that database from the context and its own conditions hold by their own path.
  */
 public final class AdminTestSettings {
 

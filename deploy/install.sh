@@ -13,7 +13,8 @@
 # name is validated by Java (render-deploy --check) before anything is created. Two database accounts: the application account
 # (both servers and the owner commands) and the DDL account (setup and the grants; its password is typed and not stored).
 # Run as root: sudo deploy/install.sh --jars=<dir> --driver-jar=<file> --driver-class=<class> --owner-account=<account>
-#   --app-account=<account> --jdbc-url=<url> [the other options of render-deploy]
+#   --app-account=<account> --jdbc-url=<url> [--java=<path>] [the other options of render-deploy]
+# --java=<path> is the Java 25 runtime (default: the java on the PATH of root); the service user runs it too, so it is outside any home directory.
 # Both accounts are created beforehand with the DBMS's own tools. It installs no package and no database. A re-run is an
 # upgrade: jars, driver jar and files are replaced, the schema and the grants are applied again, the services are restarted;
 # secrets, tokens and data are never replaced. The Java 25 check is the JVM's: the jars are compiled for it and no other runtime loads them.
@@ -30,6 +31,7 @@ set -eu
 umask 022
 
 NAME=
+JAVA=
 JARS=
 DRIVER_JAR=
 DRIVER_CLASS=
@@ -47,13 +49,14 @@ AGREE=
 
 die() { echo "install.sh: $*" >&2; exit 1; }
 # runuser: a Java process cannot become another user, so the commands that touch the secrets are started as the service user.
-as_svc() { runuser -u "$SVC" -- java -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" --ledger.secrets.instance="$NAME" "$@"; }
+as_svc() { runuser -u "$SVC" -- "$JAVA" -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" --ledger.secrets.instance="$NAME" "$@"; }
 
 # The options read here are taken out; the rest (a JDBC URL, ports, host names, TLS paths) goes on to Java.
 for arg in "$@"; do
   shift
   case $arg in
     --name=*) NAME=${arg#*=}; set -- "$@" "$arg" ;;
+    --java=*) JAVA=${arg#*=} ;;
     --jars=*) JARS=${arg#*=} ;;
     --driver-jar=*) DRIVER_JAR=${arg#*=} ;;
     --driver-class=*) DRIVER_CLASS=${arg#*=} ;;
@@ -73,20 +76,31 @@ for arg in "$@"; do
 done
 for v in "$JARS" "$DRIVER_JAR" "$DRIVER_CLASS" "$OWNER" "$APP_ACCOUNT"; do [ -n "$v" ] || die "an option is missing: see the header of this file"; done
 [ -z "$FROM_ENV" ] || [ -r "$FROM_ENV" ] || die "the 1.x environment file cannot be read: $FROM_ENV"
-JAVA=$(command -v java) || die "java is not installed"
+# The Java runtime is --java=<path> (kept out of the options that go on: prepare-host and render-deploy get it once, below), else the
+# one on the PATH of root. The service user runs it too (the units and the commands below), so it must not be under a home directory.
+[ -n "$JAVA" ] || JAVA=$(command -v java) || die "java is not installed: give --java=<path> of a Java 25 runtime"
 # The default name is an install default of the seed bundle, the one place the defaults are written: Java tells it.
-[ -n "$NAME" ] || NAME=$(java -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent install-default instance-name)
+# A command that failed, or a value of another form than an instance name (a letter first, letters, digits and hyphens, no hyphen last, at most
+# 23 characters), stops the installation: the output of a failed command is no name.
+if [ -z "$NAME" ]; then
+  NAME=$("$JAVA" -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent install-default instance-name) || die "install-default instance-name failed"
+  case $NAME in
+    ''|[!a-z]*|*[!a-z0-9-]*|*-|????????????????????????*) die "the install default instance-name is not an instance name" ;;
+  esac
+fi
 SVC=$NAME
 ADMIN=$NAME-admin
 LIB=/opt/$NAME
 ETC=/etc/$NAME
 # Every option, the name included, is validated by Java before anything is created.
-java -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent render-deploy --check --java="$JAVA" "$@"
+"$JAVA" -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent render-deploy --check --java="$JAVA" "$@"
 
 # useradd: Java has no API to create an operating system user. Status 9 is "name in use": the user of an earlier run stays.
 useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$SVC" || [ $? = 9 ]
+# runuser: the service user has to run the Java too; a runtime in a home directory (mode 0750) it cannot, so this stops before anything is made.
+runuser -u "$SVC" -- "$JAVA" -version >/dev/null 2>&1 || die "the service user $SVC cannot run $JAVA: use a Java 25 runtime outside the home directories that every account can read and execute"
 # Directories with owner and mode, the jars, the driver, the units, the settings and the nginx site: Java, as root.
-java -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent prepare-host --jars="$JARS" --driver-jar="$DRIVER_JAR" --java="$JAVA" "$@"
+"$JAVA" -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent prepare-host --jars="$JARS" --driver-jar="$DRIVER_JAR" --java="$JAVA" "$@"
 
 # Secrets: typed with hidden input or generated, as the service user; an existing one is kept. The tokens are shown once.
 # The tokens of 1.x come first, so that they are kept and not generated (the file is root's: root opens it, Java reads it).
@@ -121,11 +135,11 @@ if [ -n "$ACME" ]; then
   else
     as_svc tls-issue --name="$NAME" --mcp-host="$MCP_HOST" --admin-host="$ADMIN_HOST" ${ACME_DIR:+--acme-directory="$ACME_DIR"} ${EMAIL:+--acme-email="$EMAIL"} $AGREE
   fi
-  java -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" --ledger.secrets.home=/nonexistent render-deploy --java="$JAVA" "$@"
+  "$JAVA" -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" --ledger.secrets.home=/nonexistent render-deploy --java="$JAVA" "$@"
   # nginx: the check and the reload again, for the 443 blocks.
   nginx -t
   nginx -s reload
   # systemctl: the timer of the renewal (twice a day) is the service manager's.
   systemctl enable --now "$SVC-tls-renew.timer"
 fi
-echo "install.sh: done. Check the MCP server with: java -jar $LIB/ledger-cli.jar mcp-check --url=<its public URL>"
+echo "install.sh: done. Check the MCP server with: $JAVA -jar $LIB/ledger-cli.jar mcp-check --url=<its public URL>"

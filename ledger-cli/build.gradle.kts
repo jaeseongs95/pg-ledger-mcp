@@ -38,8 +38,11 @@ dependencies {
 
 // acme4j annotates its classes with SpotBugs' @SuppressFBWarnings, whose class file is not on the class path (the annotation is
 // only a static-analysis hint, never read at run time). javac reports that as a [classfile] warning, and the build turns warnings
-// into errors; the one category is switched off for this module instead of adding the SpotBugs annotations (an LGPL-2.1 artifact).
-tasks.withType<JavaCompile>().configureEach {
+// into errors; the one category is switched off instead of adding the SpotBugs annotations (an LGPL-2.1 artifact, not a dependency
+// of the product). Only the compilation of the main sources of this module has it (W7: it was every compile task of every
+// source set before): the classes of acme4j are read there, in the TLS package, and nowhere else; the tests of this module and every
+// other module keep the whole of -Xlint:all as errors.
+tasks.named<JavaCompile>("compileJava") {
     options.compilerArgs.add("-Xlint:-classfile")
 }
 

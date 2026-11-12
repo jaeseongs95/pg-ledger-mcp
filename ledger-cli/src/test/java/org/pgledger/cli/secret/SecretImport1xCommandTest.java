@@ -123,10 +123,33 @@ class SecretImport1xCommandTest {
         assertThat(captured.getAll()).doesNotContain(chosen).doesNotContain(AGENT).doesNotContain("another-");
     }
 
+    @Test
+    @RequiresOwnerOnlyStorage
+    @DisplayName("W7-SEC-01 a 1.0.0 environment (DBHUB_AUTH_TOKEN, no PGLEDGER_ADMIN_TOKEN): the two secrets of the agents are stored, the admin one is not, one line says so (no value), exit 0, and a second run changes nothing")
+    void w7sec01_aOneZeroEnvironmentHasNoAdminToken(Cli cli, CapturedOutput captured) throws IOException {
+        RecordingOutput output = new RecordingOutput();
+
+        Outcome result = cli.withStandardInput(environment(AGENT, null)).run(directory(), null, output, "secret-import-1x", "--stdin");
+
+        assertThat(result.exitCode()).isZero();
+        assertThat(result.failure()).isNull();
+        assertThat(stored("ledger.mcp.token")).isEqualTo(AGENT);
+        assertThat(stored("ledger.admin.agent-token")).isEqualTo(AGENT);
+        assertThat(directory().toFile().list()).containsExactlyInAnyOrder("ledger.mcp.token", "ledger.admin.agent-token");
+        assertThat(output.info().lines().filter(line -> line.contains("PGLEDGER_ADMIN_TOKEN"))).singleElement().asString()
+                .contains("1.0.0").contains("ledger.admin.token").contains("generates");
+        assertThat(output.info() + captured.getAll()).doesNotContain(AGENT).doesNotContain(DATABASE_PASSWORD);
+
+        RecordingOutput again = new RecordingOutput();
+        assertThat(cli.withStandardInput(environment(AGENT, null)).run(directory(), null, again, "secret-import-1x", "--stdin")
+                .exitCode()).isZero();
+        assertThat(directory().toFile().list()).containsExactlyInAnyOrder("ledger.mcp.token", "ledger.admin.agent-token");
+        assertThat(again.info()).contains("already exists");
+    }
+
     static Stream<Arguments> refusedValues() {
         return Stream.of(
                 Arguments.of("no agent token", environment(null, ADMIN), ErrorCode.ENV_KEYS_MISSING),
-                Arguments.of("no admin token", environment(AGENT, null), ErrorCode.ENV_KEYS_MISSING),
                 Arguments.of("no token at all", environment(null, null), ErrorCode.ENV_KEYS_MISSING),
                 Arguments.of("an empty agent token", environment("", ADMIN), ErrorCode.ENV_KEYS_MISSING),
                 Arguments.of("a short agent token", environment("short-token", ADMIN), ErrorCode.INVALID_1X_VALUE),
@@ -156,7 +179,8 @@ class SecretImport1xCommandTest {
         Outcome unusable = cli.withStandardInput(environment(AGENT, "short-token")).run(directory(), null, new RecordingOutput(),
                 "secret-import-1x", "--stdin");
 
-        assertThat(missing.refusal().orElseThrow().arguments()).containsExactly("DBHUB_AUTH_TOKEN, PGLEDGER_ADMIN_TOKEN");
+        // the admin token is optional (W7-SEC-01): only the one that is required is named
+        assertThat(missing.refusal().orElseThrow().arguments()).containsExactly("DBHUB_AUTH_TOKEN");
         assertThat(unusable.refusal().orElseThrow().arguments()).containsExactly("PGLEDGER_ADMIN_TOKEN");
     }
 
