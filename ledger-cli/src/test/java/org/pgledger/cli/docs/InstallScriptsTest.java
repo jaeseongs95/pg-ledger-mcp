@@ -43,7 +43,7 @@ class InstallScriptsTest {
             "done", "fi", "[", "return", "}");
     /** An option that carries a secret value; {@code --ledger.secrets.home=} is a directory, not a secret. */
     private static final Pattern SECRET_OPTION = Pattern
-            .compile("(?i)--(?!ledger\\.secrets\\.home=)[a-z.-]*(password|token|secret)[a-z.-]*=");
+            .compile("(?i)--(?!ledger\\.secrets\\.(home|instance)=)[a-z.-]*(password|token|secret)[a-z.-]*=");
     private static final Pattern FORBIDDEN_SH = Pattern.compile(
             "\\b(curl|wget|git|sed|awk|apt|apt-get|yum|dnf|zypper|pip|npm|psql|pg_dump|createuser|createdb|certbot|cloudflared|rm|"
                     + "bash|eval|export|env|read|exec|ssh|scp|tar|unzip)\\b");
@@ -175,20 +175,25 @@ class InstallScriptsTest {
     }
 
     @Test
-    @DisplayName("INS-024 install.sh is thin: at most 95 lines in all (a third of it the header that names the documentation it follows) and at most 60 lines of commands (the budget is the steps of the plan: java check, one user, directories and jars, one render call, secrets and tokens, one migrate call, units, nginx)")
+    @DisplayName("INS-024 install.sh is thin: at most 100 lines in all (a third of it the header that names the documentation it follows) and at most 64 lines of commands (the budget is the steps of the plan: java check, the check of the options, one user, directories and jars, one render call, secrets and tokens, one migrate call, units, nginx; the name of the instance added four lines of composition)")
     void ins024_theLineBudget() {
-        assertThat(lines(SH)).hasSizeLessThanOrEqualTo(95);
-        assertThat(shCodeLines()).hasSizeLessThanOrEqualTo(60);
+        assertThat(lines(SH)).hasSizeLessThanOrEqualTo(100);
+        assertThat(shCodeLines()).hasSizeLessThanOrEqualTo(64);
     }
 
     @Test
     @DisplayName("INS-025 install.sh uses the names of the Java code (the service user, the second service, the directories, the jars) and gives ledger-cli only commands and options that exist")
     void ins025_theNamesAreTheOnesOfTheCode() throws IOException {
         String script = text(SH);
-        DeployLayout layout = DeployLayout.linux();
+        DeployLayout layout = DeployLayout.linux("x");
 
-        assertThat(script).contains("\nSVC=" + DeployLayout.SERVICE_USER + "\n", "\nADMIN=" + DeployLayout.ADMIN_NAME + "\n",
-                "\nLIB=" + layout.lib() + "\n", "\nETC=" + layout.etc() + "\n");
+        // the script only composes the names and the paths from the name of the instance; the Java renderer decides which names are good
+        assertThat(script).contains("\nNAME=" + DeployLayout.DEFAULT_NAME + "\n", "\nSVC=$NAME\n", "\nADMIN=$NAME-admin\n",
+                "\nLIB=/opt/$NAME\n", "\nETC=/etc/$NAME\n");
+        assertThat(layout.serviceUser()).isEqualTo("x");
+        assertThat(layout.adminName()).isEqualTo("x-admin");
+        assertThat(layout.lib()).isEqualTo("/opt/x");
+        assertThat(layout.etc()).isEqualTo("/etc/x");
         for (String jar : List.of(DeployLayout.CLI_JAR, DeployLayout.MCP_JAR, DeployLayout.ADMIN_JAR)) {
             assertThat(script).contains(jar.replace(".jar", ""));
         }
@@ -287,12 +292,15 @@ class InstallScriptsTest {
     @DisplayName("INS-036 install.cmd uses the names of the Java code (the services, the one service account LocalService, the home, the jars, the platform) and gives ledger-cli only commands and options that exist")
     void ins036_theNamesAreTheOnesOfTheCode() throws IOException {
         String script = text(CMD);
-        String home = "C:/ProgramData/pg-ledger-mcp";
-        DeployLayout layout = DeployLayout.windows(home);
+        String home = "C:/ProgramData/x";
+        DeployLayout layout = DeployLayout.windows("x", home);
 
-        assertThat(script).contains("set \"SVC=" + DeployLayout.MCP_NAME + "\"", "set \"ADMIN=" + DeployLayout.ADMIN_NAME + "\"",
-                "set \"ACCOUNT=" + DeployLayout.WINDOWS_SERVICE_ACCOUNT + "\"",
-                "set \"WHOME=" + home.replace('/', '\\') + "\"", "set \"HOME=" + home + "\"",
+        assertThat(layout.mcpName()).isEqualTo("x");
+        assertThat(layout.adminName()).isEqualTo("x-admin");
+        assertThat(script).contains("set \"NAME=" + DeployLayout.DEFAULT_NAME + "\"", "set \"SVC=%NAME%\"",
+                "set \"ADMIN=%NAME%-admin\"", "set \"ACCOUNT=" + DeployLayout.WINDOWS_SERVICE_ACCOUNT + "\"",
+                "set \"WHOME=" + home.replace("/x", "/%NAME%").replace('/', '\\') + "\"",
+                "set \"HOME=" + home.replace("/x", "/%NAME%") + "\"",
                 "--platform=" + Platform.WINDOWS.name().toLowerCase(Locale.ROOT), "--home=%HOME%",
                 "--ledger.secrets.home=%HOME%" + layout.etc().substring(home.length()));
         for (String jar : List.of(DeployLayout.CLI_JAR, DeployLayout.MCP_JAR, DeployLayout.ADMIN_JAR)) {
@@ -327,6 +335,47 @@ class InstallScriptsTest {
         assertThat(code).contains("*S-1-5-18", "*S-1-5-32-544", "/inheritance:r", "/setowner \"%ACCOUNT%\"",
                 "sc.exe config %%S obj= \"%ACCOUNT%\"");
         assertThat(code).contains("token-generate ledger.admin.token --print", "token-generate ledger.mcp.token --print");
+    }
+
+    // ---- the name of the instance (INS-041) ----
+
+    @Test
+    @DisplayName("INS-041 install.sh passes --name on as it is, has no instance name of its own except the default, and runs render-deploy --check (the Java validation of every option) before the first operating system step")
+    void ins041_theShellScriptTakesTheNameAndChecksItFirst() {
+        List<String> code = shCodeLines();
+        int check = firstIndex(code, "render-deploy --check");
+        int firstStep = firstIndex(code, "useradd");
+
+        assertThat(code).contains("    --name=*) NAME=${arg#*=}; set -- \"$@\" \"$arg\" ;;");
+        assertThat(check).as("the check is there").isNotNegative();
+        assertThat(check).as("the check comes before the first operating system step").isLessThan(firstStep);
+        assertThat(check).isLessThan(firstIndex(code, "install -d"));
+        assertThat(code.stream().filter(line -> line.contains("pg-ledger")).toList()).containsExactly("NAME=pg-ledger-mcp");
+    }
+
+    @Test
+    @DisplayName("INS-041 install.cmd takes the name as its own argument (8th, optional), composes the services and the home from it, passes it on quoted, and runs render-deploy --check before the first operating system step")
+    void ins041_theCmdScriptTakesTheNameAndChecksItFirst() {
+        List<String> code = cmdCodeLines();
+        int check = firstIndex(code, "render-deploy --check");
+
+        assertThat(code).contains("set \"NAME=%~8\"", "if \"%NAME%\"==\"\" set \"NAME=pg-ledger-mcp\"");
+        assertThat(code.stream().filter(line -> line.contains("\"--name=%NAME%\"")).count()).isGreaterThanOrEqualTo(2);
+        assertThat(check).as("the check is there").isNotNegative();
+        assertThat(check).as("the check comes before the first operating system step").isLessThan(firstIndex(code, "mkdir "));
+        assertThat(check).isLessThan(firstIndex(code, "icacls \"%WHOME%\""));
+        assertThat(code.stream().filter(line -> line.contains("pg-ledger")).toList())
+                .containsExactly("if \"%NAME%\"==\"\" set \"NAME=pg-ledger-mcp\"");
+        assertThat(code.stream().filter(line -> line.contains("--check")).count()).isEqualTo(1);
+    }
+
+    private static int firstIndex(List<String> lines, String fragment) {
+        for (int i = 0; i < lines.size(); i++) {
+            if (lines.get(i).contains(fragment)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     // ---- helpers ----

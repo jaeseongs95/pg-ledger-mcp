@@ -2,6 +2,8 @@ package org.pgledger.cli.deploy;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /** The names of the options of {@code render-deploy} ({@code --name=value}). */
 public final class DeployOptions {
@@ -24,15 +26,23 @@ public final class DeployOptions {
     public static final String NGINX_CONF = "nginx-conf";
     public static final String TLS_CERTIFICATE = "tls-certificate";
     public static final String TLS_KEY = "tls-key";
+    /**
+     * The name of the instance, default {@code pg-ledger-mcp}: the service names ({@code <name>} and {@code <name>-admin}),
+     * the Linux service user, the jar, settings and secret directories and the WinSW ids all follow it, so that two instances
+     * can live on one host (each with its own ports).
+     */
+    public static final String NAME = "name";
     /** Not rendered into any file: a directory the files are written below instead of at their own paths. */
     public static final String ROOT = "root";
+    /** A flag, not a value: validate every option as a run does, write nothing (the installers call it before they change anything). */
+    public static final String CHECK = "check";
 
-    /** Every option of the command, in the order of its usage text. */
-    public static final List<String> ALL = List.of(PLATFORM, HOME, JAVA, JDBC_URL, APP_ACCOUNT, SCHEMA, LONG_TEXT_TYPE,
+    /** The options that take a value, in the order of their usage text. */
+    public static final List<String> ALL = List.of(NAME, PLATFORM, HOME, JAVA, JDBC_URL, APP_ACCOUNT, SCHEMA, LONG_TEXT_TYPE,
             MCP_PORT, ADMIN_PORT, MCP_HOST, ADMIN_HOST, NGINX_CONF, TLS_CERTIFICATE, TLS_KEY, ROOT);
 
-    /** The options as the set the runner checks the command line against. */
-    public static final Set<String> NAMES = Set.copyOf(ALL);
+    /** Every option of the command, as the set the runner checks the command line against. */
+    public static final Set<String> NAMES = Stream.concat(ALL.stream(), Stream.of(CHECK)).collect(Collectors.toUnmodifiableSet());
 
     private DeployOptions() {
     }

@@ -31,8 +31,8 @@ final class SystemdUnits {
         Text.line(unit, "");
         Text.line(unit, "[Service]");
         Text.line(unit, "Type=simple");
-        Text.line(unit, "User=" + DeployLayout.SERVICE_USER);
-        Text.line(unit, "Group=" + DeployLayout.SERVICE_USER);
+        Text.line(unit, "User=" + p.layout().serviceUser());
+        Text.line(unit, "Group=" + p.layout().serviceUser());
         Text.line(unit, "ExecStart=" + p.java() + " " + service.arguments(p.layout()));
         Text.line(unit, "SuccessExitStatus=143");
         Text.line(unit, "Restart=on-failure");

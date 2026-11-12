@@ -61,12 +61,18 @@ public class RenderDeployCommand implements Command {
         for (String option : DeployOptions.ALL) {
             CliOptions.value(arguments, option).ifPresent(value -> values.put(option, value));
         }
+        boolean check = CliOptions.flag(arguments, DeployOptions.CHECK);
         DeployParameters parameters = DeployParameters.of(values);
         Path root;
         try {
             root = values.containsKey(DeployOptions.ROOT) ? Path.of(values.get(DeployOptions.ROOT)) : null;
         } catch (InvalidPathException e) {
             throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, e, DeployOptions.ROOT);
+        }
+        if (check) {
+            // the installers run this before they change anything: a bad option stops them while nothing exists yet
+            output.info(messages.get("render-deploy.checked", parameters.layout().name()));
+            return;
         }
         for (Path file : DeployFiles.write(root, DeployRenderer.render(parameters))) {
             output.info(messages.get("render-deploy.written", file.toString()));

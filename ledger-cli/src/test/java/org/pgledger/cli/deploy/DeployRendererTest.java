@@ -39,7 +39,7 @@ import org.xml.sax.SAXException;
 class DeployRendererTest {
 
     private static final String MCP_UNIT = "/etc/systemd/system/pg-ledger-mcp.service";
-    private static final String ADMIN_UNIT = "/etc/systemd/system/pg-ledger-admin.service";
+    private static final String ADMIN_UNIT = "/etc/systemd/system/pg-ledger-mcp-admin.service";
     private static final String HOME = "C:/ProgramData/pg-ledger-mcp";
 
     /** A Linux server. */
@@ -379,7 +379,7 @@ class DeployRendererTest {
 
     static Stream<Arguments> windowsServices() {
         return Stream.of(Arguments.of("pg-ledger-mcp", "ledger-mcp-server.jar", "mcp.yaml"),
-                Arguments.of("pg-ledger-admin", "ledger-admin-web.jar", "admin.yaml"));
+                Arguments.of("pg-ledger-mcp-admin", "ledger-admin-web.jar", "admin.yaml"));
     }
 
     @Test
@@ -388,7 +388,7 @@ class DeployRendererTest {
         List<RenderedFile> files = render(personalPc());
 
         assertThat(files.stream().map(RenderedFile::path)).containsExactly(HOME + "/lib/pg-ledger-mcp.xml",
-                HOME + "/lib/pg-ledger-admin.xml", HOME + "/etc/application.yaml", HOME + "/etc/mcp.yaml",
+                HOME + "/lib/pg-ledger-mcp-admin.xml", HOME + "/etc/application.yaml", HOME + "/etc/mcp.yaml",
                 HOME + "/etc/admin.yaml");
         EnumerablePropertySource<?> admin = yaml(file(files, HOME + "/etc/admin.yaml"));
         assertThat(admin.getProperty("ledger.admin.driver-file")).isEqualTo(HOME + "/etc/jdbc-driver.yaml");
@@ -408,5 +408,112 @@ class DeployRendererTest {
         assertThat(yaml(file(files, HOME + "/etc/admin.yaml")).getProperty("ledger.admin.allowed-hosts[2]"))
                 .isEqualTo("admin.example.org");
         assertThat(files.stream().map(RenderedFile::path)).noneMatch(path -> path.contains("nginx"));
+    }
+
+    // ---- INS-040: the name of the instance ----
+
+    private static Map<String, String> named(Map<String, String> values, String name) {
+        values.put(DeployOptions.NAME, name);
+        return values;
+    }
+
+    @Test
+    @DisplayName("INS-040 a Linux instance with a name of its own: the units, the user, the jars directory, the settings directory and the secret directory follow the name, and no file names the default instance")
+    void ins040_aNamedLinuxInstance() throws IOException {
+        List<RenderedFile> files = render(named(withSite(), "acme-test"));
+
+        assertThat(files.stream().map(RenderedFile::path)).containsExactly("/etc/systemd/system/acme-test.service",
+                "/etc/systemd/system/acme-test-admin.service", "/etc/acme-test/application.yaml", "/etc/acme-test/mcp.yaml",
+                "/etc/acme-test/admin.yaml", "/etc/nginx/conf.d/pg-ledger-mcp.conf");
+        String mcp = file(files, "/etc/systemd/system/acme-test.service");
+        String admin = file(files, "/etc/systemd/system/acme-test-admin.service");
+        assertThat(mcp.lines().toList()).contains("User=acme-test", "Group=acme-test", "Description=acme-test: the ledger MCP server",
+                "ExecStart=/usr/lib/jvm/java-25/bin/java -Duser.timezone=UTC -jar /opt/acme-test/ledger-mcp-server.jar "
+                        + "--spring.config.import=file:/etc/acme-test/application.yaml,file:/etc/acme-test/mcp.yaml,"
+                        + "optional:file:/etc/acme-test/local.yaml,optional:file:/etc/acme-test/jdbc-driver.yaml,"
+                        + "optional:configtree:/etc/acme-test/secrets/");
+        assertThat(admin.lines().toList()).contains("User=acme-test", "ReadWritePaths=/etc/acme-test",
+                "After=network-online.target acme-test.service");
+        assertThat(yaml(file(files, "/etc/acme-test/admin.yaml")).getProperty("ledger.admin.driver-file"))
+                .isEqualTo("/etc/acme-test/jdbc-driver.yaml");
+        for (RenderedFile rendered : files) {
+            if (!rendered.path().contains("nginx")) {
+                assertThat(rendered.path() + rendered.content()).as(rendered.path()).doesNotContain("pg-ledger");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("INS-040 a Windows instance with a name of its own: the WinSW ids, the file names and the paths follow the name")
+    void ins040_aNamedWindowsInstance() throws Exception {
+        Map<String, String> values = named(personalPc(), "acme-test");
+        values.put(DeployOptions.HOME, "C:/ProgramData/acme-test");
+        List<RenderedFile> files = render(values);
+
+        assertThat(files.stream().map(RenderedFile::path)).containsExactly("C:/ProgramData/acme-test/lib/acme-test.xml",
+                "C:/ProgramData/acme-test/lib/acme-test-admin.xml", "C:/ProgramData/acme-test/etc/application.yaml",
+                "C:/ProgramData/acme-test/etc/mcp.yaml", "C:/ProgramData/acme-test/etc/admin.yaml");
+        Document admin = xml(file(files, "C:/ProgramData/acme-test/lib/acme-test-admin.xml"));
+        assertThat(element(admin, "id")).isEqualTo("acme-test-admin");
+        assertThat(element(admin, "name")).isEqualTo("acme-test-admin");
+        assertThat(element(admin, "logpath")).isEqualTo("C:\\ProgramData\\acme-test\\logs");
+        assertThat(element(admin, "arguments")).contains("-jar C:/ProgramData/acme-test/lib/ledger-admin-web.jar")
+                .contains("optional:configtree:C:/ProgramData/acme-test/etc/secrets/");
+        for (RenderedFile rendered : files) {
+            assertThat(rendered.path() + rendered.content()).as(rendered.path()).doesNotContain("pg-ledger");
+        }
+    }
+
+    @Test
+    @DisplayName("INS-040 the default name is pg-ledger-mcp: giving it explicitly changes nothing, and the second service is <name>-admin")
+    void ins040_theDefaultName() {
+        assertThat(render(named(withSite(), "pg-ledger-mcp"))).isEqualTo(render(withSite()));
+        assertThat(render(named(personalPc(), "pg-ledger-mcp"))).isEqualTo(render(personalPc()));
+        assertThat(DeployLayout.DEFAULT_NAME).isEqualTo("pg-ledger-mcp");
+        assertThat(DeployLayout.linux(DeployLayout.DEFAULT_NAME).adminName()).isEqualTo("pg-ledger-mcp-admin");
+    }
+
+    static Stream<String> badNames() {
+        return Stream.of("", "A", "Acme", "acme_test", "acme test", "acme\ntest", "acme/test", "../acme", "acme..test",
+                "acme.test", "-acme", "acme-", "1acme", "acme-admin", "x".repeat(24), "ünï", "acme$", "acme%h", "acme'",
+                "acme;rm", "a b");
+    }
+
+    @ParameterizedTest
+    @MethodSource("badNames")
+    @DisplayName("INS-040 a name that is not lower-case letters, digits and single hyphens, starts with a letter, ends with a letter or digit, is at most 23 characters, ends with -admin, or holds a path, a space or a line end is refused with the name of the option")
+    void ins040_aBadNameIsRefused(String name) {
+        Map<String, String> values = named(withSite(), name);
+
+        assertThatThrownBy(() -> DeployParameters.of(values)).isInstanceOfSatisfying(UsageException.class, e -> {
+            assertThat(e.code()).isEqualTo(ErrorCode.INVALID_DEPLOY_VALUE);
+            assertThat(e.arguments()).containsExactly(DeployOptions.NAME);
+        });
+    }
+
+    static Stream<String> goodNames() {
+        return Stream.of("a", "ab", "acme-test", "acme-1", "a1", "pg-ledger-test", "x".repeat(23));
+    }
+
+    @ParameterizedTest
+    @MethodSource("goodNames")
+    @DisplayName("INS-040 a plain instance name is accepted (up to 23 characters)")
+    void ins040_aPlainNameIsAccepted(String name) {
+        assertThat(render(named(values(), name))).hasSize(5);
+    }
+
+    @Test
+    @DisplayName("INS-040 the CLI imports the sources of the instance it is told about: ledger.secrets.instance=<name> gives the settings directory of that instance and nothing of the default one")
+    void ins040_theToolFollowsTheInstance() throws IOException {
+        Properties properties = new Properties();
+        try (InputStream stream = new ClassPathResource("application.properties").getInputStream()) {
+            properties.load(stream);
+        }
+        PropertyPlaceholderHelper helper = new PropertyPlaceholderHelper("${", "}", ":", null, true);
+        String imported = helper.replacePlaceholders(properties.getProperty("spring.config.import"),
+                placeholder -> "ledger.secrets.instance".equals(placeholder) ? "acme-test" : null);
+
+        assertThat(imported).contains("optional:file:/etc/acme-test/application.yaml", "optional:configtree:/etc/acme-test/secrets/")
+                .doesNotContain("pg-ledger");
     }
 }

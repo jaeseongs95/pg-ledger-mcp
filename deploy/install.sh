@@ -6,8 +6,10 @@
 # Documentation it follows: Spring Boot, "Installing Spring Boot Applications" (a systemd unit in /etc/systemd/system,
 # `systemctl enable`): https://docs.spring.io/spring-boot/how-to/deployment/installing.html ; systemd.exec(5) (User=, the
 # sandboxing options of the rendered units); nginx proxy_module `proxy_set_header` (the rendered site).
-# One service user (pg-ledger-mcp, not root) runs the MCP server and the admin web: the secrets are readable by it alone, so
-# the accounts the agents run as cannot read them. Two database accounts: the application account (both servers and the
+# One service user (named after the instance, default pg-ledger-mcp, never root) runs the MCP server and the admin web: the
+# secrets are readable by it alone, so the accounts the agents run as cannot read them. --name=<instance> gives an instance of
+# its own (services <name> and <name>-admin, /opt/<name>, /etc/<name>), so two can live on one host with their own ports; the
+# name is validated by Java (render-deploy --check) before anything is created. Two database accounts: the application account (both servers and the
 # owner commands) and the DDL account (migrate and the grants; its password is typed and not stored).
 # Run as root: sudo deploy/install.sh --jars=<dir> --driver-jar=<file> --driver-class=<class> --owner-account=<account>
 #   --app-account=<account> --jdbc-url=<url> [the other options of render-deploy]
@@ -17,10 +19,7 @@
 set -eu
 umask 022
 
-SVC=pg-ledger-mcp
-ADMIN=pg-ledger-admin
-LIB=/opt/pg-ledger-mcp
-ETC=/etc/pg-ledger-mcp
+NAME=pg-ledger-mcp
 JARS=
 DRIVER_JAR=
 DRIVER_CLASS=
@@ -30,12 +29,13 @@ NGINX=
 
 die() { echo "install.sh: $*" >&2; exit 1; }
 cli() { java -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" "$@"; }
-as_svc() { runuser -u "$SVC" -- java -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" "$@"; }
+as_svc() { runuser -u "$SVC" -- java -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" --ledger.secrets.instance="$NAME" "$@"; }
 
 # The options read here are taken out; the rest (a JDBC URL, ports, host names, TLS paths) goes on to render-deploy.
 for arg in "$@"; do
   shift
   case $arg in
+    --name=*) NAME=${arg#*=}; set -- "$@" "$arg" ;;
     --jars=*) JARS=${arg#*=} ;;
     --driver-jar=*) DRIVER_JAR=${arg#*=} ;;
     --driver-class=*) DRIVER_CLASS=${arg#*=} ;;
@@ -45,6 +45,10 @@ for arg in "$@"; do
     *) set -- "$@" "$arg" ;;
   esac
 done
+SVC=$NAME
+ADMIN=$NAME-admin
+LIB=/opt/$NAME
+ETC=/etc/$NAME
 [ "$(id -u)" = 0 ] || die "run as root (sudo)"
 for v in "$JARS" "$DRIVER_JAR" "$DRIVER_CLASS" "$OWNER" "$APP_ACCOUNT"; do [ -n "$v" ] || die "an option is missing: see the header of this file"; done
 JAVA=$(command -v java) || die "java is not installed"
@@ -52,6 +56,8 @@ case $(java -version 2>&1) in
   *\"25.* | *\"25\"*) ;;
   *) die "Java 25 is required" ;;
 esac
+# Every option, the name included, is validated by Java before anything is created.
+java -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent render-deploy --check --java="$JAVA" "$@"
 
 # User, directories, jars.
 id -u "$SVC" >/dev/null 2>&1 || useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$SVC"

@@ -127,8 +127,41 @@ class RenderDeployCommandTest {
         assertThat(result.exitCode()).isZero();
         Path home = root.resolve("C").resolve("ProgramData").resolve("pg-ledger-mcp");
         assertThat(files(root).stream().map(p -> home.relativize(p).toString().replace('\\', '/'))).containsExactly(
-                "etc/admin.yaml", "etc/application.yaml", "etc/mcp.yaml", "lib/pg-ledger-admin.xml", "lib/pg-ledger-mcp.xml");
+                "etc/admin.yaml", "etc/application.yaml", "etc/mcp.yaml", "lib/pg-ledger-mcp-admin.xml", "lib/pg-ledger-mcp.xml");
         assertThat(Files.readString(home.resolve("lib").resolve("pg-ledger-mcp.xml"))).contains("<id>pg-ledger-mcp</id>");
+    }
+
+    @Test
+    @DisplayName("INS-040 --name writes the files of that instance: the units and the settings carry the name and no file or path names the default instance")
+    void ins040_aNamedInstanceIsWrittenUnderItsName(Cli cli) throws IOException {
+        Path root = tmp.resolve("root");
+
+        Outcome result = run(cli, new RecordingOutput(), root, new String[] { "--platform=windows",
+                "--java=C:/Program Files/Java/jdk-25/bin/java.exe", "--jdbc-url=jdbc:postgresql://localhost:5432/ledger",
+                "--app-account=ledger_app", "--name=acme-test", "--home=C:/ProgramData/acme-test" });
+
+        assertThat(result.code()).isEmpty();
+        assertThat(files(root).stream().map(p -> root.relativize(p).toString().replace('\\', '/'))).containsExactly(
+                "C/ProgramData/acme-test/etc/admin.yaml", "C/ProgramData/acme-test/etc/application.yaml",
+                "C/ProgramData/acme-test/etc/mcp.yaml", "C/ProgramData/acme-test/lib/acme-test-admin.xml",
+                "C/ProgramData/acme-test/lib/acme-test.xml");
+    }
+
+    @Test
+    @DisplayName("INS-040 --check validates every option and writes nothing: exit 0 for good values, the same refusal as a run for a bad one, and no value for a flag")
+    void ins040_checkWritesNothing(Cli cli) {
+        Path root = tmp.resolve("root");
+
+        Outcome good = run(cli, new RecordingOutput(), root, LINUX, "--check");
+        Outcome badName = run(cli, new RecordingOutput(), root, LINUX, "--check", "--name=Bad_Name");
+        Outcome withValue = run(cli, new RecordingOutput(), root, LINUX, "--check=yes");
+
+        assertThat(good.exitCode()).isZero();
+        assertThat(good.failure()).isNull();
+        assertThat(badName.code()).contains(ErrorCode.INVALID_DEPLOY_VALUE);
+        assertThat(badName.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+        assertThat(withValue.code()).contains(ErrorCode.INVALID_OPTION_VALUE);
+        assertThat(Files.exists(root)).as("--check writes nothing").isFalse();
     }
 
     private static final String JAVA = "--java=/usr/bin/java";

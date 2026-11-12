@@ -14,16 +14,20 @@ rem to see that a file exists), so the accounts the agents run as cannot read th
 rem the application account (both servers and the owner commands) and the DDL account (migrate and the grants; its password
 rem is typed and not stored). WinSW.exe (2.x) is obtained by the operator and passed here, like the JDBC driver.
 rem Run in an elevated prompt:
-rem   deploy\install.cmd <jars-dir> <winsw.exe> <driver-jar> <driver-class> <owner-account> <app-account> "<jdbc-url>" ["<more render-deploy options>"]
+rem   deploy\install.cmd <jars-dir> <winsw.exe> <driver-jar> <driver-class> <owner-account> <app-account> "<jdbc-url>" ["<name>" ["<more render-deploy options>"]]
+rem The name of the instance (default pg-ledger-mcp) gives the services <name> and <name>-admin and the home C:\ProgramData\<name>,
+rem so two instances can live on one host with their own ports; the Java validation of the name comes before any change.
 rem A re-run is an upgrade: jars, driver jar and files are replaced and the services are recreated; secrets, tokens and
 rem data are never replaced. A personal PC gives no host names (loopback only); a Windows server that is reached from
 rem outside gives them and puts a reverse proxy of its own in front.
 setlocal EnableExtensions
-set "SVC=pg-ledger-mcp"
-set "ADMIN=pg-ledger-admin"
+set "NAME=%~8"
+if "%NAME%"=="" set "NAME=pg-ledger-mcp"
+set "SVC=%NAME%"
+set "ADMIN=%NAME%-admin"
 set "ACCOUNT=NT AUTHORITY\LocalService"
-set "WHOME=C:\ProgramData\pg-ledger-mcp"
-set "HOME=C:/ProgramData/pg-ledger-mcp"
+set "WHOME=C:\ProgramData\%NAME%"
+set "HOME=C:/ProgramData/%NAME%"
 set "SECRETS=%WHOME%\etc\secrets"
 if "%~7"=="" echo install.cmd: arguments are missing: see the header of this file& exit /b 1
 icacls "%SystemRoot%\System32\config" >nul 2>&1 || (echo install.cmd: run in an elevated prompt& exit /b 1)
@@ -32,6 +36,8 @@ if not defined JAVA echo install.cmd: java is not installed& exit /b 1
 for /f "tokens=3" %%V in ('java -version 2^>^&1') do if not defined JV set "JV=%%~V"
 if not "%JV:~0,3%"=="25." if not "%JV%"=="25" echo install.cmd: Java 25 is required& exit /b 1
 set "JAVA=%JAVA:\=/%"
+rem Every option, the name included, is validated by Java before anything is created (the name is only ever used in quotes until then).
+"%JAVA%" -Duser.timezone=UTC -jar "%~1\ledger-cli.jar" --ledger.secrets.home=C:/nonexistent render-deploy --check --platform=windows "--home=%HOME%" "--name=%NAME%" "--java=%JAVA%" "--jdbc-url=%~7" "--app-account=%~6" %~9 || exit /b 1
 set JARCMD="%JAVA%" -Duser.timezone=UTC -jar "%WHOME%\lib\ledger-cli.jar"
 set CLI=%JARCMD% --ledger.secrets.home=%HOME%/etc
 
@@ -55,7 +61,7 @@ copy /y "%~2" "%WHOME%\lib\%ADMIN%.exe" >nul || exit /b 1
 copy /y "%~3" "%WHOME%\etc\drivers\" >nul || exit /b 1
 
 rem The WinSW configurations and the settings (no secret is read: the home of this call has none).
-%JARCMD% --ledger.secrets.home=C:/nonexistent render-deploy --platform=windows --home=%HOME% "--java=%JAVA%" "--jdbc-url=%~7" --app-account=%~6 %~8 || exit /b 1
+%JARCMD% --ledger.secrets.home=C:/nonexistent render-deploy --platform=windows "--home=%HOME%" "--name=%NAME%" "--java=%JAVA%" "--jdbc-url=%~7" "--app-account=%~6" %~9 || exit /b 1
 
 rem Secrets: typed with hidden input or generated, as the administrator; an existing one is kept. The tokens are shown once.
 if not exist "%SECRETS%\ledger.jdbc.password" %CLI% secret-set ledger.jdbc.password || exit /b 1

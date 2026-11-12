@@ -19,25 +19,25 @@ public final class DeployRenderer {
     /** The files in a fixed order: the service definitions, the settings files, then the nginx site when there is one. */
     public static List<RenderedFile> render(DeployParameters p) {
         DeployLayout layout = p.layout();
+        Service mcp = Service.mcp(layout);
+        Service admin = Service.admin(layout);
         List<RenderedFile> files = new ArrayList<>();
         switch (layout.platform()) {
             case LINUX -> {
-                files.add(new RenderedFile(DeployLayout.UNIT_DIRECTORY + "/" + Service.MCP.name() + ".service",
-                        SystemdUnits.unit(p, Service.MCP, "network-online.target", null)));
-                files.add(new RenderedFile(DeployLayout.UNIT_DIRECTORY + "/" + Service.ADMIN.name() + ".service",
-                        SystemdUnits.unit(p, Service.ADMIN, "network-online.target " + Service.MCP.name() + ".service",
-                                layout.etc())));
+                files.add(new RenderedFile(DeployLayout.UNIT_DIRECTORY + "/" + mcp.name() + ".service",
+                        SystemdUnits.unit(p, mcp, "network-online.target", null)));
+                files.add(new RenderedFile(DeployLayout.UNIT_DIRECTORY + "/" + admin.name() + ".service",
+                        SystemdUnits.unit(p, admin, "network-online.target " + mcp.name() + ".service", layout.etc())));
             }
             case WINDOWS -> {
-                files.add(new RenderedFile(layout.lib() + "/" + Service.MCP.name() + ".xml",
-                        WinswServices.configuration(p, Service.MCP)));
-                files.add(new RenderedFile(layout.lib() + "/" + Service.ADMIN.name() + ".xml",
-                        WinswServices.configuration(p, Service.ADMIN)));
+                files.add(new RenderedFile(layout.lib() + "/" + mcp.name() + ".xml", WinswServices.configuration(p, mcp)));
+                files.add(new RenderedFile(layout.lib() + "/" + admin.name() + ".xml",
+                        WinswServices.configuration(p, admin)));
             }
         }
         files.add(new RenderedFile(layout.etc() + "/application.yaml", ServiceSettings.shared(p)));
-        files.add(new RenderedFile(layout.etc() + "/" + Service.MCP.settingsFile(), ServiceSettings.mcp(p)));
-        files.add(new RenderedFile(layout.etc() + "/" + Service.ADMIN.settingsFile(), ServiceSettings.admin(p)));
+        files.add(new RenderedFile(layout.etc() + "/" + mcp.settingsFile(), ServiceSettings.mcp(p)));
+        files.add(new RenderedFile(layout.etc() + "/" + admin.settingsFile(), ServiceSettings.admin(p)));
         if (p.nginx() != null) {
             files.add(new RenderedFile(p.nginx().conf(), NginxSite.render(p)));
         }

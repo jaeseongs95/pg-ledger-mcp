@@ -195,7 +195,10 @@ What every target has in common:
   Linux the system user `pg-ledger-mcp` (no login, not root), on Windows the predefined account LocalService (no password). Its purpose
   is to keep the secrets of the ledger, the admin token and the database password, away from the account of the person who works on
   the machine and from the agents that run under it: the secret directory is readable by the service account only. The two
-  services are named `pg-ledger-mcp` and `pg-ledger-admin`.
+  services of an installation, called an instance, are named after it: the instance is `pg-ledger-mcp` unless `--name=<name>` gives
+  another name, and its services are `<name>` and `<name>-admin` (`pg-ledger-mcp` and `pg-ledger-mcp-admin` by default). The Linux user, the
+  directories (`/opt/<name>`, `/etc/<name>`, on Windows `C:\ProgramData\<name>`) and the WinSW ids follow the name, so a second instance, or an
+  installation next to a host that still runs 1.x under the default names, needs only its own `--name=<name>` and its own ports.
 - **Two database accounts**, created beforehand with the tools of your DBMS (creating an account is not ANSI SQL and is not part of the
   product). The application account is used by both servers and by the owner commands of `ledger-cli`; `migrate` gives it the least
   privilege of `ledger-database/src/main/resources/db-templates/dml-grants.sql` (no DDL, no `UPDATE` or `DELETE` on the history). The
@@ -223,6 +226,7 @@ The options of `deploy/install.sh` are given as `--name=value`; the ones it does
 
 | Option | Meaning |
 |---|---|
+| `--name=<name>` | the name of the instance, default `pg-ledger-mcp`: lower-case letters, digits and hyphens, at most 23 characters, not ending with `-admin`; Java validates it before anything is created |
 | `--jars=<dir>` | the directory that holds the three jars |
 | `--driver-jar=<file>` | the JDBC driver jar |
 | `--driver-class=<class>` | the driver class, which must accept the JDBC URL |
@@ -239,9 +243,10 @@ The options of `deploy/install.sh` are given as `--name=value`; the ones it does
 | `--tls-certificate=<path>` | the TLS certificate of the operator; nothing issues or renews one |
 | `--tls-key=<path>` | the TLS key of the operator |
 
-`render-deploy` takes four more options that the installers set themselves: `--platform=<platform>` (`linux`, the default, or `windows`),
-`--home=<path>` (Windows: the installation directory), `--java=<path>` (the Java executable) and `--root=<directory>` (write the
-files below a directory instead of at their paths, for a look before they are put in place).
+`render-deploy` takes five more options that the installers set themselves: `--platform=<platform>` (`linux`, the default, or `windows`),
+`--home=<path>` (Windows: the installation directory), `--java=<path>` (the Java executable), `--root=<directory>` (write the
+files below a directory instead of at their paths, for a look before they are put in place) and the flag `--check` (validate every option
+and write nothing; the installers run it first, so that a bad value, the name included, stops them while nothing exists yet).
 
 ### Linux server
 
@@ -274,7 +279,8 @@ and the installer neither bundles nor downloads it.
 | `<ddl-account>` | the DDL account |
 | `<app-account>` | the application account |
 | `"<jdbc-url>"` | the JDBC URL, in quotes |
-| `"<more options>"` | optional, in quotes: more options of `render-deploy`, for example the host names of a server |
+| `"<name>"` | optional, in quotes: the name of the instance, default `pg-ledger-mcp` |
+| `"<more options>"` | optional, in quotes, after the name: more options of `render-deploy`, for example the host names of a server |
 
 ```bat
 deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <app-account> "<jdbc-url>"
@@ -284,10 +290,10 @@ A Windows server that is reached from outside adds its host names and puts a rev
 loopback ports (the installer writes no proxy site on Windows):
 
 ```bat
-deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <app-account> "<jdbc-url>" "--mcp-host=<mcp-host> --admin-host=<admin-host>"
+deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <app-account> "<jdbc-url>" "pg-ledger-mcp" "--mcp-host=<mcp-host> --admin-host=<admin-host>"
 ```
 
-Everything lives in `C:\ProgramData\pg-ledger-mcp`. Both services run as LocalService, restart after a failure (the WinSW
+Everything lives in `C:\ProgramData\<name>`. Both services run as LocalService, restart after a failure (the WinSW
 configuration), and write their logs to the `logs` folder. The secrets are handed over to LocalService at the end of the
 installation; the installing user can only see that a file exists, and the script takes them back for the duration of a re-run. So the
 owner commands of `ledger-cli` cannot read them afterwards: do the owner work (projects, common codes, grants, keys) on the pages of
@@ -300,7 +306,7 @@ as a secure context.
 1. Check the MCP server with `ledger-cli mcp-check`; without a registered driver the MCP server stops and says why, and the admin web
    starts in a setup mode that offers only the sign-in and the driver page.
 2. Set up the owner side: `project-add`, `code-set` and, when you come from 1.x, `import-legacy` (see Migrating from 1.x). On Linux run
-   `ledger-cli` as the service user, for example `sudo -u pg-ledger-mcp java -jar /opt/pg-ledger-mcp/ledger-cli.jar project-add ...`.
+   `ledger-cli` as the service user, for example `sudo -u <name> java -jar /opt/<name>/ledger-cli.jar --ledger.secrets.instance=<name> project-add ...`.
 3. Install the client hooks (see Client hooks), register the key of each session with `key-register` and issue the grants with `grant`.
 
 `migrate` applies the files `V{n}__*.sql` in order and records every attempt, with the SHA-256 of the file, in the table
@@ -328,7 +334,7 @@ service user), and every owner operation is recorded with that user.
 | `revoke` | `revoke <author> [<project> [<scope>]]` | revoke live grants |
 | `grants` | `grants [<author>]` | list live grants |
 | `mcp-check` | `mcp-check [--url=<url>] [--ledger.mcp.token=<token>]` | connect to a running MCP server and check its tools |
-| `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | write the service definitions (systemd units, or WinSW configurations on Windows), the settings and the optional nginx site; the installers call it |
+| `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>] [--check]` | write the service definitions (systemd units, or WinSW configurations on Windows), the settings and the optional nginx site; the installers call it |
 
 ## Admin web
 

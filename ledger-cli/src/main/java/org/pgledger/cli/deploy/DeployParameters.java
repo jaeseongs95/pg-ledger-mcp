@@ -53,6 +53,7 @@ public record DeployParameters(DeployLayout layout, String java, String jdbcUrl,
     /** The characters of a URI without quotes, backslash, {@code $}, braces and white space. */
     private static final Pattern URL = Pattern.compile("jdbc:[A-Za-z0-9.]+:[A-Za-z0-9._~:/?#\\[\\]@!&*+,;=%()-]+");
     private static final Pattern SECRET_WORD = Pattern.compile("(?i)pass(?:word|wd)|pwd");
+    private static final Pattern NAME = Pattern.compile("[a-z](?:[a-z0-9-]{0,21}[a-z0-9])?");
     private static final Pattern SCHEMA = Pattern.compile("[a-z][a-z0-9_]{0,29}");
     private static final Pattern LONG_TEXT = Pattern.compile("[A-Za-z][A-Za-z0-9_]{0,30}");
 
@@ -68,6 +69,7 @@ public record DeployParameters(DeployLayout layout, String java, String jdbcUrl,
 
     public DeployParameters {
         boolean windows = layout.platform() == Platform.WINDOWS;
+        instanceName(layout.name());
         java = path(java, windows ? WINDOWS_JAVA : POSIX_PATH, DeployOptions.JAVA);
         jdbcUrl = url(jdbcUrl);
         appAccount = account(appAccount);
@@ -106,14 +108,15 @@ public record DeployParameters(DeployLayout layout, String java, String jdbcUrl,
     public static DeployParameters of(Map<String, String> values) {
         String platform = values.getOrDefault(DeployOptions.PLATFORM, "linux");
         String home = values.get(DeployOptions.HOME);
+        String name = values.getOrDefault(DeployOptions.NAME, DeployLayout.DEFAULT_NAME);
         DeployLayout layout;
         if ("linux".equals(platform)) {
             if (home != null) {
                 throw refused(DeployOptions.HOME);
             }
-            layout = DeployLayout.linux();
+            layout = DeployLayout.linux(name);
         } else if ("windows".equals(platform)) {
-            layout = DeployLayout.windows(path(require(home), WINDOWS_PATH, DeployOptions.HOME));
+            layout = DeployLayout.windows(name, path(require(home), WINDOWS_PATH, DeployOptions.HOME));
         } else {
             throw refused(DeployOptions.PLATFORM);
         }
@@ -133,6 +136,18 @@ public record DeployParameters(DeployLayout layout, String java, String jdbcUrl,
                 number(values.get(DeployOptions.MCP_PORT), DEFAULT_MCP_PORT, DeployOptions.MCP_PORT),
                 number(values.get(DeployOptions.ADMIN_PORT), DEFAULT_ADMIN_PORT, DeployOptions.ADMIN_PORT),
                 values.get(DeployOptions.MCP_HOST), values.get(DeployOptions.ADMIN_HOST), nginx);
+    }
+
+    /**
+     * The name of an instance becomes a system user, unit and service names, directory names and a file name, so it is a short
+     * plain word: lower-case letters, digits and hyphens, a letter first, a letter or digit last, at most 23 characters (the
+     * user name of a Linux system is at most 32 and the admin service adds {@code -admin}). A name that ends with
+     * {@code -admin} is refused: it would collide with the admin service of the instance without that ending.
+     */
+    private static void instanceName(String name) {
+        if (name == null || !NAME.matcher(name).matches() || name.endsWith("-admin")) {
+            throw refused(DeployOptions.NAME);
+        }
     }
 
     private static String require(String value) {

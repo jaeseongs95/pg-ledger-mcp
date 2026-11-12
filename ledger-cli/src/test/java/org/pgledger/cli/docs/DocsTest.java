@@ -336,7 +336,7 @@ class DocsTest {
     }
 
     static Stream<Arguments> installerNameCases() {
-        List<String> names = new ArrayList<>(List.of(DeployLayout.MCP_NAME, DeployLayout.ADMIN_NAME));
+        List<String> names = new ArrayList<>(List.of(DeployLayout.DEFAULT_NAME, DeployLayout.linux(DeployLayout.DEFAULT_NAME).adminName()));
         installerOptions().forEach(option -> names.add("--" + option));
         return languageAnd(names);
     }

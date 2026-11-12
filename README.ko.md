@@ -180,8 +180,10 @@ MCP를 직접 호출하는 쪽은 호스트로 인증되지 않습니다. bearer
 
 - **서비스 계정 하나.** MCP 서버와 관리 웹은 어떤 사람에게도 속하지 않는 운영체제 계정 하나로 실행합니다. Linux는 시스템 사용자 `pg-ledger-mcp`(로그인 없음,
   root 아님), Windows는 내장 계정 LocalService(비밀번호 없음)입니다. 목적은 장부의 비밀인 관리 토큰과 데이터베이스 비밀번호를 그 컴퓨터에서 일하는 사람의
-  계정과 그 아래에서 도는 에이전트로부터 떼어 놓는 것이며, 비밀 디렉터리는 서비스 계정만 읽을 수 있습니다. 두 서비스의 이름은 `pg-ledger-mcp`와
-  `pg-ledger-admin`입니다.
+  계정과 그 아래에서 도는 에이전트로부터 떼어 놓는 것이며, 비밀 디렉터리는 서비스 계정만 읽을 수 있습니다. 한 설치를 인스턴스라고 부르며 서비스 이름은 그것을
+  따릅니다. 인스턴스는 `--name=<name>`이 다른 이름을 주지 않으면 `pg-ledger-mcp`이고, 서비스는 `<name>`과 `<name>-admin`입니다(기본값은 `pg-ledger-mcp`와
+  `pg-ledger-mcp-admin`). Linux 사용자, 디렉터리(`/opt/<name>`, `/etc/<name>`, Windows는 `C:\ProgramData\<name>`), WinSW id가 이름을 따르므로, 두 번째
+  인스턴스나 기본 이름으로 아직 1.x가 도는 호스트 옆의 설치에는 자기 `--name=<name>`과 자기 포트만 있으면 됩니다.
 - **데이터베이스 계정 둘.** 설치 전에 DBMS의 도구로 만들어 둡니다(계정 생성은 ANSI SQL이 아니며 제품에 속하지 않습니다). 앱 계정은 두 서버와 `ledger-cli`의
   소유자 명령이 함께 쓰며, `migrate`가 `ledger-database/src/main/resources/db-templates/dml-grants.sql`의 최소 권한을 부여합니다(DDL 없음, 이력에
   `UPDATE`와 `DELETE` 없음). DDL 계정은 `migrate`와 `import-legacy`에만 쓰며, 비밀번호는 숨김 입력으로 받고 저장하지 않습니다. 데이터베이스의 세션 시간대는
@@ -206,6 +208,7 @@ cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-
 
 | 옵션 | 뜻 |
 |---|---|
+| `--name=<name>` | 인스턴스 이름, 기본값 `pg-ledger-mcp`: 소문자, 숫자, 하이픈, 23자 이내, `-admin`으로 끝나지 않음. Java가 무엇이든 만들기 전에 검증합니다 |
 | `--jars=<dir>` | jar 세 개가 있는 디렉터리 |
 | `--driver-jar=<file>` | JDBC 드라이버 jar |
 | `--driver-class=<class>` | 드라이버 클래스. JDBC URL을 받아들여야 합니다 |
@@ -222,9 +225,10 @@ cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-
 | `--tls-certificate=<path>` | 운영자의 TLS 인증서. 인증서를 발급하거나 갱신하는 것은 없습니다 |
 | `--tls-key=<path>` | 운영자의 TLS 키 |
 
-`render-deploy`에는 설치기가 스스로 정하는 옵션이 넷 더 있습니다. `--platform=<platform>`(`linux`가 기본값, 또는 `windows`),
+`render-deploy`에는 설치기가 스스로 정하는 옵션이 다섯 더 있습니다. `--platform=<platform>`(`linux`가 기본값, 또는 `windows`),
 `--home=<path>`(Windows: 설치 디렉터리), `--java=<path>`(Java 실행 파일), `--root=<directory>`(파일을 제 경로 대신 한 디렉터리 아래에 씀. 제자리에 두기 전에
-살펴볼 때 씁니다)입니다.
+살펴볼 때 씁니다), 그리고 플래그 `--check`(모든 옵션을 검증하고 아무것도 쓰지 않음. 설치기가 가장 먼저 실행하므로, 이름을 포함해 잘못된 값은 아무것도 없을
+때 설치를 멈춥니다)입니다.
 
 ### Linux 서버
 
@@ -255,7 +259,8 @@ sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<dri
 | `<ddl-account>` | DDL 계정 |
 | `<app-account>` | 앱 계정 |
 | `"<jdbc-url>"` | JDBC URL, 따옴표 안에 |
-| `"<more options>"` | 선택, 따옴표 안에: `render-deploy`의 다른 옵션, 예를 들어 서버의 호스트 이름 |
+| `"<name>"` | 선택, 따옴표 안에: 인스턴스 이름, 기본값 `pg-ledger-mcp` |
+| `"<more options>"` | 선택, 이름 뒤에 따옴표 안에: `render-deploy`의 다른 옵션, 예를 들어 서버의 호스트 이름 |
 
 ```bat
 deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <app-account> "<jdbc-url>"
@@ -265,10 +270,10 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 않습니다).
 
 ```bat
-deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <app-account> "<jdbc-url>" "--mcp-host=<mcp-host> --admin-host=<admin-host>"
+deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <app-account> "<jdbc-url>" "pg-ledger-mcp" "--mcp-host=<mcp-host> --admin-host=<admin-host>"
 ```
 
-모든 것은 `C:\ProgramData\pg-ledger-mcp`에 놓입니다. 두 서비스는 LocalService로 실행하고, 실패하면 다시 시작하며(WinSW 설정), 로그는 `logs` 폴더에 씁니다.
+모든 것은 `C:\ProgramData\<name>`에 놓입니다. 두 서비스는 LocalService로 실행하고, 실패하면 다시 시작하며(WinSW 설정), 로그는 `logs` 폴더에 씁니다.
 비밀은 설치 끝에 LocalService에 넘기며, 설치한 사용자는 파일이 있다는 것만 볼 수 있고 스크립트는 다시 실행하는 동안만 이를 되가져옵니다. 그래서 그 뒤에는
 `ledger-cli`의 소유자 명령이 비밀을 읽지 못합니다. 소유자 작업(프로젝트, 공통코드, 부여, 키)은 `ledger.admin.token`으로 로그인하는 관리 웹의 화면에서
 합니다. 개인 PC에서는 관리 웹을 `http://localhost:8865`로 엽니다(포트는 `--admin-port=<n>`입니다). 관리 웹은 `Secure` 세션 쿠키를 설정하는데, 주요 브라우저는
@@ -279,7 +284,7 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 1. `ledger-cli mcp-check`로 MCP 서버를 확인합니다. 등록된 드라이버가 없으면 MCP 서버는 이유를 밝히고 멈추며, 관리 웹은 로그인과 드라이버 화면만 제공하는
    설정 모드로 시작합니다.
 2. 소유자 쪽 설정을 합니다. `project-add`, `code-set`을 실행하고, 1.x에서 온 경우에는 `import-legacy`를 실행합니다(1.x에서 이전 참조). Linux에서는
-   `ledger-cli`를 서비스 사용자로 실행합니다. 예: `sudo -u pg-ledger-mcp java -jar /opt/pg-ledger-mcp/ledger-cli.jar project-add ...`.
+   `ledger-cli`를 서비스 사용자로 실행합니다. 예: `sudo -u <name> java -jar /opt/<name>/ledger-cli.jar --ledger.secrets.instance=<name> project-add ...`.
 3. 클라이언트 훅을 설치하고(클라이언트 훅 참조), 세션마다 `key-register`로 키를 등록한 뒤 `grant`로 부여합니다.
 
 `migrate`는 파일 `V{n}__*.sql`을 순서대로 적용하고, 시도마다 파일의 SHA-256과 함께 `schema_history` 표에 기록합니다. 적용한 뒤에 바뀐 파일이 있으면 모든
@@ -306,7 +311,7 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 | `revoke` | `revoke <author> [<project> [<scope>]]` | 유효한 부여를 회수합니다 |
 | `grants` | `grants [<author>]` | 유효한 부여를 나열합니다 |
 | `mcp-check` | `mcp-check [--url=<url>] [--ledger.mcp.token=<token>]` | 실행 중인 MCP 서버에 연결해 도구를 확인합니다 |
-| `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | 서비스 정의(systemd 유닛, Windows에서는 WinSW 설정)와 설정, 선택적 nginx 사이트를 씁니다. 설치기가 호출합니다 |
+| `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>] [--check]` | 서비스 정의(systemd 유닛, Windows에서는 WinSW 설정)와 설정, 선택적 nginx 사이트를 씁니다. 설치기가 호출합니다 |
 
 ## 관리 웹
 
