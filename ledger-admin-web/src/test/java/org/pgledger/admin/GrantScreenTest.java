@@ -132,8 +132,8 @@ class GrantScreenTest {
     }
 
     @Test
-    @DisplayName("ADM-065: the confirmation registers the key for the author and issues the grants; the fingerprint's letter "
-            + "case does not matter")
+    @DisplayName("ADM-065 / ADM-PRN-11: the confirmation registers the key for the author and issues the grants (the key first, "
+            + "so the key rule of the service accepts the grant); the fingerprint's letter case does not matter")
     void adm065_grantRegistersTheKey() throws Exception {
         Seeded project = seeds.project();
         String author = newAuthor();

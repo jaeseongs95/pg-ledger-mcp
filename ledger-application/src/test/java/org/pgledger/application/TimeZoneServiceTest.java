@@ -91,6 +91,7 @@ class TimeZoneServiceTest {
     @DisplayName("SVC-TZ-03: a grant that expires at a reading of the clock is expired exactly then")
     void tz03_grantExpiry(String reading, Scenario s) {
         String actor = "claude:tz03";
+        s.ctx().enroll(actor);
         s.ctx().clock().set(Instant.parse(reading).minusSeconds(1));
         s.bean(GrantService.class).grant(new GrantCommand(actor, s.projectId(), List.of("defect"), reading, null), TestOwners.OWNER);
         assertThat(Expect.outcome(() -> s.bean(SaveService.class).save(actor, s.create("defect", null,

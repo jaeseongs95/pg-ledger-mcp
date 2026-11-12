@@ -39,6 +39,8 @@ public final class Scenario {
 
     /** Gives the author the scopes on the project of this scenario. */
     public void grant(String author, String... scopes) {
+        // a grant needs a live key of the author: the owner registered it first
+        context.getBean(KeyRing.class).enroll(author);
         context.getBean(GrantService.class).grant(new GrantCommand(author, projectId, List.of(scopes), null, null), TestOwners.OWNER);
     }
 

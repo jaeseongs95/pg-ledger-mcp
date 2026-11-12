@@ -95,6 +95,7 @@ class NormTest {
                 }, "SELECT COUNT(*) FROM history WHERE entity = 'DEFECT' AND entity_id = ? AND op = 'TRANSITION' "
                         + "AND evidence_sha256 IS NULL"),
                 new Blank("grant note", s -> {
+                    s.ctx().enroll("claude:note");
                     s.bean(GrantService.class).grant(new GrantService.GrantCommand("claude:note", s.projectId(),
                             List.of("defect"), null, "   "), TestOwners.OWNER);
                     return "claude:note";

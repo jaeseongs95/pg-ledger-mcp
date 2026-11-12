@@ -348,6 +348,7 @@ class RaceTest {
     @DisplayName("SVC-GRT-06: two grants of the same key at the same time leave exactly one live grant")
     void grt06_parallelGrants(Scenario s) {
         String author = "claude:grt06";
+        s.ctx().enroll(author);
         List<Callable<Object>> calls = IntStream.range(0, 2).<Callable<Object>>mapToObj(i -> () -> s.bean(
                 GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("defect"), null, "n" + i), TestOwners.OWNER))
                 .toList();

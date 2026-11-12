@@ -137,6 +137,15 @@ class LedgerRefusalsTest {
     }
 
     @Test
+    @DisplayName("CLI-PRN-15 SESSION_KEY_REQUIRED of the grant service is NO_SESSION_KEY with the author, in every context")
+    void sessionKeyRequired() {
+        for (Context context : Context.values()) {
+            assertRefusedAs(new ConflictException(ConflictCode.SESSION_KEY_REQUIRED, List.of("claude:a")), context,
+                    ErrorCode.NO_SESSION_KEY, "claude:a");
+        }
+    }
+
+    @Test
     @DisplayName("CLI-PRN-07 the groups of a failed comparison are read by name: five arguments per table, and none when there are fewer than five")
     void tableMismatches() {
         List<LedgerRefusals.TableMismatch> groups = LedgerRefusals.TableMismatch

@@ -690,6 +690,7 @@ class LegacyImportTest {
             LedgerAppContext ctx = rig.ctx();
             String reviewer = "codex:mig-reviewer";
             ctx.enroll(reviewer);
+            ctx.enroll(SEED);
             ctx.bean(GrantService.class).grant(new GrantCommand(reviewer, "old", List.of("fix", "verify"), null, null),
                     TestOwners.OWNER);
             ctx.bean(GrantService.class).grant(new GrantCommand(SEED, "old", List.of("fix"), null, null), TestOwners.OWNER);
