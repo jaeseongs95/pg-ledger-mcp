@@ -60,18 +60,26 @@ public class SignedAttestationVerifier implements AttestationVerifier {
     }
 
     @Override
-    public AuthorId verify(String presented, String tool, String requestId, String argumentsDigest) {
+    public Proof prove(String presented, String tool, String requestId, String argumentsDigest) {
         return check(presented, tool, requestId, argumentsDigest, false);
     }
 
     @Override
     public AuthorId verifyForWrite(String presented, String tool, String requestId, String argumentsDigest) {
-        return check(presented, tool, requestId, argumentsDigest, true);
+        return check(presented, tool, requestId, argumentsDigest, true).requireAuthor();
     }
 
-    private AuthorId check(String presented, String tool, String requestId, String argumentsDigest, boolean hold) {
+    private Proof check(String presented, String tool, String requestId, String argumentsDigest, boolean hold) {
+        requireTokenForm(presented);
+        if (!presented.startsWith(AttestationToken.PREFIX + ".")) {
+            // not a token and not a bare author (requireTokenForm refused that): a malformed author
+            return new Proof.MalformedAuthor(presented);
+        }
         AttestationToken token = parse(presented);
         AttestationClaims claims = token.claims();
+        if (claims.author() != null && !AuthorId.matches(claims.author())) {
+            return new Proof.MalformedAuthor(claims.author());
+        }
         AuthorId author = AuthorId.of(claims.author());
         SessionPublicKey registered = provenKey(token, author);
         if (hold && !keys.holdLive(registered.id())) {
@@ -81,27 +89,27 @@ public class SignedAttestationVerifier implements AttestationVerifier {
         }
         verifyBinding(claims, tool, requestId, argumentsDigest);
         verifyWindow(claims);
-        return author;
+        return new Proof.Proven(author);
     }
 
     /**
      * A value that is not a token is told apart: a bare {@code <vendor>:<session-id>} is the unsigned old format
-     * (ATTESTATION_UNSIGNED), anything else is a malformed author as before (AUTHOR_ID_FORMAT); the prefix of the
-     * retired version 1 is its own answer.
+     * (ATTESTATION_UNSIGNED); the prefix of the retired version 1 is its own answer; nothing at all is
+     * HOST_ATTESTATION_REQUIRED. Any other value that is not a token has a malformed author, which the caller decides.
      */
-    private static AttestationToken parse(String presented) {
+    private static void requireTokenForm(String presented) {
         if (presented == null) {
             throw new TrustException(TrustCode.HOST_ATTESTATION_REQUIRED, List.of());
         }
         if (presented.startsWith(AttestationToken.RETIRED_PREFIX + ".")) {
             throw new TrustException(TrustCode.ATTESTATION_VERSION_UNSUPPORTED, List.of());
         }
-        if (!presented.startsWith(AttestationToken.PREFIX + ".")) {
-            if (AuthorId.matches(presented)) {
-                throw new TrustException(TrustCode.ATTESTATION_UNSIGNED, List.of());
-            }
-            throw new TrustException(TrustCode.AUTHOR_ID_FORMAT, List.of(presented));
+        if (!presented.startsWith(AttestationToken.PREFIX + ".") && AuthorId.matches(presented)) {
+            throw new TrustException(TrustCode.ATTESTATION_UNSIGNED, List.of());
         }
+    }
+
+    private static AttestationToken parse(String presented) {
         try {
             return AttestationToken.parse(presented);
         } catch (AttestationException failure) {
@@ -127,12 +135,11 @@ public class SignedAttestationVerifier implements AttestationVerifier {
                     : "attestation of {} refused: no live session key is registered", author.value());
             throw new TrustException(TrustCode.ATTESTATION_SIGNATURE_INVALID, List.of(), Map.of(), failure);
         }
-        if (registered.isEmpty()) {
-            // not reachable (nobody can sign for the dummy key); the answer would be the same if it ever were
+        // an empty registration is not reachable (nobody can sign for the dummy key); the answer would be the same if it were
+        return registered.orElseThrow(() -> {
             LOG.warn("attestation of {} verified under the dummy key and is refused: no live session key", author.value());
-            throw signatureInvalid();
-        }
-        return registered.get();
+            return signatureInvalid();
+        });
     }
 
     private static TrustException signatureInvalid() {

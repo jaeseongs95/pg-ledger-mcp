@@ -1,10 +1,13 @@
 package org.pgledger.application.write;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Set;
 import org.pgledger.application.json.LedgerJson;
+import org.pgledger.application.validation.ViolationTranslator;
 import org.pgledger.domain.error.LedgerException;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
@@ -32,9 +35,11 @@ public class BatchService {
     private final LinkOperation link;
     private final CorrectOperation correct;
     private final LedgerJson json;
+    private final Validator validator;
 
     public BatchService(SaveOperation save, TransitionOperation transition, RecordFixOperation recordFix,
-            RecordCaseOperation recordCase, LinkOperation link, CorrectOperation correct, LedgerJson json) {
+            RecordCaseOperation recordCase, LinkOperation link, CorrectOperation correct, LedgerJson json,
+            Validator validator) {
         this.save = save;
         this.transition = transition;
         this.recordFix = recordFix;
@@ -42,6 +47,7 @@ public class BatchService {
         this.link = link;
         this.correct = correct;
         this.json = json;
+        this.validator = validator;
     }
 
     /** Reads the {@code ops} array of a batch from JSON text, then runs {@link #batch}. */
@@ -53,20 +59,32 @@ public class BatchService {
         if (ops == null || ops.isEmpty() || ops.size() > BatchOpKind.MAX_OPS_PER_BATCH) {
             throw ValidationException.invalid("ops", ValidationReason.MUST_HOLD_ITEMS, "1", String.valueOf(BatchOpKind.MAX_OPS_PER_BATCH));
         }
-        RequestId batchId = requestId == null || requestId.isBlank() ? new RequestId(UUID.randomUUID())
-                : RequestId.parse(requestId);
+        RequestId batchId = WriteOperation.requestIdOrFresh(requestId);
         List<WriteResult> results = new ArrayList<>();
         for (int i = 0; i < ops.size(); i++) {
             BatchOpInput op = ops.get(i);
             String opRequestId = op.requestId() != null ? op.requestId() : batchId.derive(i).toString();
             try {
-                results.add(run(actor, requestId, op, opRequestId, i));
+                requireKeys(op, i);
+                results.add(run(actor, requestId, op, opRequestId));
             } catch (LedgerException failure) {
                 throw failure.withDetails(Map.of("op_index", List.of(Integer.toString(i + 1)),
                         "op", List.of(kind(op).token())));
             }
         }
         return new BatchResult(WriteStatus.COMMITTED, results.size(), results);
+    }
+
+    /**
+     * The required keys of an operation are the constraints of its record; a violation is named by the path of the key in
+     * the request ({@code ops[1].reason}). The operation is validated just before it runs, so the operations before it
+     * have run (and are rolled back with the batch) exactly as when the keys were checked by hand.
+     */
+    private void requireKeys(BatchOpInput op, int index) {
+        Set<ConstraintViolation<BatchOpInput>> violations = validator.validate(op);
+        if (!violations.isEmpty()) {
+            throw new ViolationTranslator("ops[" + index + "]").translate(violations);
+        }
     }
 
     private static BatchOpKind kind(BatchOpInput op) {
@@ -81,60 +99,23 @@ public class BatchService {
     }
 
     /** {@code boundRequestId} is the request id of the whole batch as the caller sent it: what the attestation is bound to. */
-    private WriteResult run(String actor, String boundRequestId, BatchOpInput op, String id, int index) {
+    private WriteResult run(String actor, String boundRequestId, BatchOpInput op, String id) {
         return switch (op) {
-            case BatchOpInput.Save s -> {
-                require(index, "entity", s.entity());
-                require(index, "fields", s.fields());
-                require(index, "reason", s.reason());
-                yield save.run(actor, boundRequestId, Channel.AUTHOR,
-                        new SaveCommand(id, s.entity(), s.id(), s.expectedVersion(), s.fields(), s.reason()));
-            }
-            case BatchOpInput.Transition t -> {
-                require(index, "entity", t.entity());
-                require(index, "id", t.id());
-                require(index, "expected_version", t.expectedVersion());
-                require(index, "to", t.to());
-                require(index, "reason", t.reason());
-                yield transition.run(actor, boundRequestId, Channel.AUTHOR, new TransitionCommand(id, t.entity(), t.id(),
-                        t.expectedVersion(), t.to(), t.reason(), t.evidenceUri(), t.evidenceSha256(),
-                        t.mergedInto()));
-            }
-            case BatchOpInput.RecordFix f -> {
-                require(index, "defect_id", f.defectId());
-                require(index, "repo", f.repo());
-                require(index, "commit_sha", f.commitSha());
-                require(index, "reason", f.reason());
-                yield recordFix.run(actor, boundRequestId, Channel.AUTHOR, new RecordFixCommand(id, f.defectId(), f.repo(),
-                        f.commitSha(), f.reason(), f.branch(), f.ciRef(), f.ciConclusion(), f.ciCompletedAt(),
-                        f.markSourceFixed()));
-            }
-            case BatchOpInput.RecordCase c -> {
-                require(index, "defect_id", c.defectId());
-                require(index, "observation", c.observation());
-                require(index, "reason", c.reason());
-                yield recordCase.run(actor, boundRequestId, Channel.AUTHOR, new RecordCaseCommand(id, c.defectId(),
-                        c.observation(), c.reason(), c.evidence(), c.userQuote(), c.observedAt()));
-            }
-            case BatchOpInput.Link l -> {
-                require(index, "kind", l.kind());
-                require(index, "a", l.a());
-                require(index, "b", l.b());
-                require(index, "reason", l.reason());
-                yield link.run(actor, boundRequestId, Channel.AUTHOR, new LinkCommand(id, l.kind(), l.a(), l.b(), l.reason(),
-                        l.remove()));
-            }
-            case BatchOpInput.Correct c -> {
-                require(index, "history_id", c.historyId());
-                require(index, "reason", c.reason());
-                yield correct.run(actor, boundRequestId, Channel.AUTHOR, new CorrectCommand(id, c.historyId(), c.reason()));
-            }
+            case BatchOpInput.Save s -> save.run(actor, boundRequestId, Channel.AUTHOR,
+                    new SaveCommand(id, s.entity(), s.id(), s.expectedVersion(), s.fields(), s.reason()));
+            case BatchOpInput.Transition t -> transition.run(actor, boundRequestId, Channel.AUTHOR,
+                    new TransitionCommand(id, t.entity(), t.id(), t.expectedVersion(), t.to(), t.reason(),
+                            t.evidenceUri(), t.evidenceSha256(), t.mergedInto()));
+            case BatchOpInput.RecordFix f -> recordFix.run(actor, boundRequestId, Channel.AUTHOR,
+                    new RecordFixCommand(id, f.defectId(), f.repo(), f.commitSha(), f.reason(), f.branch(),
+                            f.ciRef(), f.ciConclusion(), f.ciCompletedAt(), f.markSourceFixed()));
+            case BatchOpInput.RecordCase c -> recordCase.run(actor, boundRequestId, Channel.AUTHOR,
+                    new RecordCaseCommand(id, c.defectId(), c.observation(), c.reason(), c.evidence(),
+                            c.userQuote(), c.observedAt()));
+            case BatchOpInput.Link l -> link.run(actor, boundRequestId, Channel.AUTHOR,
+                    new LinkCommand(id, l.kind(), l.a(), l.b(), l.reason(), l.remove()));
+            case BatchOpInput.Correct c -> correct.run(actor, boundRequestId, Channel.AUTHOR,
+                    new CorrectCommand(id, c.historyId(), c.reason()));
         };
-    }
-
-    private static void require(int index, String key, Object value) {
-        if (value == null) {
-            throw ValidationException.invalid("ops[" + index + "]." + key, ValidationReason.REQUIRED);
-        }
     }
 }

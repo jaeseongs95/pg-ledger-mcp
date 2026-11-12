@@ -6,11 +6,8 @@ import java.util.List;
 import org.pgledger.application.gate.AttestationVerifier;
 import org.pgledger.database.repository.GrantStateRepository;
 import org.pgledger.domain.context.ToolScope;
-import org.pgledger.domain.error.TrustCode;
-import org.pgledger.domain.error.TrustException;
 import org.pgledger.domain.model.SessionGrant;
 import org.pgledger.domain.rule.Channel;
-import org.pgledger.domain.value.AuthorId;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,18 +47,15 @@ public class WhoamiService {
      *        the error of the gate, so a session finds out here why it cannot write.
      */
     public Whoami whoami(String actor, Channel channel) {
-        AuthorId author;
-        try {
-            author = attestation.verify(actor, ToolScope.current(), "", ToolScope.argumentsDigest());
-        } catch (TrustException failure) {
-            if (failure.code() == TrustCode.AUTHOR_ID_FORMAT) {
-                return new Whoami(failure.args().getFirst(), false, channel == Channel.REVIEWER, channel.login(),
-                        List.of());
+        return switch (attestation.prove(actor, ToolScope.current(), "", ToolScope.argumentsDigest())) {
+            case AttestationVerifier.Proof.MalformedAuthor malformed ->
+                new Whoami(malformed.text(), false, channel.mayVerify(), channel.login(), List.of());
+            case AttestationVerifier.Proof.Proven proven -> {
+                List<GrantView> live = grants.findLive(proven.author(), clock.instant()).stream()
+                        .map(WhoamiService::view).toList();
+                yield new Whoami(proven.author().value(), true, channel.mayVerify(), channel.login(), live);
             }
-            throw failure;
-        }
-        List<GrantView> live = grants.findLive(author, clock.instant()).stream().map(WhoamiService::view).toList();
-        return new Whoami(author.value(), true, channel == Channel.REVIEWER, channel.login(), live);
+        };
     }
 
     private static GrantView view(SessionGrant grant) {

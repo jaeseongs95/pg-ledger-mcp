@@ -6,8 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Target;
 import org.pgledger.application.gate.WriteGate;
@@ -47,7 +45,6 @@ import org.pgledger.domain.value.ProjectId;
 import org.pgledger.domain.value.TaskId;
 import org.pgledger.domain.value.Tokens;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
 /** Creates (expected version 0) or edits a defect, task or condition. */
@@ -56,8 +53,6 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
 
     /** Marks a field that an edit clears; it differs from a field that is not mentioned. */
     private static final String CLEARED = "\u0000";
-
-    private static final Pattern TASK_NUMBER = Pattern.compile(".*-T-([0-9]+)");
 
     private final EntityEditors editors;
     private final Rows rows;
@@ -91,9 +86,9 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
 
     private List<Target> targets(SaveCommand c) {
         HistoryEntity entity = entity(c.entity());
-        Scope scope = entity == HistoryEntity.DEFECT ? Scope.DEFECT : Scope.TASK;
-        if (isCreate(c)) {
-            String project = c.fields() == null ? null : c.fields().get("project_id");
+        Scope scope = entity.writeScope();
+        if (c.isCreate()) {
+            String project = c.mentionedProject();
             if (project == null || project.isBlank()) {
                 throw ValidationException.invalid("project_id", ValidationReason.REQUIRED);
             }
@@ -101,7 +96,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
             rows.project(projectId);
             return List.of(new Target(projectId, scope));
         }
-        String id = requireId(c);
+        String id = c.requireId();
         ProjectId current = switch (entity) {
             case DEFECT -> rows.defect(DefectId.of(id)).projectId();
             case TASK -> rows.task(TaskId.of(id)).projectId();
@@ -109,7 +104,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
             case DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE ->
                 throw new IllegalStateException("entity() refused it");
         };
-        String moved = c.fields() == null ? null : c.fields().get("project_id");
+        String moved = c.mentionedProject();
         if (entity == HistoryEntity.DEFECT || moved == null || moved.isBlank() || Objects.equals(moved, current.value())) {
             return List.of(new Target(current, scope));
         }
@@ -118,29 +113,14 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
         return List.of(new Target(current, scope), new Target(target, scope));
     }
 
-    private static boolean isCreate(SaveCommand c) {
-        if (c.expectedVersion() != null && c.expectedVersion() < 0) {
-            throw ValidationException.invalid("expected_version", ValidationReason.MUST_NOT_BE_NEGATIVE);
-        }
-        return c.expectedVersion() == null || c.expectedVersion() == 0;
-    }
-
-    private static String requireId(SaveCommand c) {
-        if (c.id() == null || c.id().isBlank()) {
-            throw ValidationException.invalid("id", ValidationReason.REQUIRED_TO_EDIT);
-        }
-        return c.id();
-    }
-
     private static HistoryEntity entity(String token) {
-        return Tokens.parse("entity", token,
-                new HistoryEntity[] {HistoryEntity.DEFECT, HistoryEntity.TASK, HistoryEntity.CONDITION});
+        return Tokens.parse("entity", token, EntityEditors.SAVEABLE);
     }
 
     @Override
     protected Prepared<SaveResult> prepare(SaveCommand c) {
         HistoryEntity entity = entity(c.entity());
-        boolean create = isCreate(c);
+        boolean create = c.isCreate();
         EntityFields fields = editors.parse(entity, c.fields());
         if (create) {
             fields.requireCreatable();
@@ -161,7 +141,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
                 .text("v", Long.toString(c.expectedVersion() == null ? 0 : c.expectedVersion()))
                 .with("fields", payloadFields);
         return new Prepared<>(payload, ctx -> create ? create(ctx, entity, fields, c.id(), mentioned)
-                : edit(ctx, entity, fields, requireId(c), c.expectedVersion(), mentioned));
+                : edit(ctx, entity, fields, c.requireId(), c.expectedVersion(), mentioned));
     }
 
     // ---------------------------------------------------------------- create
@@ -169,20 +149,22 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
     private SaveResult create(WriteContext ctx, HistoryEntity entity, EntityFields fields, String explicitId,
             Map<String, String> mentioned) {
         Instant now = clock.instant();
-        Project project = rows.project(projectOf(fields));
+        Project project = rows.project(fields.projectId().orNull());
         String id;
         long version;
         switch (fields) {
             case DefectFields f -> {
                 DefectId defectId = defectId(project, explicitId);
-                codeRules.checkDefect(null, f.category().orElse(null), f.severity().orElse(null));
-                Defect saved = guarded(() -> defects.save(Defect.open(defectId, f, now)), "defect", defectId.value());
+                codeRules.checkDefect(null, f.category().orNull(), f.severity().orNull());
+                Defect saved = inserted(() -> defects.save(Defect.open(defectId, f, now)), HistoryEntity.DEFECT,
+                        defectId.value());
                 id = saved.id().value();
                 version = saved.version();
             }
             case TaskFields f -> {
                 TaskId taskId = taskId(project, explicitId);
-                Task saved = guarded(() -> tasks.save(Task.plan(taskId, f, now)), "task", taskId.value());
+                Task saved = inserted(() -> tasks.save(Task.plan(taskId, f, now)), HistoryEntity.TASK,
+                        taskId.value());
                 id = saved.id().value();
                 version = saved.version();
             }
@@ -192,10 +174,10 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
                 }
                 ConditionId conditionId = ConditionId.of(explicitId);
                 if (conditions.existsById(conditionId) || conditions.findByProjectIdAndReleaseAndCode(
-                        project.id(), f.release().orElse(null), f.code().orElse(null)).isPresent()) {
-                    throw duplicate("condition", conditionId.value());
+                        project.id(), f.release().orNull(), f.code().orNull()).isPresent()) {
+                    throw duplicate(HistoryEntity.CONDITION, conditionId.value());
                 }
-                Condition saved = guarded(() -> conditions.save(Condition.open(conditionId, f)), "condition",
+                Condition saved = inserted(() -> conditions.save(Condition.open(conditionId, f)), HistoryEntity.CONDITION,
                         conditionId.value());
                 id = saved.id().value();
                 version = saved.version();
@@ -208,14 +190,6 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
         long historyId = history.append(ctx, HistoryWriter.Entry.of(entity, id, HistoryOp.CREATE, changes));
         return new SaveResult(WriteStatus.COMMITTED, entity.token(), id, version, historyId, ctx.author().value(),
                 ctx.login());
-    }
-
-    private static ProjectId projectOf(EntityFields fields) {
-        return switch (fields) {
-            case DefectFields f -> f.projectId().orElse(null);
-            case TaskFields f -> f.projectId().orElse(null);
-            case ConditionFields f -> f.projectId().orElse(null);
-        };
     }
 
     private DefectId defectId(Project project, String explicit) {
@@ -233,7 +207,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
                     List.of(new ValidationIssue("id", ValidationReason.MUST_START_WITH, List.of(prefix))), Map.of());
         }
         if (defects.existsById(candidate)) {
-            throw duplicate("defect", explicit);
+            throw duplicate(HistoryEntity.DEFECT, explicit);
         }
         ids.raiseDefectNo(project.code(), candidate.number());
         return candidate;
@@ -249,12 +223,10 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
         }
         TaskId candidate = TaskId.of(explicit);
         if (tasks.existsById(candidate)) {
-            throw duplicate("task", explicit);
+            throw duplicate(HistoryEntity.TASK, explicit);
         }
-        Matcher number = TASK_NUMBER.matcher(explicit);
-        if (explicit.startsWith(project.code().value() + "-T-") && number.matches()) {
-            ids.raiseTaskNo(project.code(), Long.parseLong(number.group(1)));
-        }
+        // a free id has a number only in the form the server issues (at most 18 digits); any other id raises nothing
+        candidate.numberIn(project.code()).ifPresent(number -> ids.raiseTaskNo(project.code(), number));
         return candidate;
     }
 
@@ -279,7 +251,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
                 requireChange(mentioned, beforeColumns, afterColumns);
                 codeRules.checkDefect(row, after.category(), after.severity());
                 before = Snapshot.DefectRow.of(row);
-                version = guarded(() -> defects.save(after), "defect", id).version();
+                version = rows.saveDefect(after).version();
             }
             case TaskFields f -> {
                 Task row = rows.lockedTask(TaskId.of(id), expectedVersion);
@@ -288,7 +260,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
                 afterColumns = editors.columns(after);
                 requireChange(mentioned, beforeColumns, afterColumns);
                 before = Snapshot.TaskRow.of(row);
-                version = guarded(() -> tasks.save(after), "task", id).version();
+                version = rows.saveTask(after).version();
             }
             case ConditionFields f -> {
                 Condition row = rows.lockedCondition(ConditionId.of(id), expectedVersion);
@@ -297,7 +269,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
                 afterColumns = editors.columns(after);
                 requireChange(mentioned, beforeColumns, afterColumns);
                 before = Snapshot.ConditionRow.of(row);
-                version = guarded(() -> conditions.save(after), "condition", id).version();
+                version = rows.saveCondition(after).version();
             }
         }
         ChangeSet changes = ChangeSet.empty();
@@ -319,18 +291,19 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
         }
     }
 
-    /** Runs a save; a lost version race or a duplicate key becomes the contract's error, never a raw one. */
-    private static <T> T guarded(Supplier<T> save, String entity, String id) {
+    /**
+     * Runs an insert; a duplicate key becomes the contract's error, never a raw one. (A lost version race of an update
+     * is the VERSION_CONFLICT of {@link Rows#saveDefect}.)
+     */
+    private static <T> T inserted(Supplier<T> insert, HistoryEntity entity, String id) {
         try {
-            return save.get();
+            return insert.get();
         } catch (DuplicateKeyException e) {
-            throw new ConflictException(ConflictCode.DUPLICATE_KEY, List.of(entity + " " + id), e);
-        } catch (OptimisticLockingFailureException e) {
-            throw new ConflictException(ConflictCode.VERSION_CONFLICT, List.of(entity, id, "?", "?"), e);
+            throw new ConflictException(ConflictCode.DUPLICATE_KEY, List.of(entity.token() + " " + id), e);
         }
     }
 
-    private static ConflictException duplicate(String entity, String id) {
-        return new ConflictException(ConflictCode.DUPLICATE_KEY, List.of(entity + " " + id));
+    private static ConflictException duplicate(HistoryEntity entity, String id) {
+        return new ConflictException(ConflictCode.DUPLICATE_KEY, List.of(entity.token() + " " + id));
     }
 }

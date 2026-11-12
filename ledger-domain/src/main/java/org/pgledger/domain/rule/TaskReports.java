@@ -16,10 +16,14 @@ public record TaskReports(List<TaskTransition> transitions) {
      * back is not a report).
      */
     public Optional<SessionKey> latestReporter() {
+        return latestReport().map(t -> t.author().sessionKey());
+    }
+
+    /** The latest REPORTED_DONE transition that did not come from VERIFIED: who made it, as the history recorded it. */
+    public Optional<TaskTransition> latestReport() {
         return transitions.reversed().stream()
                 .filter(t -> t.to() == TaskState.REPORTED_DONE && t.from() != TaskState.VERIFIED)
-                .findFirst()
-                .map(t -> t.author().sessionKey());
+                .findFirst();
     }
 
     /** Whether {@code session} is the latest reporter of the task. */

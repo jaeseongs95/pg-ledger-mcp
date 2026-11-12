@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.Condition;
@@ -14,7 +15,11 @@ import org.pgledger.domain.model.EntityFields;
 import org.pgledger.domain.model.Task;
 import org.pgledger.domain.model.TaskFields;
 import org.pgledger.domain.rule.HistoryEntity;
+import org.pgledger.domain.value.AuthorId;
+import org.pgledger.domain.value.CodeValue;
 import org.pgledger.domain.value.Patch;
+import org.pgledger.domain.value.ProjectId;
+import org.pgledger.domain.value.Tokens;
 import org.springframework.stereotype.Component;
 
 /**
@@ -32,6 +37,9 @@ public class EntityEditors {
     private static final List<String> CONDITION_KEYS = List.of("project_id", "release", "goal_label", "code",
             "condition_text");
 
+    /** The kinds of row that a save writes: the ones that have fields to edit. */
+    static final HistoryEntity[] SAVEABLE = {HistoryEntity.DEFECT, HistoryEntity.TASK, HistoryEntity.CONDITION};
+
     /** The editable keys of an entity kind. */
     public List<String> keys(HistoryEntity entity) {
         return switch (entity) {
@@ -40,7 +48,7 @@ public class EntityEditors {
             case CONDITION -> CONDITION_KEYS;
             case DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE ->
                 throw ValidationException.invalid("entity", ValidationReason.CANNOT_BE_SAVED,
-                        List.of("defect", "task", "condition"), entity.token());
+                        Tokens.allowed(SAVEABLE), entity.token());
         };
     }
 
@@ -79,49 +87,40 @@ public class EntityEditors {
         Map<String, String> out = new LinkedHashMap<>();
         switch (fields) {
             case DefectFields f -> {
-                put(out, "project_id", f.projectId());
-                put(out, "title", f.title());
-                put(out, "category", f.category());
-                put(out, "severity", f.severity());
-                put(out, "behavior", f.behavior());
-                put(out, "root_cause", f.rootCause());
-                put(out, "owner_actor_id", f.ownerActorId());
+                put(out, "project_id", f.projectId(), ProjectId::value);
+                put(out, "title", f.title(), Function.identity());
+                put(out, "category", f.category(), CodeValue::value);
+                put(out, "severity", f.severity(), CodeValue::value);
+                put(out, "behavior", f.behavior(), Function.identity());
+                put(out, "root_cause", f.rootCause(), Function.identity());
+                put(out, "owner_actor_id", f.ownerActorId(), AuthorId::value);
             }
             case TaskFields f -> {
-                put(out, "project_id", f.projectId());
-                put(out, "title", f.title());
-                put(out, "purpose", f.purpose());
-                put(out, "success_condition", f.successCondition());
-                put(out, "owner_actor_id", f.ownerActorId());
-                put(out, "origin_ref", f.originRef());
-                put(out, "origin_quote", f.originQuote());
+                put(out, "project_id", f.projectId(), ProjectId::value);
+                put(out, "title", f.title(), Function.identity());
+                put(out, "purpose", f.purpose(), Function.identity());
+                put(out, "success_condition", f.successCondition(), Function.identity());
+                put(out, "owner_actor_id", f.ownerActorId(), AuthorId::value);
+                put(out, "origin_ref", f.originRef(), Function.identity());
+                put(out, "origin_quote", f.originQuote(), Function.identity());
             }
             case ConditionFields f -> {
-                put(out, "project_id", f.projectId());
-                put(out, "release", f.release());
-                put(out, "goal_label", f.goalLabel());
-                put(out, "code", f.code());
-                put(out, "condition_text", f.conditionText());
+                put(out, "project_id", f.projectId(), ProjectId::value);
+                put(out, "release", f.release(), Function.identity());
+                put(out, "goal_label", f.goalLabel(), Function.identity());
+                put(out, "code", f.code(), Function.identity());
+                put(out, "condition_text", f.conditionText(), Function.identity());
             }
         }
         return out;
     }
 
-    private static void put(Map<String, String> out, String key, Patch<?> patch) {
+    /** Adds the field when the request mentions it; a field that is set to nothing is the text null. */
+    private static <T> void put(Map<String, String> out, String key, Patch<T> patch, Function<T, String> text) {
         if (patch.mentioned()) {
-            Object value = patch.orElse(null);
-            out.put(key, value == null ? null : valueText(value));
+            T value = patch.orNull();
+            out.put(key, value == null ? null : text.apply(value));
         }
-    }
-
-    private static String valueText(Object value) {
-        return switch (value) {
-            case org.pgledger.domain.value.ProjectId v -> v.value();
-            case org.pgledger.domain.value.CodeValue v -> v.value();
-            case org.pgledger.domain.value.AuthorId v -> v.value();
-            case String v -> v;
-            default -> throw new IllegalStateException("unexpected field value " + value.getClass());
-        };
     }
 
     public Map<String, String> columns(Defect d) {

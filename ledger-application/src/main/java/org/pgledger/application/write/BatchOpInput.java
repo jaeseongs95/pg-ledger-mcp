@@ -2,12 +2,15 @@ package org.pgledger.application.write;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import jakarta.validation.constraints.NotNull;
 import java.util.Map;
 
 /**
  * One operation of a batch as it arrives: the {@code op} key picks the record, the other keys are the keys of
- * {@code BatchOpKind}. Reading is strict: an unknown key or an unknown {@code op} is refused. Whether the
- * required keys are present is checked by {@code BatchService} in the order of the operations.
+ * {@code BatchOpKind}. Reading is strict: an unknown key or an unknown {@code op} is refused. The required keys are
+ * the constraints of the records (a missing key and a JSON {@code null} are the same refusal, REQUIRED, with the path
+ * {@code ops[i].<key>}); {@code BatchService} validates an operation just before it runs it, in the order of the
+ * operations.
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "op")
 @JsonSubTypes({
@@ -19,30 +22,40 @@ import java.util.Map;
     @JsonSubTypes.Type(value = BatchOpInput.Correct.class, name = "correct")})
 public sealed interface BatchOpInput {
 
+    /** The message template of every required key: the reason REQUIRED. */
+    String REQUIRED = "{reason.REQUIRED}";
+
     /** The operation's own request id, or null (the batch derives one). */
     String requestId();
 
-    record Save(String entity, Map<String, String> fields, String reason, String id, Long expectedVersion,
+    record Save(@NotNull(message = REQUIRED) String entity, @NotNull(message = REQUIRED) Map<String, String> fields,
+            @NotNull(message = REQUIRED) String reason, String id, Long expectedVersion, String requestId)
+            implements BatchOpInput {
+    }
+
+    record Transition(@NotNull(message = REQUIRED) String entity, @NotNull(message = REQUIRED) String id,
+            @NotNull(message = REQUIRED) Long expectedVersion, @NotNull(message = REQUIRED) String to,
+            @NotNull(message = REQUIRED) String reason, String evidenceUri, String evidenceSha256, String mergedInto,
             String requestId) implements BatchOpInput {
     }
 
-    record Transition(String entity, String id, Long expectedVersion, String to, String reason, String evidenceUri,
-            String evidenceSha256, String mergedInto, String requestId) implements BatchOpInput {
-    }
-
-    record RecordFix(String defectId, String repo, String commitSha, String reason, String branch, String ciRef,
-            String ciConclusion, String ciCompletedAt, Boolean markSourceFixed, String requestId)
+    record RecordFix(@NotNull(message = REQUIRED) String defectId, @NotNull(message = REQUIRED) String repo,
+            @NotNull(message = REQUIRED) String commitSha, @NotNull(message = REQUIRED) String reason, String branch,
+            String ciRef, String ciConclusion, String ciCompletedAt, Boolean markSourceFixed, String requestId)
             implements BatchOpInput {
     }
 
-    record RecordCase(String defectId, String observation, String reason, String evidence, String userQuote,
-            String observedAt, String requestId) implements BatchOpInput {
+    record RecordCase(@NotNull(message = REQUIRED) String defectId, @NotNull(message = REQUIRED) String observation,
+            @NotNull(message = REQUIRED) String reason, String evidence, String userQuote, String observedAt,
+            String requestId) implements BatchOpInput {
     }
 
-    record Link(String kind, String a, String b, String reason, Boolean remove, String requestId)
-            implements BatchOpInput {
+    record Link(@NotNull(message = REQUIRED) String kind, @NotNull(message = REQUIRED) String a,
+            @NotNull(message = REQUIRED) String b, @NotNull(message = REQUIRED) String reason, Boolean remove,
+            String requestId) implements BatchOpInput {
     }
 
-    record Correct(Long historyId, String reason, String requestId) implements BatchOpInput {
+    record Correct(@NotNull(message = REQUIRED) Long historyId, @NotNull(message = REQUIRED) String reason,
+            String requestId) implements BatchOpInput {
     }
 }

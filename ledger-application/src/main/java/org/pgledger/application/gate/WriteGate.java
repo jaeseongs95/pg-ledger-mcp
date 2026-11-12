@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.pgledger.database.repository.GrantStateRepository;
 import org.pgledger.domain.context.ToolScope;
@@ -47,17 +48,20 @@ public class WriteGate {
      */
     public GateSession open(String actor, String requestId, Channel channel, Lookup lookup) {
         // a verification through the author channel is refused first, so it is looked up first (once)
-        Resolution early = channel != Channel.REVIEWER && lookup.mayVerify() ? lookup.find().get() : null;
-        if (early instanceof Resolution.Resolved resolved) {
-            requireReviewerForVerification(channel, resolved.targets());
-        }
+        Optional<Resolution> early = !channel.mayVerify() && lookup.mayVerify() ? Optional.of(lookup.find().get())
+                : Optional.empty();
+        early.ifPresent(found -> {
+            if (found instanceof Resolution.Resolved resolved) {
+                requireReviewerForVerification(channel, resolved.targets());
+            }
+        });
         AuthorId author = attestation.verifyForWrite(actor, ToolScope.current(), requestId,
                 ToolScope.argumentsDigest());
-        Resolution resolution = early != null ? early : lookup.find().get();
+        Resolution resolution = early.orElseGet(lookup.find());
         return switch (resolution) {
             case Resolution.Unresolved unresolved -> throw unresolved.failure();
             case Resolution.Resolved resolved -> {
-                if (early == null) {
+                if (early.isEmpty()) {
                     requireReviewerForVerification(channel, resolved.targets());
                 }
                 Set<Target> distinct = new LinkedHashSet<>(resolved.targets());
@@ -70,7 +74,7 @@ public class WriteGate {
     }
 
     private static void requireReviewerForVerification(Channel channel, List<Target> targets) {
-        if (channel != Channel.REVIEWER && targets.stream().anyMatch(t -> t.scope() == Scope.VERIFY)) {
+        if (!channel.mayVerify() && targets.stream().anyMatch(t -> t.scope() == Scope.VERIFY)) {
             throw new TrustException(TrustCode.VERIFY_NEEDS_REVIEWER_LOGIN, List.of());
         }
     }

@@ -4,6 +4,7 @@ import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.value.Patch;
+import org.pgledger.domain.value.ProjectId;
 
 /**
  * The editable fields of a defect, task or condition as they arrive in a save: each field is absent, set, or set
@@ -12,6 +13,9 @@ import org.pgledger.domain.value.Patch;
 public sealed interface EntityFields permits DefectFields, TaskFields, ConditionFields {
 
     HistoryEntity entity();
+
+    /** The project of the row: every kind of row has one, and a save may mention it. */
+    Patch<ProjectId> projectId();
 
     /** Fails with VALIDATION_FAILED when a required field is not set to a value. */
     EntityFields requireCreatable();

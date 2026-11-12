@@ -17,11 +17,13 @@ import org.pgledger.domain.model.Condition;
 import org.pgledger.domain.model.Defect;
 import org.pgledger.domain.model.Project;
 import org.pgledger.domain.model.Task;
+import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.value.ConditionId;
 import org.pgledger.domain.value.DefectId;
 import org.pgledger.domain.value.ProjectId;
 import org.pgledger.domain.value.TaskId;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -62,17 +64,17 @@ public class Rows {
     /** The project of a defect as the one target of a write; a defect that is not there is the failure, as a value. */
     public Resolution defectTarget(DefectId id, Scope scope) {
         return defects.findById(id).map(row -> Resolution.of(new Target(row.projectId(), scope)))
-                .orElseGet(() -> Resolution.unresolved(notFound("defect", id.value())));
+                .orElseGet(() -> Resolution.unresolved(notFound(HistoryEntity.DEFECT.token(),id.value())));
     }
 
     public Resolution taskTarget(TaskId id, Scope scope) {
         return tasks.findById(id).map(row -> Resolution.of(new Target(row.projectId(), scope)))
-                .orElseGet(() -> Resolution.unresolved(notFound("task", id.value())));
+                .orElseGet(() -> Resolution.unresolved(notFound(HistoryEntity.TASK.token(),id.value())));
     }
 
     public Resolution conditionTarget(ConditionId id, Scope scope) {
         return conditions.findById(id).map(row -> Resolution.of(new Target(row.projectId(), scope)))
-                .orElseGet(() -> Resolution.unresolved(notFound("condition", id.value())));
+                .orElseGet(() -> Resolution.unresolved(notFound(HistoryEntity.CONDITION.token(),id.value())));
     }
 
     public Project project(ProjectId id) {
@@ -80,43 +82,84 @@ public class Rows {
     }
 
     public Defect defect(DefectId id) {
-        return defects.findById(id).orElseThrow(() -> notFound("defect", id.value()));
+        return defects.findById(id).orElseThrow(() -> notFound(HistoryEntity.DEFECT.token(),id.value()));
     }
 
     public Task task(TaskId id) {
-        return tasks.findById(id).orElseThrow(() -> notFound("task", id.value()));
+        return tasks.findById(id).orElseThrow(() -> notFound(HistoryEntity.TASK.token(),id.value()));
     }
 
     public Condition condition(ConditionId id) {
-        return conditions.findById(id).orElseThrow(() -> notFound("condition", id.value()));
+        return conditions.findById(id).orElseThrow(() -> notFound(HistoryEntity.CONDITION.token(),id.value()));
     }
 
     /** Locks the defect; with a non-null expected version a different current version is a VERSION_CONFLICT. */
     public Defect lockedDefect(DefectId id, Long expectedVersion) {
         if (!locks.lock(id)) {
-            throw notFound("defect", id.value());
+            throw notFound(HistoryEntity.DEFECT.token(),id.value());
         }
-        Defect row = defects.findById(id).orElseThrow(() -> notFound("defect", id.value()));
-        requireVersion("defect", id.value(), expectedVersion, row.version());
+        Defect row = defects.findById(id).orElseThrow(() -> notFound(HistoryEntity.DEFECT.token(),id.value()));
+        requireVersion(HistoryEntity.DEFECT.token(),id.value(), expectedVersion, row.version());
         return row;
     }
 
     public Task lockedTask(TaskId id, Long expectedVersion) {
         if (!locks.lock(id)) {
-            throw notFound("task", id.value());
+            throw notFound(HistoryEntity.TASK.token(),id.value());
         }
-        Task row = tasks.findById(id).orElseThrow(() -> notFound("task", id.value()));
-        requireVersion("task", id.value(), expectedVersion, row.version());
+        Task row = tasks.findById(id).orElseThrow(() -> notFound(HistoryEntity.TASK.token(),id.value()));
+        requireVersion(HistoryEntity.TASK.token(),id.value(), expectedVersion, row.version());
         return row;
     }
 
     public Condition lockedCondition(ConditionId id, Long expectedVersion) {
         if (!locks.lock(id)) {
-            throw notFound("condition", id.value());
+            throw notFound(HistoryEntity.CONDITION.token(),id.value());
         }
-        Condition row = conditions.findById(id).orElseThrow(() -> notFound("condition", id.value()));
-        requireVersion("condition", id.value(), expectedVersion, row.version());
+        Condition row = conditions.findById(id).orElseThrow(() -> notFound(HistoryEntity.CONDITION.token(),id.value()));
+        requireVersion(HistoryEntity.CONDITION.token(),id.value(), expectedVersion, row.version());
         return row;
+    }
+
+    /**
+     * Stores a changed defect. The update is conditional on the version the row carries, which is the version it was
+     * read at; a lost race is a VERSION_CONFLICT that names that version and the one in the database now.
+     */
+    public Defect saveDefect(Defect after) {
+        try {
+            return defects.save(after);
+        } catch (OptimisticLockingFailureException e) {
+            throw versionConflict(HistoryEntity.DEFECT.token(),after.id().value(), after.version(),
+                    defects.findById(after.id()).map(Defect::version), e);
+        }
+    }
+
+    /** As {@link #saveDefect} for a task. */
+    public Task saveTask(Task after) {
+        try {
+            return tasks.save(after);
+        } catch (OptimisticLockingFailureException e) {
+            throw versionConflict(HistoryEntity.TASK.token(),after.id().value(), after.version(),
+                    tasks.findById(after.id()).map(Task::version), e);
+        }
+    }
+
+    /** As {@link #saveDefect} for a condition. */
+    public Condition saveCondition(Condition after) {
+        try {
+            return conditions.save(after);
+        } catch (OptimisticLockingFailureException e) {
+            throw versionConflict(HistoryEntity.CONDITION.token(),after.id().value(), after.version(),
+                    conditions.findById(after.id()).map(Condition::version), e);
+        }
+    }
+
+    /** The one place that makes the VERSION_CONFLICT of a save: the arguments are the real versions, in order. */
+    private static ConflictException versionConflict(String entity, String id, long expected,
+            Optional<Long> current, Throwable cause) {
+        long now = current.orElseThrow(() -> notFound(entity, id));
+        return new ConflictException(ConflictCode.VERSION_CONFLICT,
+                List.of(entity, id, Long.toString(expected), Long.toString(now)), cause);
     }
 
     public static LookupException notFound(String what, String id) {

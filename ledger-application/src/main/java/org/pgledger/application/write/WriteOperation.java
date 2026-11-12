@@ -1,6 +1,5 @@
 package org.pgledger.application.write;
 
-import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import org.pgledger.application.gate.GateSession;
@@ -62,22 +61,25 @@ public abstract class WriteOperation<C extends WriteCommand, R extends WriteResu
         GateSession session = gate.open(actor, boundRequestId, channel, resolve(command));
         return session.bind(() -> {
             Reason reason = Reason.of(command.reason());
-            RequestId requestId = requestId(command.requestId());
+            RequestId requestId = requestIdOrFresh(command.requestId());
             Prepared<R> prepared = prepare(command);
             Sha256 digest = CanonicalPayload.digest(operation.name(),
                     prepared.payload().text("reason", reason.text()));
-            Optional<R> replay = receipts.reserve(requestId, operation, digest, session.author(),
-                    session.channel(), resultType);
-            if (replay.isPresent()) {
-                return replay.get();
-            }
-            R result = prepared.execute().apply(new WriteContext(session, reason, requestId));
-            receipts.finish(requestId, result);
-            return result;
+            // a replay returns the stored response; the first call writes and stores its response in the receipt
+            return receipts.reserve(requestId, operation, digest, session.author(), session.channel(), resultType)
+                    .orElseGet(() -> {
+                        R result = prepared.execute().apply(new WriteContext(session, reason, requestId));
+                        receipts.finish(requestId, result);
+                        return result;
+                    });
         });
     }
 
-    private static RequestId requestId(String text) {
+    /**
+     * The request id of a request: the one the caller sent, or a fresh one when it sent none (a blind retry is then a
+     * new write). The one place in this module that issues an id.
+     */
+    static RequestId requestIdOrFresh(String text) {
         return text == null || text.isBlank() ? new RequestId(UUID.randomUUID()) : RequestId.parse(text);
     }
 }

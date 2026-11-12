@@ -10,15 +10,11 @@ import org.pgledger.application.gate.WriteGate;
 import org.pgledger.application.history.ChangeSet;
 import org.pgledger.application.history.HistoryWriter;
 import org.pgledger.application.history.Snapshot;
+import org.pgledger.application.history.TaskHistory;
 import org.pgledger.application.receipt.ReceiptService;
 import org.pgledger.application.write.WriteResult.TransitionResult;
-import org.pgledger.database.repository.ConditionRepository;
 import org.pgledger.database.repository.DefectFixRepository;
-import org.pgledger.database.repository.DefectRepository;
 import org.pgledger.database.repository.HistoryRepository;
-import org.pgledger.database.repository.TaskRepository;
-import org.pgledger.domain.error.ConflictCode;
-import org.pgledger.domain.error.ConflictException;
 import org.pgledger.domain.error.TrustCode;
 import org.pgledger.domain.error.TrustException;
 import org.pgledger.domain.error.ValidationException;
@@ -27,7 +23,6 @@ import org.pgledger.domain.model.Condition;
 import org.pgledger.domain.model.Defect;
 import org.pgledger.domain.model.ReceiptOperation;
 import org.pgledger.domain.model.Task;
-import org.pgledger.domain.rule.Channel;
 import org.pgledger.domain.rule.ConditionState;
 import org.pgledger.domain.rule.DefectStatus;
 import org.pgledger.domain.rule.FixHistory;
@@ -38,7 +33,6 @@ import org.pgledger.domain.rule.MergeTarget;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.rule.TaskReports;
 import org.pgledger.domain.rule.TaskState;
-import org.pgledger.domain.rule.TaskTransition;
 import org.pgledger.domain.value.CanonicalPayload;
 import org.pgledger.domain.value.ConditionId;
 import org.pgledger.domain.value.DefectId;
@@ -47,7 +41,6 @@ import org.pgledger.domain.value.Evidence;
 import org.pgledger.domain.value.ProjectId;
 import org.pgledger.domain.value.TaskId;
 import org.pgledger.domain.value.Tokens;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -63,25 +56,18 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
     private final WriteGate gate;
     private final Rows rows;
     private final CodeRules codeRules;
-    private final DefectRepository defects;
     private final DefectFixRepository fixes;
-    private final TaskRepository tasks;
-    private final ConditionRepository conditions;
     private final HistoryRepository historyRows;
     private final HistoryWriter history;
     private final Clock clock;
 
     public TransitionOperation(WriteGate gate, ReceiptService receipts, Rows rows, CodeRules codeRules,
-            DefectRepository defects, DefectFixRepository fixes, TaskRepository tasks,
-            ConditionRepository conditions, HistoryRepository historyRows, HistoryWriter history, Clock clock) {
+            DefectFixRepository fixes, HistoryRepository historyRows, HistoryWriter history, Clock clock) {
         super(gate, receipts, ReceiptOperation.TRANSITION, TransitionResult.class);
         this.gate = gate;
         this.rows = rows;
         this.codeRules = codeRules;
-        this.defects = defects;
         this.fixes = fixes;
-        this.tasks = tasks;
-        this.conditions = conditions;
         this.historyRows = historyRows;
         this.history = history;
         this.clock = clock;
@@ -144,10 +130,10 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
     }
 
     /** The scope may differ from the one found before the row was locked; the grant and channel follow the row. */
-    private void recheck(WriteContext ctx, HistoryEntity entity, org.pgledger.domain.value.ProjectId project,
-            org.pgledger.domain.rule.LifecycleState from, org.pgledger.domain.rule.LifecycleState to) {
+    private void recheck(WriteContext ctx, HistoryEntity entity, ProjectId project, LifecycleState from,
+            LifecycleState to) {
         Scope scope = Scope.forTransition(entity, from, to);
-        if (scope == Scope.VERIFY && ctx.session().channel() != Channel.REVIEWER) {
+        if (scope == Scope.VERIFY && !ctx.session().channel().mayVerify()) {
             throw new TrustException(TrustCode.VERIFY_NEEDS_REVIEWER_LOGIN, List.of());
         }
         gate.authorize(ctx.author(), new Target(project, scope));
@@ -168,7 +154,7 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
         row.status().requireTransitionTo(to, evidence, fixHistory, ctx.author().sessionKey(), id, target);
         Defect after = row.transitioned(to, to == DefectStatus.MERGED ? mergedInto : null, now);
         codeRules.checkDefect(row, after.category(), after.severity());
-        Defect saved = guarded(() -> defects.save(after), "defect", id.value());
+        Defect saved = rows.saveDefect(after);
         ChangeSet changes = to == DefectStatus.MERGED
                 ? ChangeSet.empty().with("merged_into", null, mergedInto.value()) : ChangeSet.empty();
         long historyId = history.append(ctx, HistoryWriter.Entry.of(HistoryEntity.DEFECT, id.value(),
@@ -182,18 +168,15 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
         Instant now = clock.instant();
         Task row = rows.lockedTask(id, expected);
         recheck(ctx, HistoryEntity.TASK, row.projectId(), row.state(), to);
-        List<TaskTransition> transitions = historyRows.findByEntityAndEntityIdOrderById(HistoryEntity.TASK,
-                id.value()).stream().filter(h -> h.op() == HistoryOp.TRANSITION)
-                .map(h -> new TaskTransition(TaskState.valueOf(h.fromState()), TaskState.valueOf(h.toState()),
-                        h.authorId())).toList();
-        TaskReports reports = new TaskReports(transitions);
+        TaskReports reports = new TaskHistory(historyRows.findByEntityAndEntityIdOrderById(HistoryEntity.TASK,
+                id.value())).reports();
         if (row.ownerActorId() == null) {
             row.state().requireTransitionTo(to, evidence, ctx.author().sessionKey(), reports);
         } else {
             row.state().requireTransitionTo(to, evidence, ctx.author().sessionKey(), row.ownerActorId().sessionKey(),
                     reports);
         }
-        Task saved = guarded(() -> tasks.save(row.transitioned(to, now)), "task", id.value());
+        Task saved = rows.saveTask(row.transitioned(to, now));
         long historyId = history.append(ctx, HistoryWriter.Entry.of(HistoryEntity.TASK, id.value(),
                 HistoryOp.TRANSITION, ChangeSet.empty()).withStates(row.state().name(), to.name())
                 .withEvidence(evidence).withBefore(Snapshot.TaskRow.of(row)));
@@ -206,7 +189,7 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
         Condition row = rows.lockedCondition(id, expected);
         recheck(ctx, HistoryEntity.CONDITION, row.projectId(), row.state(), to);
         row.state().requireTransitionTo(to, evidence);
-        Condition saved = guarded(() -> conditions.save(row.transitioned(to)), "condition", id.value());
+        Condition saved = rows.saveCondition(row.transitioned(to));
         long historyId = history.append(ctx, HistoryWriter.Entry.of(HistoryEntity.CONDITION, id.value(),
                 HistoryOp.TRANSITION, ChangeSet.empty()).withStates(row.state().name(), to.name())
                 .withEvidence(evidence).withBefore(Snapshot.ConditionRow.of(row)));
@@ -218,13 +201,5 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
             String to, long version, long historyId) {
         return new TransitionResult(WriteStatus.COMMITTED, entity.token(), id, from, to, version, historyId,
                 ctx.author().value(), ctx.login());
-    }
-
-    private static <T> T guarded(java.util.function.Supplier<T> save, String entity, String id) {
-        try {
-            return save.get();
-        } catch (OptimisticLockingFailureException e) {
-            throw new ConflictException(ConflictCode.VERSION_CONFLICT, List.of(entity, id, "?", "?"), e);
-        }
     }
 }
