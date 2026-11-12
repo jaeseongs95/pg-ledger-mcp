@@ -24,6 +24,7 @@ public class CliErrorTranslator {
         return switch (exception) {
             case UsageException usage -> new Report(ExitStatus.USAGE, description, usageText());
             case FailureException failure -> new Report(ExitStatus.FAILURE, description, null);
+            case OperatorStepException step -> new Report(ExitStatus.OPERATOR_STEP, description, null);
         };
     }
 

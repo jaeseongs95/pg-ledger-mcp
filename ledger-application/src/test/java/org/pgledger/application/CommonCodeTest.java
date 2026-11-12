@@ -210,4 +210,39 @@ class CommonCodeTest {
         Expect.failure(() -> s.bean(CommonCodeService.class).set(code("RELATION_KIND", code), TestOwners.OWNER),
                 ValidationCode.VALIDATION_FAILED);
     }
+
+    private static long auditRows(Scenario s, String subject) {
+        return s.ctx().jdbc().sql("SELECT COUNT(*) FROM owner_audit WHERE subject = :subject").param("subject", subject)
+                .query(Long.class).single();
+    }
+
+    @Test
+    @DisplayName("SET-023: addIfAbsent adds a new code with the revision bump and one audit row, and leaves a code that exists exactly as it is")
+    void set023_addIfAbsentNeverOverwrites(Scenario s) {
+        CommonCodeService service = s.bean(CommonCodeService.class);
+        String name = "SEED_" + s.code();
+        String subject = "DEFECT_CATEGORY/" + name;
+        long before = revision(s);
+        CodeCommand seed = new CodeCommand("DEFECT_CATEGORY", name, "시드", "Seed", "설명", "Description", 10, "ACTIVE");
+
+        var added = service.addIfAbsent(seed, TestOwners.OWNER);
+
+        assertThat(added).isPresent();
+        assertThat(added.orElseThrow().revision()).isEqualTo(before + 1);
+        assertThat(auditRows(s, subject)).isEqualTo(1);
+        // the owner changes and retires the code; the seed command is repeated
+        service.set(new CodeCommand("DEFECT_CATEGORY", name, "내 이름", "My name", "내 설명", "My description", 77, "INACTIVE"),
+                TestOwners.OWNER);
+        long afterOwner = revision(s);
+        long auditAfterOwner = auditRows(s, subject);
+
+        assertThat(service.addIfAbsent(seed, TestOwners.OWNER)).isEmpty();
+
+        CommonCode kept = s.bean(CommonCodeRepository.class).find(CodeGroup.DEFECT_CATEGORY, CodeValue.of(name)).orElseThrow();
+        assertThat(kept.nameKo()).isEqualTo("내 이름");
+        assertThat(kept.sortOrder()).isEqualTo(77);
+        assertThat(kept.state()).isEqualTo(CodeState.INACTIVE);
+        assertThat(revision(s)).isEqualTo(afterOwner);
+        assertThat(auditRows(s, subject)).isEqualTo(auditAfterOwner);
+    }
 }

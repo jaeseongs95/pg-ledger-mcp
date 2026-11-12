@@ -74,6 +74,30 @@ public class CommonCodeService {
         return new CodeResult(wanted, revision.current());
     }
 
+    /**
+     * Adds the code when it does not exist, with the revision bump and the audit row of {@link #set}; a code that exists is left
+     * exactly as it is (nothing is written, not even by a command that would not change it). The first setup of an installation
+     * adds the codes of the seed through this, so it can never overwrite a code that the owner changed or retired.
+     *
+     * @return the new code and the revision, or empty when the code exists
+     */
+    public Optional<CodeResult> addIfAbsent(CodeCommand command, OwnerIdentity actor) {
+        CodeGroup group = Tokens.parse("group", command.group(), CodeGroup.values());
+        CodeValue code = CodeValue.of(command.code());
+        if (codes.find(group, code).isPresent()) {
+            return Optional.empty();
+        }
+        CodeState state = command.state() == null || command.state().isBlank() ? CodeState.ACTIVE
+                : Tokens.parse("state", command.state(), CodeState.values());
+        int sort = command.sortOrder() != null ? command.sortOrder() : DEFAULT_SORT_ORDER;
+        CommonCode created = new CommonCode(group, code, command.nameKo(), command.nameEn(), command.descriptionKo(),
+                command.descriptionEn(), sort, state, AuthorId.OWNER);
+        codes.insert(created);
+        revision.bump();
+        audit.record(actor, OwnerAction.CODE_SET, group.name() + "/" + code.value(), "added state=" + state.name());
+        return Optional.of(new CodeResult(created, revision.current()));
+    }
+
     @Transactional(readOnly = true)
     public List<CommonCode> list(CodeGroup group) {
         return codes.catalog(group).entries();

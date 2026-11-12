@@ -23,7 +23,8 @@ import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.deploy.DeployLayout;
 import org.pgledger.cli.deploy.DeployLayout.Platform;
 import org.pgledger.cli.deploy.DeployOptions;
-import org.pgledger.cli.deploy.DeployParameters;
+import org.pgledger.cli.seed.InstallDefaults;
+import org.pgledger.cli.seed.PackagedSeed;
 import org.springframework.core.io.ClassPathResource;
 
 /**
@@ -193,7 +194,7 @@ class InstallScriptsTest {
         DeployLayout layout = DeployLayout.linux("x");
 
         // the script only composes the names and the paths from the name of the instance; the Java renderer decides which names are good
-        assertThat(script).contains("\nNAME=" + DeployLayout.DEFAULT_NAME + "\n", "\nSVC=$NAME\n", "\nADMIN=$NAME-admin\n",
+        assertThat(script).contains("\nNAME=\n", "\nSVC=$NAME\n", "\nADMIN=$NAME-admin\n",
                 "\nLIB=/opt/$NAME\n", "\nETC=/etc/$NAME\n");
         assertThat(layout.serviceUser()).isEqualTo("x");
         assertThat(layout.adminName()).isEqualTo("x-admin");
@@ -304,7 +305,7 @@ class InstallScriptsTest {
 
         assertThat(layout.mcpName()).isEqualTo("x");
         assertThat(layout.adminName()).isEqualTo("x-admin");
-        assertThat(script).contains("set \"NAME=" + DeployLayout.DEFAULT_NAME + "\"", "set \"SVC=%NAME%\"",
+        assertThat(script).contains("set \"NAME=%~8\"", "set \"SVC=%NAME%\"",
                 "set \"ADMIN=%NAME%-admin\"", "set \"ACCOUNT=" + DeployLayout.WINDOWS_SERVICE_ACCOUNT + "\"",
                 "set \"WHOME=" + home.replace("/x", "/%NAME%").replace('/', '\\') + "\"",
                 "set \"HOME=" + home.replace("/x", "/%NAME%") + "\"",
@@ -342,13 +343,15 @@ class InstallScriptsTest {
     }
 
     @Test
-    @DisplayName("CLI-PRN-04 (plan 2, F9) install.cmd names the port of --mcp-port in its last hint: the variable starts with the default of render-deploy, takes the value after --mcp-port from the render options, and the hint holds no fixed port")
+    @DisplayName("CLI-PRN-04 (plan 2, F9; changed by SETUP, SET-052) install.cmd names the port of --mcp-port in its last hint: the variable starts with the install default of the seed bundle (asked from Java), takes the value after --mcp-port from the render options, and the hint holds no fixed port")
     void prn04_theHintFollowsTheMcpPort() {
         List<String> code = cmdCodeLines();
         String option = "--" + DeployOptions.MCP_PORT;
+        String defaultPort = String.valueOf(new InstallDefaults(new PackagedSeed()).mcpPort());
 
-        assertThat(text(CMD)).as("no fixed port in the script").doesNotContain("127.0.0.1:" + DeployParameters.DEFAULT_MCP_PORT);
-        assertThat(code).contains("set \"MCPPORT=" + DeployParameters.DEFAULT_MCP_PORT + "\"");
+        assertThat(text(CMD)).as("no fixed port in the script").doesNotContain("127.0.0.1:" + defaultPort);
+        assertThat(code).as("the variable starts with the install default, which Java tells").anySatisfy(line -> assertThat(line)
+                .contains("install-default mcp-port").contains("set \"MCPPORT=%%P\""));
         assertThat(code).as("the value after %s of the render options (the ninth argument) is taken", option).anySatisfy(line -> {
             assertThat(line).startsWith("for %%P in (%~9) do ");
             assertThat(line).contains("\"%%~P\"==\"" + option + "\"").contains("set \"MCPPORT=%%~P\"");
@@ -371,7 +374,8 @@ class InstallScriptsTest {
         assertThat(check).as("the check is there").isNotNegative();
         assertThat(check).as("the check comes before the first operating system step").isLessThan(firstStep);
         assertThat(check).isLessThan(firstIndex(code, "prepare-host"));
-        assertThat(code.stream().filter(line -> line.contains("pg-ledger")).toList()).containsExactly("NAME=pg-ledger-mcp");
+        // changed by SETUP (SET-052): the default name is an install default that Java tells, no literal of the script
+        assertThat(code.stream().filter(line -> line.contains("pg-ledger")).toList()).isEmpty();
     }
 
     @Test
@@ -380,7 +384,8 @@ class InstallScriptsTest {
         List<String> code = cmdCodeLines();
         int check = firstIndex(code, "render-deploy --check");
 
-        assertThat(code).contains("set \"NAME=%~8\"", "if \"%NAME%\"==\"\" set \"NAME=pg-ledger-mcp\"");
+        assertThat(code).contains("set \"NAME=%~8\"");
+        assertThat(code).anySatisfy(line -> assertThat(line).startsWith("if \"%NAME%\"==\"\" for /f ").contains("install-default instance-name"));
         // the name goes on once, quoted, in the options that the check, prepare-host and seal-host share
         assertThat(code.stream().filter(line -> line.contains("\"--name=%NAME%\"")).count()).isEqualTo(1);
         assertThat(code.stream().filter(line -> line.contains("render-deploy --check %RENDER%") || line.contains("prepare-host")
@@ -388,8 +393,7 @@ class InstallScriptsTest {
         assertThat(check).as("the check is there").isNotNegative();
         assertThat(check).as("the check comes before the first operating system step").isLessThan(firstIndex(code, "stop /stopwait"));
         assertThat(check).isLessThan(firstIndex(code, "prepare-host"));
-        assertThat(code.stream().filter(line -> line.contains("pg-ledger")).toList())
-                .containsExactly("if \"%NAME%\"==\"\" set \"NAME=pg-ledger-mcp\"");
+        assertThat(code.stream().filter(line -> line.contains("pg-ledger")).toList()).isEmpty();
         assertThat(code.stream().filter(line -> line.contains("--check")).count()).isEqualTo(1);
     }
 
@@ -468,7 +472,7 @@ class InstallScriptsTest {
     void ins046_theOrderOfTheWindowsInstaller() {
         List<String> code = cmdCodeLines();
         List<Integer> order = Stream.of("render-deploy --check", "stop /stopwait", "prepare-host", "secret-set", "driver-register",
-                " migrate ", "sc.exe config", "seal-host", "\" start ").map(fragment -> firstIndex(code, fragment)).toList();
+                " setup ", "sc.exe config", "seal-host", "\" start ").map(fragment -> firstIndex(code, fragment)).toList();
 
         assertThat(order).doesNotContain(-1).isSorted();
         assertThat(String.join("\n", code).toLowerCase(Locale.ROOT)).doesNotContain("icacls", "mkdir", "copy ", "java -version");
@@ -482,6 +486,47 @@ class InstallScriptsTest {
             }
         }
         return -1;
+    }
+
+    // ---- the first setup and the install defaults (SETUP) ----
+
+    @Test
+    @DisplayName("SET-050 install.sh calls setup (with the DDL account, the application account and the passwords on standard input as migrate had them) after driver-register and prepare-host and before the services are enabled; no migrate call is left")
+    void set050_theShellScriptCallsSetup() {
+        List<String> code = shCodeLines();
+        int setup = firstIndex(code, "as_svc setup ");
+
+        assertThat(code).contains("as_svc setup --owner-account=\"$OWNER\" --app-account=\"$APP_ACCOUNT\" $STDIN");
+        assertThat(code.stream().filter(line -> line.contains("migrate"))).isEmpty();
+        assertThat(firstIndex(code, "as_svc driver-register")).isLessThan(setup);
+        assertThat(firstIndex(code, "prepare-host")).isLessThan(setup);
+        assertThat(setup).isLessThan(firstIndex(code, "systemctl enable"));
+    }
+
+    @Test
+    @DisplayName("SET-051 install.cmd calls setup with the DDL account and the application account after driver-register and before the services are registered; no migrate call is left")
+    void set051_theCmdScriptCallsSetup() {
+        List<String> code = cmdCodeLines();
+        int setup = firstIndex(code, "%CLI% setup ");
+
+        assertThat(code).contains("%CLI% setup \"--owner-account=%~5\" \"--app-account=%~6\" || exit /b 1");
+        assertThat(code.stream().filter(line -> line.contains("migrate"))).isEmpty();
+        assertThat(firstIndex(code, "driver-register")).isLessThan(setup);
+        assertThat(setup).isLessThan(firstIndex(code, "sc.exe config"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { SH, CMD })
+    @DisplayName("SET-052 neither script holds the default name or a default port: they ask Java (install-default instance-name, and mcp-port in install.cmd), which reads the seed bundle, the one place the defaults are written")
+    void set052_theDefaultsComeFromJava(String script) {
+        InstallDefaults defaults = new InstallDefaults(new PackagedSeed());
+        List<String> code = SH.equals(script) ? shCodeLines() : cmdCodeLines();
+
+        for (String literal : List.of(defaults.instanceName(), String.valueOf(defaults.mcpPort()),
+                String.valueOf(defaults.adminPort()))) {
+            assertThat(code).as("a literal of the defaults: %s", literal).noneSatisfy(line -> assertThat(line).contains(literal));
+        }
+        assertThat(String.join("\n", code)).contains("install-default instance-name");
     }
 
     // ---- helpers ----

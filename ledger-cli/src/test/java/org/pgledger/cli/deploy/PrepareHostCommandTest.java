@@ -82,7 +82,8 @@ class PrepareHostCommandTest {
     private RecordingHostAccounts testUser() throws IOException {
         UserPrincipal user = Files.getOwner(tmp);
         GroupPrincipal group = Files.readAttributes(tmp, PosixFileAttributes.class).group();
-        return new RecordingHostAccounts(Map.of(DeployLayout.DEFAULT_NAME, user), Map.of(DeployLayout.DEFAULT_NAME, group));
+        String name = DeployTestBeans.defaults().instanceName();
+        return new RecordingHostAccounts(Map.of(name, user), Map.of(name, group));
     }
 
     private static String mode(Path path) throws IOException {

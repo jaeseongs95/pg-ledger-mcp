@@ -103,6 +103,12 @@ class OwnerAccountPropertySourceTest {
         assertThat(with.getPropertySources().iterator().next()).isInstanceOf(OwnerAccountPropertySource.class);
         assertThat(with.getProperty("ledger.jdbc.username")).isEqualTo("ledger_ddl");
 
+        StandardEnvironment setup = new StandardEnvironment();
+        setup.getPropertySources().addFirst(new SimpleCommandLinePropertySource("--owner-account=ledger_ddl", "setup"));
+        processor.postProcessEnvironment(setup, null);
+        assertThat(setup.getPropertySources().iterator().next()).as("SET-017 setup asks for the password too")
+                .isInstanceOf(OwnerAccountPropertySource.class);
+
         StandardEnvironment otherCommand = new StandardEnvironment();
         otherCommand.getPropertySources().addFirst(new SimpleCommandLinePropertySource("--owner-account=ledger_ddl", "secret-set"));
         processor.postProcessEnvironment(otherCommand, null);
@@ -130,7 +136,8 @@ class OwnerAccountPropertySourceTest {
     void sec025_theInputOfThePassword() {
         OwnerAccountEnvironmentPostProcessor processor = new OwnerAccountEnvironmentPostProcessor();
 
-        for (String command : new String[] { "migrate", "import-legacy" }) {
+        // SET-017: setup migrates, so it takes the password of the owner account as migrate does
+        for (String command : new String[] { "migrate", "setup", "import-legacy" }) {
             StandardEnvironment piped = new StandardEnvironment();
             piped.getPropertySources().addFirst(new SimpleCommandLinePropertySource("--owner-account=ledger_ddl", "--stdin", command));
             processor.postProcessEnvironment(piped, null);

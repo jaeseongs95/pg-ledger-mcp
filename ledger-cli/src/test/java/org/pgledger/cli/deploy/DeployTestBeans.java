@@ -3,6 +3,8 @@ package org.pgledger.cli.deploy;
 import jakarta.validation.Validation;
 import java.util.List;
 import java.util.Map;
+import org.pgledger.cli.seed.InstallDefaults;
+import org.pgledger.cli.seed.PackagedSeed;
 
 /**
  * The installer components made by hand for a test that needs no context: the platforms, the renderer and the reader of the
@@ -22,8 +24,13 @@ final class DeployTestBeans {
                 new WindowsPlatform(accounts, fileSystem -> () -> "tester", new WindowsAccess(), host, files)));
     }
 
+    /** The install defaults of the seed bundle that the build made (the class path of the tests has it). */
+    static InstallDefaults defaults() {
+        return new InstallDefaults(new PackagedSeed());
+    }
+
     static DeployInputReader reader() {
-        return new DeployInputReader(Validation.buildDefaultValidatorFactory().getValidator(), platforms());
+        return new DeployInputReader(Validation.buildDefaultValidatorFactory().getValidator(), platforms(), defaults());
     }
 
     static DeployRenderer renderer() {

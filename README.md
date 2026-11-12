@@ -128,6 +128,7 @@ The build is a Gradle multi-module project.
 | `ledger-mcp-server` | the Spring Boot MCP server (`ledger-mcp-server.jar`) |
 | `ledger-admin-web` | the Spring Boot admin web for the owner (`ledger-admin-web.jar`) |
 | `ledger-cli` | the owner command line tool (`ledger-cli.jar`) |
+| `ledger-seed` | the seed bundle of a new installation, the default defect categories and the install defaults in one H2 file, and its reader; only `ledger-cli` uses it |
 | `ledger-client-hook` | the one hook jar of all clients (`ledger-client-hook.jar`) |
 | `ledger-system-test` | test code only: the system test of the packaged product, which starts the built jars against the local PostgreSQL |
 
@@ -203,8 +204,9 @@ What every target has in common:
 - **Two database accounts**, created beforehand with the tools of your DBMS (creating an account is not ANSI SQL and is not part of the
   product). The application account is used by both servers and by the owner commands of `ledger-cli`; `migrate` gives it the least
   privilege of `ledger-database/src/main/resources/db-templates/dml-grants.sql` (no DDL, no `UPDATE` or `DELETE` on the history). The
-  DDL account is used only by `migrate` and `import-legacy`; its password is typed with hidden input and is never stored. The
-  session time zone of the database must be UTC, and the application account must be able to see the schema (a step of the DBMS).
+  DDL account is used only by `migrate`, `setup` and `import-legacy`; its password is typed with hidden input and is never stored. The
+  session time zone of the database must be UTC, and the application account must be allowed to use the schema, a step of your DBMS
+  that is not part of the product SQL: `setup` checks it and says so when it is missing (see First setup).
 - **Jars and the driver.** Build the jars with `./gradlew build` and collect the three jars of the host in one directory. The
   JDBC driver of your database is obtained by you, and you name its class; it is not bundled.
 
@@ -219,8 +221,8 @@ cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-
   definitions and the settings (`application.yaml` and one file per service in one directory; your own settings belong in
   `local.yaml` there, which is read last and never replaced). The installer then has the secrets stored by `ledger-cli`: the
   database password of the application account (hidden input), `ledger.admin.token` and `ledger.mcp.token` (generated, shown once,
-  at the end of their step) and the copy `ledger.admin.agent-token`; it registers the driver, runs `migrate` with the DDL account and
-  starts the two services. What stays in the scripts, because Java cannot do it, is creating the operating system user (`useradd`),
+  at the end of their step) and the copy `ledger.admin.agent-token`; it registers the driver, runs `setup` with the DDL account (the
+  schema, the grants and the seed codes, see First setup) and starts the two services. What stays in the scripts, because Java cannot do it, is creating the operating system user (`useradd`),
   starting a command as that user (`runuser`), the service managers (`systemctl`, WinSW and `sc.exe`) and `nginx -t` with the reload.
   The Java 25 check is the JVM's own: the jars are compiled for Java 25, and no other runtime loads them. Nothing is downloaded or
   installed. Running it again with newer jars is the upgrade: files and services are replaced, the schema and the grants are applied
@@ -316,6 +318,34 @@ the admin web, which sign in with `ledger.admin.token`. On a personal PC open th
 `--admin-port=<n>`): the admin web sets a `Secure` session cookie, which the major browsers accept from `localhost` because they treat it
 as a secure context.
 
+### First setup
+
+The installers call `setup`, and you run it yourself after an upgrade or against a database that you prepared by hand. A new ledger
+has to start with some data, so `ledger-cli` carries a seed bundle: the file `ledger-seed.mv.db`, which the build writes with a Java
+program from the text files `src/seed/defect-categories.tsv` and `src/seed/install-defaults.properties` of the module `ledger-cli`
+and packs into `ledger-cli.jar`. It is never committed. The bundle holds the 14 default defect categories (code, Korean and English
+name and description) and the defaults of an installation (the instance name and the two ports); it holds no secret. The file has the
+format of the H2 database, and that is all H2 is here: the ledger is always kept by the database system that you install, and the
+registration of an H2 driver, or of a JDBC URL of H2, is refused by `driver-register` and by the driver page of the admin web.
+
+`setup [--owner-account=<account>] [--app-account=<account>] [--stdin]` takes the options of `migrate` and does four things in this
+order:
+
+1. It migrates the schema exactly as `migrate` does, and applies the grants of the application account.
+2. It checks, over a connection of the application account, that this account can use the schema. The privilege to use a schema is a
+   statement of your database system and is not part of the product SQL, so when it is missing `setup` stops with exit code `3`, names
+   the account and says that an operator has to give it that privilege with the tools of the database system. Nothing else has been
+   changed at that point; run `setup` again after that step and it continues where it stopped.
+3. It adds the codes of the seed that the ledger does not have yet, through the service of `code-set` and of the admin web, so that
+   the code revision and the owner's audit trail are kept. A code that exists is never changed: a code that you renamed or retired
+   stays as you left it.
+4. It compares the seed with the database by the number of codes and by a SHA-256 digest, and prints the report. Running `setup`
+   again changes nothing and prints the same report; a code of yours that differs from the seed is counted as changed and is kept.
+
+The defaults of an installation are written in one place, the seed bundle. `render-deploy`, `prepare-host` and `seal-host` take the name
+and the ports from it when an option is not given, and the installers ask for them with `install-default <name>` (`instance-name`,
+`mcp-port` or `admin-port`), so no script holds a second copy.
+
 ### After the installation
 
 1. Check the MCP server with `ledger-cli mcp-check`; without a registered driver the MCP server stops and says why, and the admin web
@@ -340,6 +370,7 @@ service user), and every owner operation is recorded with that user.
 | `token-generate` | `token-generate <name> [--print] [--copy-to=<name>]` | store a random token (32 bytes from `SecureRandom`) as a secret; an existing secret is kept; `--print` shows a token that was just created, once; `--copy-to` stores the same token under a second name, once |
 | `secret-import-1x` | `secret-import-1x [--env=<file>] [--stdin]` | move the two tokens of a 1.x installation (`DBHUB_AUTH_TOKEN` to `ledger.mcp.token` and `ledger.admin.agent-token`, `PGLEDGER_ADMIN_TOKEN` to `ledger.admin.token`) from its environment file, given as a file or on standard input, into the secret store; an existing secret is kept, no value is printed |
 | `migrate` | `migrate [--owner-account=<account>] [--app-account=<account>] [--stdin]` | apply the pending schema files, as the DDL account when `--owner-account` is given (its password is typed, or with `--stdin` read from standard input, and not stored), and then the grants of `dml-grants.sql` to the application account |
+| `setup` | `setup [--owner-account=<account>] [--app-account=<account>] [--stdin]` | the first setup: migrate as `migrate` does, check that the application account can use the schema (exit code `3` and the missing step when it cannot), add the seed codes that are missing (a code that exists is never changed) and compare the seed with the database by counts and digest; running it again changes nothing |
 | `import-legacy` | `import-legacy [--verify-only] [--owner-account=<account>] [--stdin]` | copy the 1.x ledger into the new schema and compare every table; it writes the whole ledger, so it runs as the DDL account |
 | `key-register` | `key-register <author> <public-key-or-block> <fingerprint> [--replace=<current-fingerprint>]` | bind the public key a session printed to its author; a live key is replaced only with `--replace` |
 | `key-revoke` | `key-revoke <author> --fingerprint=<fingerprint>` | close the live key of an author |
@@ -353,6 +384,7 @@ service user), and every owner operation is recorded with that user.
 | `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>] [--check]` | write the service definitions (systemd units, or WinSW configurations on Windows), the settings and the optional nginx site; the installers call it |
 | `prepare-host` | `prepare-host --jars=<dir> --driver-jar=<file> [--winsw=<file>] --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | prepare the files of the host (run as root, or elevated on Windows): the folders with owner and mode, or their ACLs, the copies of the jars and the driver (on Windows also of WinSW), and what `render-deploy` writes; the installers call it |
 | `seal-host` | `seal-host --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | Windows, last: give LocalService its access and hand the secrets over to it; the installer calls it |
+| `install-default` | `install-default <name>` | print one default of the installation from the seed bundle (`instance-name`, `mcp-port` or `admin-port`); the installers ask for their defaults with it |
 
 ## Admin web
 

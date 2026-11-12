@@ -24,6 +24,7 @@ import org.pgledger.cli.Command;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
+import org.pgledger.cli.seed.InstallDefaults;
 import org.pgledger.domain.rule.ToolContract;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +35,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * {@code mcp-check [--url=<url>]}: connects to a running ledger MCP server with the MCP Java SDK client (the SDK the server
  * runs on) over Streamable HTTP, lists its tools and checks that every tool of {@link ToolContract} is there; it prints
- * how many tools the server lists. The URL defaults to the local server ({@value #DEFAULT_URL}); it is
+ * how many tools the server lists. The URL defaults to the local server (loopback and the MCP port of the install defaults); it is
  * {@code scheme://host[:port][/path]} without user information, query or fragment, so that nothing secret can be part of
  * it. The bearer token is the setting {@code ledger.mcp.token} ({@link McpCheckProperties}: the secret store, or
  * {@code --ledger.mcp.token=<token>}). The command needs no database.
@@ -57,22 +58,26 @@ public class McpCheckCommand implements Command {
 
     static final String URL = "url";
 
-    /** The address the MCP server binds to by default (see its {@code server.address} and {@code server.port}). */
-    static final String DEFAULT_URL = "http://127.0.0.1:8765/mcp";
-
     private static final Logger LOG = LoggerFactory.getLogger(McpCheckCommand.class);
 
     private static final String DEFAULT_PATH = "/mcp";
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
 
     private final McpCheckProperties properties;
+    private final InstallDefaults defaults;
     private final CliOutput output;
     private final CliMessages messages;
 
-    McpCheckCommand(McpCheckProperties properties, CliOutput output, CliMessages messages) {
+    McpCheckCommand(McpCheckProperties properties, InstallDefaults defaults, CliOutput output, CliMessages messages) {
         this.properties = properties;
+        this.defaults = defaults;
         this.output = output;
         this.messages = messages;
+    }
+
+    /** The address the MCP server binds to by default (see its {@code server.address}): loopback, the MCP port of the install defaults. */
+    private String defaultUrl() {
+        return "http://127.0.0.1:" + defaults.mcpPort() + DEFAULT_PATH;
     }
 
     @Override
@@ -90,7 +95,7 @@ public class McpCheckCommand implements Command {
         if (!operands.isEmpty()) {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
-        URI uri = endpoint(CliOptions.value(arguments, URL).orElse(DEFAULT_URL));
+        URI uri = endpoint(CliOptions.value(arguments, URL).orElseGet(this::defaultUrl));
         String token = properties.token();
         if (token == null || token.isBlank()) {
             throw new FailureException(ErrorCode.MCP_TOKEN_MISSING);

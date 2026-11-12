@@ -23,6 +23,8 @@ import org.pgledger.cli.secret.ProcessUser;
 import org.pgledger.cli.secret.SecretInput;
 import org.pgledger.cli.secret.StandardInput;
 import org.pgledger.database.repository.LegacySourceRepository;
+import org.pgledger.database.schema.ApplicationAccountAccess;
+import org.pgledger.database.schema.SchemaProperties;
 import org.springframework.boot.ExitCodeEvent;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -58,6 +60,9 @@ public final class CliExtension implements ParameterResolver {
         }
     }
 
+    /** The name the test application account is shown under in the refusal (the tests read it back from the message arguments). */
+    public static final String APPLICATION_ACCOUNT_NAME = "test_app_account";
+
     public static final class Cli {
 
         private final DataSource database;
@@ -66,14 +71,16 @@ public final class CliExtension implements ParameterResolver {
         private final LegacySourceRepository legacySource;
         private final byte[] standardInput;
         private final HostAccounts hostAccounts;
+        private final DataSource applicationAccount;
 
         Cli() {
-            this(null, null, List.of(), null, null, null);
+            this(null, null, List.of(), null, null, null, null);
         }
 
         private Cli(DataSource database, String processUser, List<String> extraArguments, LegacySourceRepository legacySource,
-                byte[] standardInput, HostAccounts hostAccounts) {
+                byte[] standardInput, HostAccounts hostAccounts, DataSource applicationAccount) {
             this.hostAccounts = hostAccounts;
+            this.applicationAccount = applicationAccount;
             this.database = database;
             this.processUser = processUser;
             this.extraArguments = extraArguments;
@@ -84,12 +91,12 @@ public final class CliExtension implements ParameterResolver {
         /** A Cli whose standard input holds these bytes (what a pipe would give {@code --stdin}); without it the input is empty. */
         public Cli withStandardInput(String text) {
             return new Cli(database, processUser, extraArguments, legacySource, text.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                    hostAccounts);
+                    hostAccounts, applicationAccount);
         }
 
         /** A Cli whose host commands ({@code prepare-host}, {@code seal-host}) find the accounts of the host in these (a test plays them). */
         public Cli withHostAccounts(HostAccounts accounts) {
-            return new Cli(database, processUser, extraArguments, legacySource, standardInput, accounts);
+            return new Cli(database, processUser, extraArguments, legacySource, standardInput, accounts, applicationAccount);
         }
 
         /**
@@ -99,24 +106,34 @@ public final class CliExtension implements ParameterResolver {
          * in without a close method, so it is still open when the run has closed the context and the test reads the rows.
          */
         public Cli withDatabase(DataSource dataSource) {
-            return new Cli(dataSource, processUser, extraArguments, legacySource, standardInput, hostAccounts);
+            return new Cli(dataSource, processUser, extraArguments, legacySource, standardInput, hostAccounts, applicationAccount);
+        }
+
+        /**
+         * A Cli whose {@code setup} asks this DataSource, the connections of the application account of the test database
+         * (the login of {@code ledger.test.app-user}, every connection using the schema of the test), whether that account
+         * can use the schema. In a deployment the check opens its own connection with the registered driver (the owner
+         * account of the run is another account); the test brings the application account as it does the database.
+         */
+        public Cli withApplicationAccount(DataSource application) {
+            return new Cli(database, processUser, extraArguments, legacySource, standardInput, hostAccounts, application);
         }
 
         /** A Cli that runs as this process user (the account name that the audit trail records as {@code cli:<name>}). */
         public Cli asProcessUser(String name) {
-            return new Cli(database, name, extraArguments, legacySource, standardInput, hostAccounts);
+            return new Cli(database, name, extraArguments, legacySource, standardInput, hostAccounts, applicationAccount);
         }
 
         /** A Cli whose application has this legacy ledger as the source of {@code import-legacy} (the way the settings {@code ledger.import.source.*} would configure it). */
         public Cli withLegacySource(LegacySourceRepository source) {
-            return new Cli(database, processUser, extraArguments, source, standardInput, hostAccounts);
+            return new Cli(database, processUser, extraArguments, source, standardInput, hostAccounts, applicationAccount);
         }
 
         /** A Cli that also gets these command line arguments (for example {@code --spring.config.import=...}). */
         public Cli withArguments(String... arguments) {
             List<String> all = new ArrayList<>(extraArguments);
             all.addAll(List.of(arguments));
-            return new Cli(database, processUser, List.copyOf(all), legacySource, standardInput, hostAccounts);
+            return new Cli(database, processUser, List.copyOf(all), legacySource, standardInput, hostAccounts, applicationAccount);
         }
 
         /** @param input null keeps the product Console input; @param output null keeps the product stream output */
@@ -139,6 +156,11 @@ public final class CliExtension implements ParameterResolver {
                         GenericApplicationContext generic = (GenericApplicationContext) ctx;
                         if (database != null) {
                             generic.registerBean("testDataSource", DataSource.class, () -> new DelegatingDataSource(database));
+                        }
+                        if (applicationAccount != null) {
+                            generic.registerBean("testApplicationAccountAccess", ApplicationAccountAccess.class,
+                                    () -> new ApplicationAccountAccess(APPLICATION_ACCOUNT_NAME, applicationAccount, generic,
+                                            generic.getBean(SchemaProperties.class)));
                         }
                         if (legacySource != null) {
                             generic.registerBean("testLegacySource", LegacySourceRepository.class, () -> legacySource);

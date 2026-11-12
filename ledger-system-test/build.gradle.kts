@@ -5,6 +5,8 @@
 // the bootJar tasks of the two applications are looked up here, so the projects are configured first
 evaluationDependsOn(":ledger-cli")
 evaluationDependsOn(":ledger-mcp-server")
+// the admin web is not started here; its built jar is looked into for a JDBC driver (DRV-013, SET-041)
+evaluationDependsOn(":ledger-admin-web")
 
 // The built client hook jar (ledger-client-hook.jar); the same arrangement as in ledger-mcp-server, the jar is one fat jar.
 val hookJar by configurations.creating {
@@ -24,15 +26,17 @@ dependencies {
 
 val cliJar = project(":ledger-cli").tasks.named<Jar>("bootJar")
 val mcpJar = project(":ledger-mcp-server").tasks.named<Jar>("bootJar")
+val adminJar = project(":ledger-admin-web").tasks.named<Jar>("bootJar")
 
 tasks.test {
-    dependsOn(cliJar, mcpJar, hookJar)
+    dependsOn(cliJar, mcpJar, adminJar, hookJar)
     // The paths are passed in, never guessed. The jars are inputs, so a change of a product jar runs the test again
     // (the database is an input too, which is why the test is never up to date, see the root build).
-    inputs.files(cliJar, mcpJar, hookJar)
+    inputs.files(cliJar, mcpJar, adminJar, hookJar)
     doFirst {
         systemProperty("ledger.cli.jar", cliJar.get().archiveFile.get().asFile.absolutePath)
         systemProperty("ledger.mcp.jar", mcpJar.get().archiveFile.get().asFile.absolutePath)
+        systemProperty("ledger.admin.jar", adminJar.get().archiveFile.get().asFile.absolutePath)
         systemProperty("ledger.hook.jar", hookJar.singleFile.absolutePath)
     }
 }

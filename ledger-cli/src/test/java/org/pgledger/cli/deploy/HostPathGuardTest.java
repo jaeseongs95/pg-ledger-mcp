@@ -61,8 +61,8 @@ class HostPathGuardTest {
     @DisplayName("CLI-PRN-03 render-deploy --check without a root refuses the platform whose paths are not paths of this host (naming platform, no value) and accepts the platform of the host; with a root both are accepted; nothing is written")
     void renderDeployCheck(Cli cli) throws Exception {
         String[][] platforms = { LINUX, WINDOWS };
-        DeployLayout[] layouts = { DeployLayout.linux(DeployLayout.DEFAULT_NAME),
-                DeployLayout.windows(DeployLayout.DEFAULT_NAME, "C:/ProgramData/pg-ledger-mcp") };
+        DeployLayout[] layouts = { DeployLayout.linux(DeployTestBeans.defaults().instanceName()),
+                DeployLayout.windows(DeployTestBeans.defaults().instanceName(), "C:/ProgramData/pg-ledger-mcp") };
         int refused = 0;
         for (int index = 0; index < platforms.length; index++) {
             Outcome withoutRoot = run(cli, "render-deploy", platforms[index], "--check");
@@ -85,8 +85,8 @@ class HostPathGuardTest {
     @DisplayName("CLI-PRN-03 prepare-host and seal-host without a root refuse the platform that is not the platform of the host before they read or change anything (the jars do not exist, so nothing could be written either)")
     void prepareAndSealHost(Cli cli) {
         String[][] platforms = { LINUX, WINDOWS };
-        DeployLayout[] layouts = { DeployLayout.linux(DeployLayout.DEFAULT_NAME),
-                DeployLayout.windows(DeployLayout.DEFAULT_NAME, "C:/ProgramData/pg-ledger-mcp") };
+        DeployLayout[] layouts = { DeployLayout.linux(DeployTestBeans.defaults().instanceName()),
+                DeployLayout.windows(DeployTestBeans.defaults().instanceName(), "C:/ProgramData/pg-ledger-mcp") };
         for (int index = 0; index < platforms.length; index++) {
             if (ownsThisHost(layouts[index])) {
                 continue;
