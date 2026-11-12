@@ -450,7 +450,7 @@ JVM이 인식하는 프로세서 수를 제한할 수 있습니다. 속성은 �
 
 ## 라이선스
 
-pg-ledger-mcp는 2.0 버전부터 GNU Affero General Public License v3.0 only(`AGPL-3.0-only`)에 따라 배포합니다. 자세한 내용은 [LICENSE](LICENSE)를 참조하십시오.
+pg-ledger-mcp는 2.0 버전부터 GNU Affero General Public License v3.0 또는 (선택에 따라) 그 이후 판(`AGPL-3.0-or-later`)에 따라 배포합니다. 자세한 내용은 [LICENSE](LICENSE)를 참조하십시오.
 
 Copyright (C) 2026 Jaeseong Song
 
