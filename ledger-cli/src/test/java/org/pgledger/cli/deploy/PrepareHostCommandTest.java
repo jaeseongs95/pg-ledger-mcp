@@ -139,6 +139,50 @@ class PrepareHostCommandTest {
         assertThat(Files.readString(unit.resolveSibling("pg-ledger-mcp.service.1x-backup"))).isEqualTo("[Unit]\nDescription=1.x\n");
     }
 
+    private static final String ONE_X_UNIT = "[Unit]\nDescription=1.x\n";
+
+    @Test
+    @RequiresPosixPermissions
+    @DisplayName("REH2-INS-01 Linux: after the README rollback the unit of 1.x is in place again and its backup <unit>.1x-backup is still there with the same bytes: prepare-host goes on, the backup is kept as it is and the unit of 2.0 is written")
+    void reh2Ins01_aBackupOfTheSameBytesIsKept(Cli cli) throws IOException {
+        Path unit = tmp.resolve("root/etc/systemd/system/pg-ledger-mcp.service");
+        Path backup = unit.resolveSibling("pg-ledger-mcp.service.1x-backup");
+        Files.createDirectories(unit.getParent());
+        Files.writeString(unit, ONE_X_UNIT);
+        Files.writeString(backup, ONE_X_UNIT);
+        RecordingOutput output = new RecordingOutput();
+
+        Outcome result = run(cli.withHostAccounts(testUser()), output);
+
+        assertThat(result.failure()).isNull();
+        assertThat(result.code()).isEmpty();
+        assertThat(result.exitCode()).isZero();
+        assertThat(Files.readString(backup)).isEqualTo(ONE_X_UNIT);
+        assertThat(Files.readString(unit)).contains("Rendered by `ledger-cli render-deploy`").doesNotContain("Description=1.x");
+        assertThat(output.info()).contains(backup.toString()).contains("Prepared the host for the instance pg-ledger-mcp");
+    }
+
+    @Test
+    @RequiresPosixPermissions
+    @DisplayName("REH2-INS-02 Linux: the unit of 1.x and a backup with other bytes: HOST_FAILED (exit 1) naming both files and no raw FileAlreadyExistsException; the unit and the backup are unchanged")
+    void reh2Ins02_aBackupOfOtherBytesIsRefused(Cli cli) throws IOException {
+        Path unit = tmp.resolve("root/etc/systemd/system/pg-ledger-mcp.service");
+        Path backup = unit.resolveSibling("pg-ledger-mcp.service.1x-backup");
+        Files.createDirectories(unit.getParent());
+        Files.writeString(unit, ONE_X_UNIT + "# changed since\n");
+        Files.writeString(backup, ONE_X_UNIT);
+
+        Outcome result = run(cli.withHostAccounts(testUser()), new RecordingOutput());
+
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.HOST_FAILED);
+        List<String> arguments = result.refusal().orElseThrow().arguments();
+        assertThat(arguments.getFirst()).contains(unit.toString()).contains(backup.toString());
+        assertThat(String.join(" ", arguments)).doesNotContain("FileAlreadyExistsException");
+        assertThat(Files.readString(unit)).isEqualTo(ONE_X_UNIT + "# changed since\n");
+        assertThat(Files.readString(backup)).isEqualTo(ONE_X_UNIT);
+    }
+
     static Stream<Arguments> refusals() {
         return Stream.of(
                 Arguments.of("a bad name", new String[] { "--name=Bad_Name" }, ErrorCode.INVALID_DEPLOY_VALUE),

@@ -514,13 +514,17 @@ import, check. Do the steps in this order; the installer stops nothing of 1.x by
 5. As the service user, store the password of a read-only account of the 1.x database: `secret-set ledger.import.source.password`, and run
    `import-legacy --owner-account=<account> --ledger.import.source.url=<jdbc-url> --ledger.import.source.username=<account>`.
 6. The import reads the 1.x schema read only, copies everything in one transaction and rolls back on any failure; then it compares the
-   number of rows and the SHA-256 digest of every table (`--verify-only` repeats the comparison). It refuses when the new schema
-   already holds data, and it lists every value of the old data that the new schema cannot hold; it never invents a value.
+   number of rows and the SHA-256 digest of every table (`--verify-only` repeats the comparison). It runs once, on the schema that
+   `migrate` and `setup` made, which is the state after the installer (the installer runs `setup`: the seed codes and the audit rows of
+   that are accepted, and a seed code that 1.x also has takes the 1.x values). It refuses when a table of ledger data, a session key or
+   an earlier import is already there, and it lists every value of the old data that the new schema cannot hold; it never invents a value.
 7. The old grants are copied without a session key. Every author registers a session key with `key-register`; then its grants work.
 8. **Check.** `ledger-cli mcp-check --url=<its public URL>` and `import-legacy --verify-only`; open the admin web and sign in with the
    admin token of 1.x.
-9. **Roll back** if the check fails: stop the new services, put the `<file>.1x-backup` unit files back in place of the new ones, run
-   `sudo systemctl daemon-reload` and start the 1.x services. The 1.x schema and data were only read, so 1.x continues as it was.
+9. **Roll back** if the check fails: stop the new services, copy the `<file>.1x-backup` unit files back in place of the new ones (the
+   backup stays), run `sudo systemctl daemon-reload` and start the 1.x services. The 1.x schema and data were only read, so 1.x
+   continues as it was. A later run of the installer keeps a backup that equals the unit in place and writes the new unit; when the
+   backup holds other bytes, `prepare-host` stops with `HOST_FAILED` naming both files and changes nothing.
 10. Clients: the tools `execute_sql_reader` and `search_objects_reader` were removed; the read tools replace them. The results of the write
    tools keep their keys without the `rows[0].result` wrapping. Install the hook jar (a Java 25 runtime) before the server is switched.
 

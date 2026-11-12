@@ -228,6 +228,47 @@ class RenderDeployCommandTest {
         assertThat(Files.readString(backup, StandardCharsets.UTF_8)).isEqualTo(ONE_X_UNIT);
     }
 
+    @Test
+    @DisplayName("REH2-INS-03 a foreign file and a backup of the same bytes (the README rollback copied the backup back): the run goes on, the backup is as it was, the file is the rendered one and the output names the backup")
+    void reh2Ins03_aBackupOfTheSameBytesIsKept(Cli cli) throws IOException {
+        Path root = tmp.resolve("root");
+        Path unit = root.resolve("etc/systemd/system/pg-ledger-mcp.service");
+        Files.createDirectories(unit.getParent());
+        Files.writeString(unit, ONE_X_UNIT, StandardCharsets.UTF_8);
+        Path backup = unit.resolveSibling("pg-ledger-mcp.service.1x-backup");
+        Files.writeString(backup, ONE_X_UNIT, StandardCharsets.UTF_8);
+        RecordingOutput output = new RecordingOutput();
+
+        Outcome result = run(cli, output, root, LINUX);
+
+        assertThat(result.failure()).isNull();
+        assertThat(result.code()).isEmpty();
+        assertThat(Files.readString(backup, StandardCharsets.UTF_8)).isEqualTo(ONE_X_UNIT);
+        assertThat(Files.readString(unit, StandardCharsets.UTF_8)).contains("Rendered by `ledger-cli render-deploy`")
+                .doesNotContain("DBHub");
+        assertThat(output.info()).contains(backup.toString());
+    }
+
+    @Test
+    @DisplayName("REH2-INS-04 a foreign file and a backup of other bytes: DEPLOY_WRITE_FAILED (exit 1, the code is unchanged) naming both files; nothing of either is changed")
+    void reh2Ins04_aBackupOfOtherBytesNamesBothFiles(Cli cli) throws IOException {
+        Path root = tmp.resolve("root");
+        Path unit = root.resolve("etc/systemd/system/pg-ledger-mcp.service");
+        Files.createDirectories(unit.getParent());
+        Files.writeString(unit, ONE_X_UNIT + "# second\n", StandardCharsets.UTF_8);
+        Path backup = unit.resolveSibling("pg-ledger-mcp.service.1x-backup");
+        Files.writeString(backup, ONE_X_UNIT, StandardCharsets.UTF_8);
+
+        Outcome result = run(cli, new RecordingOutput(), root, LINUX);
+
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.DEPLOY_WRITE_FAILED);
+        assertThat(result.refusal().orElseThrow().arguments().getFirst()).contains(unit.toString()).contains(backup.toString());
+        assertThat(String.join(" ", result.refusal().orElseThrow().arguments())).doesNotContain("FileAlreadyExistsException");
+        assertThat(Files.readString(unit, StandardCharsets.UTF_8)).isEqualTo(ONE_X_UNIT + "# second\n");
+        assertThat(Files.readString(backup, StandardCharsets.UTF_8)).isEqualTo(ONE_X_UNIT);
+    }
+
     private static final String JAVA = "--java=/usr/bin/java";
     private static final String URL = "--jdbc-url=jdbc:postgresql://h/db";
     private static final String ACCOUNT = "--app-account=ledger_app";
