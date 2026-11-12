@@ -17,6 +17,10 @@ import java.util.stream.Collectors;
  * table, an {@code ORDER BY}, an {@code INSERT} with one placeholder per column. The schema of the legacy side is an
  * identifier and so cannot be a bind value; the caller passes a validated name.
  *
+ * <p>The new schema avoids the words that SQL:2003 reserves, so two columns are named differently on the two sides:
+ * {@code history.at} of the legacy schema is {@code occurred_at} here, and {@code session_grant.scope} is
+ * {@code grant_scope}. The legacy side keeps the names the old installer created; the application maps one to the other.
+ *
  * <p>The tables that are not copied: {@code _migration} (bookkeeping of the legacy installer, read only to check its
  * steps), {@code common_code_use} (the legacy common-code bookkeeping) and the view {@code category} (the categories are
  * the rows of {@code common_code}). {@code session_key} and {@code owner_audit} are new in this schema; the keys are
@@ -88,7 +92,7 @@ public enum LegacyTable {
     SESSION_GRANT("session_grant", "session_grant", List.of("id"), List.of("id"),
             List.of(number("id"), text("author_id"), text("project"), text("scope"), text("granted_by"),
                     instant("granted_at"), instant("expires_at"), instant("revoked_at"), text("note")),
-            List.of(number("id"), text("author_id"), text("project_id"), text("scope"), text("granted_by"),
+            List.of(number("id"), text("author_id"), text("project_id"), text("grant_scope"), text("granted_by"),
                     instant("granted_at"), instant("expires_at"), instant("revoked_at"), instant("last_used_at"),
                     text("note"), text("active_key")), false),
 
@@ -97,7 +101,7 @@ public enum LegacyTable {
                     text("entity"), text("entity_id"), text("op"), text("from_state"), text("to_state"), text("changes"),
                     text("reason"), text("evidence_uri"), text("evidence_sha256"), number("corrects_id"),
                     text("request_id"), text("legacy_ref")),
-            List.of(number("id"), instant("at"), text("author_id"), text("login"), text("actor_assurance"),
+            List.of(number("id"), instant("occurred_at"), text("author_id"), text("login"), text("actor_assurance"),
                     text("entity"), text("entity_id"), text("op"), text("from_state"), text("to_state"), text("changes"),
                     text("before_data"), text("reason"), text("evidence_uri"), text("evidence_sha256"),
                     number("corrects_id"), text("request_id"), text("legacy_ref")), false),

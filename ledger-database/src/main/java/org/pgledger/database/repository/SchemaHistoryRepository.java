@@ -55,7 +55,13 @@ public final class SchemaHistoryRepository {
         return metaData.storesLowerCaseIdentifiers() ? name.toLowerCase(Locale.ROOT) : name;
     }
 
-    /** Reads the database metadata through Spring's {@link JdbcUtils}, which gets and releases the connection. */
+    /**
+     * Reads the database metadata through Spring's {@link JdbcUtils}, which gets and releases the connection. This and
+     * {@link #fold} are the contact points with raw JDBC metadata, kept to the few questions that no Spring Data or
+     * {@code JdbcClient} call answers: whether a table or a schema exists, how the DBMS folds an unquoted identifier,
+     * and the nullability and length of a column. ANSI has no portable statement for these, and the JDBC metadata is the
+     * portable way (the schema files and the DBMS stay the one source of truth).
+     */
     public static <T> T inspect(DataSource dataSource, DatabaseMetaDataCallback<T> callback) {
         try {
             return JdbcUtils.extractDatabaseMetaData(dataSource, callback);

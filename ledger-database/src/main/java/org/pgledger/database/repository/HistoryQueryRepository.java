@@ -89,10 +89,10 @@ public class HistoryQueryRepository {
             sql.append(" AND h.author_id = :author");
         }
         if (filter.atFrom() != null) {
-            sql.append(" AND h.at >= :atFrom");
+            sql.append(" AND h.occurred_at >= :atFrom");
         }
         if (filter.atTo() != null) {
-            sql.append(" AND h.at <= :atTo");
+            sql.append(" AND h.occurred_at <= :atTo");
         }
         sql.append(" ORDER BY h.id");
         JdbcClient.StatementSpec spec = jdbc.sql(sql.toString()).param("after", afterId)
@@ -136,7 +136,7 @@ public class HistoryQueryRepository {
      */
     public List<Long> newestOfEntity(HistoryEntity entity, String entityId, boolean withoutImport, int count) {
         return jdbc.sql("SELECT id FROM history WHERE entity = :entity AND entity_id = :entityId"
-                + (withoutImport ? " AND op <> 'IMPORT'" : "") + " ORDER BY at DESC, id DESC")
+                + (withoutImport ? " AND op <> 'IMPORT'" : "") + " ORDER BY occurred_at DESC, id DESC")
                 .param("entity", entity.name())
                 .param("entityId", entityId)
                 .withMaxRows(count)

@@ -5,6 +5,7 @@ import java.util.EnumSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
@@ -26,7 +27,7 @@ import org.pgledger.domain.value.Sha256;
  * rows). The record is immutable and the invariants of the old CHECK constraints are enforced on construction.
  */
 @Table("history")
-public record HistoryEntry(@Id Long id, Instant at, ActorId authorId, String login, ActorAssurance actorAssurance,
+public record HistoryEntry(@Id Long id, @Column("occurred_at") Instant at, ActorId authorId, String login, ActorAssurance actorAssurance,
         HistoryEntity entity, String entityId, HistoryOp op, String fromState, String toState, JsonDocument changes,
         JsonDocument beforeData, String reason, String evidenceUri, Sha256 evidenceSha256, Long correctsId,
         RequestId requestId, String legacyRef) {

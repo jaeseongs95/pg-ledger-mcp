@@ -34,7 +34,8 @@ import org.pgledger.database.repository.SessionKeyRepository;
 import org.pgledger.database.repository.SessionKeyStateRepository;
 import org.pgledger.database.repository.TaskRepository;
 import org.pgledger.database.schema.LedgerSchemaGuardConfiguration;
-import org.pgledger.database.schema.SchemaMigrationException;
+import org.pgledger.domain.error.InfrastructureCode;
+import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.database.schema.UtcSessionCheck;
 import org.pgledger.database.support.Databases;
 import org.pgledger.database.support.LedgerDatabaseExtension;
@@ -70,6 +71,12 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 class TimeZoneTest {
 
     private static final Instant I = Instant.parse("2026-11-05T10:00:00.123456Z");
+
+    /** The settings of the check: the default schema of the account (no schema name), the way the tests run. */
+    private static final org.pgledger.database.schema.SchemaProperties DEFAULT_SCHEMA =
+            new org.pgledger.database.schema.SchemaProperties(
+                    org.pgledger.database.schema.SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
+                    java.time.Duration.parse(org.pgledger.database.schema.SchemaProperties.DEFAULT_PEER_WAIT));
 
     private static <T> T inJvmZone(String zone, java.util.function.Supplier<T> work) {
         TimeZone saved = TimeZone.getDefault();
@@ -119,20 +126,25 @@ class TimeZoneTest {
     @Test
     void svcTz01_aSessionThatIsNotUtcStopsTheApplicationAndUtcStartsIt(Databases databases) {
         try (LedgerTestContext seoul = LedgerTestContext.create(databases, "Asia/Seoul")) {
-            UtcSessionCheck check = new UtcSessionCheck(seoul.pool(), Clock.systemUTC(), null);
-            assertThatThrownBy(check::verify).isInstanceOf(SchemaMigrationException.class)
-                    .hasMessageContaining("database session time zone is not UTC").hasMessageNotContaining("jdbc:");
+            UtcSessionCheck check = new UtcSessionCheck(seoul.pool(), Clock.systemUTC(), DEFAULT_SCHEMA);
+            // the code is the contract; the failure carries the skew and no connection detail
+            assertThatThrownBy(check::verify).isInstanceOfSatisfying(InfrastructureException.class, e -> {
+                assertThat(e.code()).isEqualTo(InfrastructureCode.SESSION_ZONE_NOT_UTC);
+                assertThat(e.args()).hasSize(1);
+                assertThat(e.getMessage()).doesNotContain("jdbc:");
+            });
             assertThatThrownBy(() -> startWithGuard(seoul)).isInstanceOf(BeanCreationException.class)
-                    .hasStackTraceContaining("database session time zone is not UTC");
+                    .hasStackTraceContaining("SESSION_ZONE_NOT_UTC");
         }
         try (LedgerTestContext utc = LedgerTestContext.create(databases, "UTC")) {
-            new UtcSessionCheck(utc.pool(), Clock.systemUTC(), null).verify();
+            new UtcSessionCheck(utc.pool(), Clock.systemUTC(), DEFAULT_SCHEMA).verify();
             startWithGuard(utc).close();
         }
         // the JVM zone is checked as well
         UtcSessionCheck.verifyJvmZone();
         inJvmZone("Asia/Seoul", () -> assertThatThrownBy(UtcSessionCheck::verifyJvmZone)
-                .isInstanceOf(SchemaMigrationException.class).hasMessageContaining("JVM default time zone is not UTC"));
+                .isInstanceOfSatisfying(InfrastructureException.class,
+                        e -> assertThat(e.code()).isEqualTo(InfrastructureCode.JVM_ZONE_NOT_UTC)));
     }
 
     private AnnotationConfigApplicationContext startWithGuard(LedgerTestContext ctx) {
@@ -176,8 +188,8 @@ class TimeZoneTest {
             expected.put("session_grant.last_used_at", I.plusSeconds(4));
             expected.put("session_key.registered_at", I);
             expected.put("session_key.revoked_at", I.plusSeconds(6));
-            expected.put("owner_audit.at", I);
-            expected.put("history.at", I);
+            expected.put("owner_audit.occurred_at", I);
+            expected.put("history.occurred_at", I);
             expected.put("request_receipt.created_at", I);
             expected.put("schema_history.applied_at", LedgerTestContext.START);
             assertThat(expected.keySet()).containsExactlyInAnyOrderElementsOf(SchemaCatalogTest.TIMESTAMP_COLUMNS);

@@ -2,7 +2,7 @@ package org.pgledger.cli.database;
 
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
-import org.pgledger.database.schema.SchemaMigrationException;
+import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.schema.SchemaVerifier;
 import org.pgledger.database.schema.UtcSessionCheck;
@@ -37,7 +37,7 @@ public final class SchemaReadiness {
             if (properties.requireUtc()) {
                 utcCheck.verify();
             }
-        } catch (SchemaMigrationException notReady) {
+        } catch (InfrastructureException notReady) {
             throw new FailureException(ErrorCode.SCHEMA_NOT_READY, notReady, notReady.getMessage());
         }
         verified = true;

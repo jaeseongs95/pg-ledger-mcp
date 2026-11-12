@@ -82,10 +82,12 @@ public class SearchQueryRepository {
             spec = spec.param("project", filter.project().value());
         }
         for (int i = 0; i < filter.keywords().size(); i++) {
-            spec = spec.param("k" + i, "%" + escapeLike(filter.keywords().get(i)) + "%");
+            spec = spec.param("k" + i, LikePattern.contains(filter.keywords().get(i)));
         }
+        // the parameter names are positions (x0, x1, ...), never a part of the value: a status text cannot become SQL
+        int excluded = 0;
         for (String status : filter.excludeStatuses()) {
-            spec = spec.param("x" + status, status);
+            spec = spec.param("x" + excluded++, status);
         }
         if (filter.createdFrom() != null) {
             spec = spec.param("from", UtcTime.toDb(filter.createdFrom()));
@@ -127,8 +129,10 @@ public class SearchQueryRepository {
             sql.append(" AND (").append(String.join(filter.match() == KeywordMatch.ALL ? " AND " : " OR ", terms))
                     .append(")");
         }
-        for (String status : filter.excludeStatuses()) {
-            sql.append(" AND ").append(stateColumn).append(" <> :x").append(status);
+        // one condition per excluded status, named by position; all are joined with AND, so which value gets which
+        // position does not matter
+        for (int i = 0; i < filter.excludeStatuses().size(); i++) {
+            sql.append(" AND ").append(stateColumn).append(" <> :x").append(i);
         }
         if (filter.createdFrom() != null) {
             sql.append(" AND created_at >= :from");
@@ -137,9 +141,5 @@ public class SearchQueryRepository {
             sql.append(" AND created_at <= :to");
         }
         return sql.toString();
-    }
-
-    private static String escapeLike(String keyword) {
-        return keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

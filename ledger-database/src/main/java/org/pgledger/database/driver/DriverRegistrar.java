@@ -44,14 +44,17 @@ public final class DriverRegistrar {
     /** Control characters of user input are not written to the log as they are (they would forge log lines). */
     private static final Pattern CONTROL_CHARACTER = Pattern.compile("\\p{Cntrl}");
 
+    private final DriverLoader loader;
     private final String jdbcUrl;
     private final Path allowedDirectory;
 
     /**
+     * @param loader           the loader that loads the class of a jar to check it
      * @param jdbcUrl          the configured JDBC URL the driver has to accept (may be absent when none is configured)
      * @param allowedDirectory the one directory a driver jar must be in
      */
-    public DriverRegistrar(String jdbcUrl, Path allowedDirectory) {
+    public DriverRegistrar(DriverLoader loader, String jdbcUrl, Path allowedDirectory) {
+        this.loader = loader;
         this.jdbcUrl = jdbcUrl;
         this.allowedDirectory = allowedDirectory;
     }
@@ -72,7 +75,7 @@ public final class DriverRegistrar {
         }
         Path real = insideTheAllowedDirectory(jar.strip());
         try {
-            return DriverLoader.describe(real, className.strip(), jdbcUrl, registeredAt);
+            return loader.describe(real, className.strip(), jdbcUrl, registeredAt);
         } catch (InfrastructureException e) {
             LOG.warn("the driver registration of {} was refused by the loader", printable(real.toString()), e);
             throw refused();

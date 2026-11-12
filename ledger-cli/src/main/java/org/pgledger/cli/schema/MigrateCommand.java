@@ -13,7 +13,7 @@ import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.database.schema.GrantApplier;
-import org.pgledger.database.schema.SchemaMigrationException;
+import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.UtcSessionCheck;
 import org.springframework.beans.factory.ObjectProvider;
@@ -92,7 +92,7 @@ public class MigrateCommand implements Command {
             // the history is written in UTC, so the JVM zone is checked like in every other command
             UtcSessionCheck.verifyJvmZone();
             applied = target.migrate();
-        } catch (SchemaMigrationException failed) {
+        } catch (InfrastructureException failed) {
             throw new FailureException(ErrorCode.MIGRATION_FAILED, failed, failed.getMessage());
         } catch (DataAccessException failure) {
             throw new FailureException(ErrorCode.DATABASE_FAILED, failure);
@@ -119,7 +119,7 @@ public class MigrateCommand implements Command {
         }
         try {
             applier.apply(appAccount);
-        } catch (SchemaMigrationException failed) {
+        } catch (InfrastructureException failed) {
             throw new FailureException(ErrorCode.GRANT_FAILED, failed);
         }
         output.info(messages.get("migrate.granted", appAccount));

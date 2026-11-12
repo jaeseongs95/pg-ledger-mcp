@@ -3,6 +3,7 @@ package org.pgledger.domain.model;
 import java.time.Instant;
 import org.pgledger.domain.rule.OwnerAction;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
 /**
@@ -12,6 +13,6 @@ import org.springframework.data.relational.core.mapping.Table;
  * the application account no UPDATE or DELETE on it.
  */
 @Table("owner_audit")
-public record OwnerAuditEntry(@Id Long id, Instant at, String actor, OwnerAction operation, String subject,
+public record OwnerAuditEntry(@Id Long id, @Column("occurred_at") Instant at, String actor, OwnerAction operation, String subject,
         String detail) {
 }

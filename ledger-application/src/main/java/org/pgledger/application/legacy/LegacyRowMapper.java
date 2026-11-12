@@ -272,7 +272,8 @@ final class LegacyRowMapper {
         t.put("project_id", s.text("project"));
         t.put("last_used_at", null);
         String scope = nameOf(v, "scope", s.text("scope"), Scope.values());
-        t.put("scope", scope);
+        // the new schema names the column grant_scope (SCOPE is a reserved word of SQL:2003); the legacy one is scope
+        t.put("grant_scope", scope);
         String author = s.text("author_id");
         String project = s.text("project");
         boolean authorValid = AuthorId.matches(author);
@@ -297,8 +298,10 @@ final class LegacyRowMapper {
     }
 
     private static void history(LegacyRow s, Map<String, Object> t, Violations v) {
-        copy(s, t, "id", "at", "author_id", "login", "actor_assurance", "entity_id", "op", "from_state", "to_state",
+        copy(s, t, "id", "author_id", "login", "actor_assurance", "entity_id", "op", "from_state", "to_state",
                 "changes", "reason", "evidence_uri", "evidence_sha256", "corrects_id", "request_id", "legacy_ref");
+        // the new schema names the column occurred_at (AT is a reserved word of SQL:2003); the legacy one is at
+        t.put("occurred_at", s.get("at"));
         t.put("entity", nameOf(v, "entity", s.text("entity"), HistoryEntity.values()));
         t.put("before_data", null);
         oneOf(v, "actor_assurance", s.text("actor_assurance"), ASSURANCES);

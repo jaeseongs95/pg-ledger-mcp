@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 import org.pgledger.admin.app.LedgerAdminProperties;
 import org.pgledger.application.admin.OwnerAuditWriter;
+import org.pgledger.database.driver.DriverLoader;
 import org.pgledger.database.driver.DriverRegistrar;
 import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.database.driver.DriverRegistrationFile;
@@ -86,8 +87,9 @@ public class DriverRegistrationService {
      *         field), or with {@link #REFUSED_REASON} when the jar or the class cannot be used
      */
     public DriverRegistration register(String jar, String className, OwnerIdentity actor) {
-        DriverRegistration registration = new DriverRegistrar(jdbc.url(), admin.driverDirectory()).check(jar, className,
-                clock.instant());
+        // the loader has no state and no dependency; it is made here until the registrar becomes a bean (unit W5)
+        DriverRegistration registration = new DriverRegistrar(new DriverLoader(), jdbc.url(), admin.driverDirectory())
+                .check(jar, className, clock.instant());
         write(registration, actor);
         return registration;
     }

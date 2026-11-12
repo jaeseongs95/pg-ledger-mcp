@@ -78,6 +78,8 @@ import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 class DriverBoundaryTest {
 
     private static final Instant NOW = Instant.parse("2026-11-05T10:00:00Z");
+    /** The loader is a stateless component with no dependency, so the tests make it the way the Spring context does. */
+    private static final DriverLoader LOADER = new DriverLoader();
 
     private Path fakeJar;
 
@@ -140,7 +142,7 @@ class DriverBoundaryTest {
 
     private static InfrastructureException describing(Path jar, String className, String url) {
         return catchThrowableOfType(InfrastructureException.class,
-                () -> DriverLoader.describe(jar, className, url, NOW));
+                () -> LOADER.describe(jar, className, url, NOW));
     }
 
     static Stream<Path> unusableJarPaths() {
@@ -216,10 +218,10 @@ class DriverBoundaryTest {
         String url = databases.newUrl();
         Path jar = h2Jar();
         Set<String> before = registeredDrivers();
-        DriverRegistration registration = DriverLoader.describe(jar, "org.h2.Driver", url, NOW);
+        DriverRegistration registration = LOADER.describe(jar, "org.h2.Driver", url, NOW);
         assertThat(registration).isEqualTo(new DriverRegistration(jar, "org.h2.Driver", sha(jar), NOW));
         LedgerJdbcProperties properties = new LedgerJdbcProperties(url, null, null, 2, registration);
-        try (RegisteredDriver registered = DriverLoader.load(registration);
+        try (RegisteredDriver registered = LOADER.load(registration);
                 HikariDataSource pool = DriverDataSources.create(registered, properties, null)) {
             Driver driver = registered.driver();
             assertThat(registeredDrivers()).as("the DriverManager is not involved while the pool runs").isEqualTo(before);
@@ -245,7 +247,7 @@ class DriverBoundaryTest {
         DriverRegistration registration = new DriverRegistration(h2Jar(), "org.h2.Driver",
                 "0".repeat(64), NOW);
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
-                () -> DriverLoader.load(registration));
+                () -> LOADER.load(registration));
         assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
         assertThat(thrown.args().getFirst()).contains("digest mismatch").contains(h2Jar().toString());
     }
@@ -253,10 +255,10 @@ class DriverBoundaryTest {
     @Test
     void drv009_aJarThatIsGoneIsRefusedWithItsPath() throws IOException {
         Path copy = OwnerOnlyFiles.copy(h2Jar(), temp.resolve("gone.jar"));
-        DriverRegistration registration = DriverLoader.describe(copy, "org.h2.Driver", "jdbc:h2:mem:g", NOW);
+        DriverRegistration registration = LOADER.describe(copy, "org.h2.Driver", "jdbc:h2:mem:g", NOW);
         Files.delete(copy);
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
-                () -> DriverLoader.load(registration));
+                () -> LOADER.load(registration));
         assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
         assertThat(thrown.args().getFirst()).contains(copy.toString());
     }
@@ -270,7 +272,7 @@ class DriverBoundaryTest {
     @MethodSource("unfinishedRegistrations")
     void drv012_withoutARegistrationTheStartFailsFastAndNamesTheCommand(DriverRegistration none) {
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
-                () -> DriverLoader.load(none));
+                () -> LOADER.load(none));
         assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_NOT_CONFIGURED);
         assertThat(thrown.getMessage()).contains("driver-register");
     }
@@ -278,7 +280,7 @@ class DriverBoundaryTest {
     @Test
     void drv012_aHalfFilledRegistrationNamesTheMissingKey() {
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
-                () -> DriverLoader.load(new DriverRegistration(h2Jar(), null, null, null)));
+                () -> LOADER.load(new DriverRegistration(h2Jar(), null, null, null)));
         assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
         assertThat(thrown.args().getFirst()).contains("ledger.jdbc.driver.class-name");
     }
@@ -307,7 +309,7 @@ class DriverBoundaryTest {
         assumeTrue(hasPosix(temp), "needs POSIX permissions");
         Path directory = OwnerOnlyFiles.restrict(Files.createDirectory(temp.resolve("drivers-open")));
         Path jar = OwnerOnlyFiles.copy(h2Jar(), directory.resolve("h2.jar"));
-        DriverLoader.describe(jar, "org.h2.Driver", "jdbc:h2:mem:dir-ok", NOW);
+        LOADER.describe(jar, "org.h2.Driver", "jdbc:h2:mem:dir-ok", NOW);
 
         for (String mode : List.of("rwxrwx---", "rwx---rwx", "rwx-w----", "rwx----w-")) {
             Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString(mode));
@@ -316,7 +318,7 @@ class DriverBoundaryTest {
             assertThat(refused.args().getFirst()).as(mode).contains("directory").contains("writable");
         }
         Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwx------"));
-        DriverLoader.describe(jar, "org.h2.Driver", "jdbc:h2:mem:dir-again", NOW);
+        LOADER.describe(jar, "org.h2.Driver", "jdbc:h2:mem:dir-again", NOW);
     }
 
     /**
@@ -336,7 +338,7 @@ class DriverBoundaryTest {
 
             view.setAcl(withEntry(original, everyone, AclEntryPermission.READ_DATA, AclEntryPermission.READ_ATTRIBUTES,
                     AclEntryPermission.READ_ACL, AclEntryPermission.SYNCHRONIZE));
-            DriverLoader.describe(jar, "org.h2.Driver", "jdbc:h2:mem:acl-read-" + onDirectory, NOW);
+            LOADER.describe(jar, "org.h2.Driver", "jdbc:h2:mem:acl-read-" + onDirectory, NOW);
 
             for (AclEntryPermission change : List.of(AclEntryPermission.WRITE_DATA, AclEntryPermission.APPEND_DATA,
                     AclEntryPermission.DELETE, AclEntryPermission.WRITE_ACL, AclEntryPermission.WRITE_OWNER)) {
@@ -347,7 +349,7 @@ class DriverBoundaryTest {
                 assertThat(refused.args().getFirst()).contains(onDirectory ? "directory" : "jar").contains("can be changed");
             }
             view.setAcl(original);
-            DriverLoader.describe(jar, "org.h2.Driver", "jdbc:h2:mem:acl-again-" + onDirectory, NOW);
+            LOADER.describe(jar, "org.h2.Driver", "jdbc:h2:mem:acl-again-" + onDirectory, NOW);
         }
     }
 
@@ -392,7 +394,7 @@ class DriverBoundaryTest {
     void drv018_onlyTheNamedClassIsLoadedWhenTwoDriversShareAJar() {
         System.clearProperty(FakeDriverA.MARK);
         System.clearProperty(FakeDriverB.MARK);
-        DriverLoader.describe(fakeJar, FakeDriverA.class.getName(), "jdbc:fake:x", NOW);
+        LOADER.describe(fakeJar, FakeDriverA.class.getName(), "jdbc:fake:x", NOW);
         assertThat(System.getProperty(FakeDriverA.MARK)).isEqualTo("yes");
         assertThat(System.getProperty(FakeDriverB.MARK)).isNull();
     }
@@ -401,8 +403,8 @@ class DriverBoundaryTest {
     void drv019_closingReleasesTheJarSoItCanBeDeleted(Databases databases) throws IOException, SQLException {
         Path copy = OwnerOnlyFiles.copy(h2Jar(), temp.resolve("release.jar"));
         String url = databases.newUrl();
-        DriverRegistration registration = DriverLoader.describe(copy, "org.h2.Driver", url, NOW);
-        try (RegisteredDriver registered = DriverLoader.load(registration);
+        DriverRegistration registration = LOADER.describe(copy, "org.h2.Driver", url, NOW);
+        try (RegisteredDriver registered = LOADER.load(registration);
                 HikariDataSource pool = DriverDataSources.create(registered,
                         new LedgerJdbcProperties(url, null, null, 1, registration), null);
                 Connection c = pool.getConnection()) {
@@ -424,9 +426,9 @@ class DriverBoundaryTest {
     @Test
     void drv025_theClassesComeFromAPrivateCopyOfTheBytesThatWereHashed() throws Exception {
         Path registered = OwnerOnlyFiles.copy(fakeJar, temp.resolve("swapped-after-load.jar"));
-        DriverRegistration registration = DriverLoader.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
+        DriverRegistration registration = LOADER.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
                 NOW);
-        try (RegisteredDriver driver = DriverLoader.load(registration)) {
+        try (RegisteredDriver driver = LOADER.load(registration)) {
             Path source = Path.of(driver.driver().getClass().getProtectionDomain().getCodeSource().getLocation()
                     .toURI());
             assertThat(Files.isSameFile(source, registered)).as("the classes are not read from the registered file")
@@ -441,9 +443,9 @@ class DriverBoundaryTest {
     @Test
     void drv026_theRegisteredFileCanBeDeletedWhileTheDriverIsOpen() throws Exception {
         Path registered = OwnerOnlyFiles.copy(fakeJar, temp.resolve("deleted-while-open.jar"));
-        DriverRegistration registration = DriverLoader.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
+        DriverRegistration registration = LOADER.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
                 NOW);
-        try (RegisteredDriver driver = DriverLoader.load(registration)) {
+        try (RegisteredDriver driver = LOADER.load(registration)) {
             Files.delete(registered);
             assertThat(registered).doesNotExist();
             assertThat(driver.driver().acceptsURL("jdbc:fake:y")).isTrue();
@@ -457,11 +459,11 @@ class DriverBoundaryTest {
         Path registered = OwnerOnlyFiles.copy(fakeJar, temp.resolve("lifecycle.jar"));
         Set<Path> before = temporaryJars();
 
-        DriverRegistration registration = DriverLoader.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
+        DriverRegistration registration = LOADER.describe(registered, FakeDriverA.class.getName(), "jdbc:fake:x",
                 NOW);
         assertThat(temporaryJars()).as("describe closes its driver and leaves no copy").isEqualTo(before);
 
-        try (RegisteredDriver driver = DriverLoader.load(registration)) {
+        try (RegisteredDriver driver = LOADER.load(registration)) {
             Set<Path> added = temporaryJars().stream().filter(file -> !before.contains(file))
                     .collect(Collectors.toSet());
             assertThat(added).as("one private copy while the driver is open").hasSize(1);
@@ -481,13 +483,13 @@ class DriverBoundaryTest {
                 "this is not an archive".getBytes(StandardCharsets.UTF_8));
         Set<Path> before = temporaryJars();
 
-        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> DriverLoader.load(
+        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> LOADER.load(
                 new DriverRegistration(registered, FakeDriverA.class.getName(), "0".repeat(64), NOW)))))
                 .isEqualTo(InfrastructureCode.DRIVER_INVALID);
-        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> DriverLoader.load(
+        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> LOADER.load(
                 new DriverRegistration(notAnArchive, FakeDriverA.class.getName(), sha(notAnArchive), NOW)))))
                 .isEqualTo(InfrastructureCode.DRIVER_INVALID);
-        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> DriverLoader.load(
+        assertThat(codeOf(catchThrowableOfType(InfrastructureException.class, () -> LOADER.load(
                 new DriverRegistration(registered, "org.pgledger.database.fake.Missing", sha(registered), NOW)))))
                 .isEqualTo(InfrastructureCode.DRIVER_INVALID);
 
@@ -501,7 +503,7 @@ class DriverBoundaryTest {
 
         InfrastructureException described = describing(jar, "org.h2.Driver", "jdbc:h2:mem:p");
         InfrastructureException loaded = catchThrowableOfType(InfrastructureException.class,
-                () -> DriverLoader.load(new DriverRegistration(jar, "org.h2.Driver", sha(jar), NOW)));
+                () -> LOADER.load(new DriverRegistration(jar, "org.h2.Driver", sha(jar), NOW)));
 
         assertThat(described).as("describe refuses a path with ${").isNotNull();
         assertThat(codeOf(described)).isEqualTo(InfrastructureCode.DRIVER_INVALID);

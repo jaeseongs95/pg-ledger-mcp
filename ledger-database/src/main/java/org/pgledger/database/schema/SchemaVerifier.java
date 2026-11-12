@@ -3,16 +3,18 @@ package org.pgledger.database.schema;
 import java.util.List;
 import javax.sql.DataSource;
 import org.pgledger.database.repository.SchemaHistoryRepository;
-import org.pgledger.database.repository.SchemaHistoryRepository.Outcome;
-import org.pgledger.database.repository.SchemaHistoryRepository.Row;
+import org.pgledger.domain.error.InfrastructureCode;
+import org.pgledger.domain.error.InfrastructureException;
 import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.stereotype.Component;
 
 /**
  * What an application does about the schema at startup: it only looks, it never changes anything. The schema is
  * up to date when every file has a history whose latest outcome is SUCCESS with the digest of the file, and the
- * history knows no version without a file. Anything else stops the application.
+ * history knows no version without a file ({@link SchemaHistory} judges it). Anything else stops the application.
  */
+@Component
 public class SchemaVerifier {
 
     private final DataSource dataSource;
@@ -25,44 +27,31 @@ public class SchemaVerifier {
         this.properties = properties;
     }
 
-    /** @throws SchemaMigrationException when the schema is not up to date */
+    /**
+     * @throws InfrastructureException one of the schema codes ({@code SCHEMA_*}) when the schema is not up to date
+     */
     public void verify() {
         List<MigrationFile> files = MigrationFile.load(resolver, properties.location());
         MigrationFile.requireContiguous(files);
         try {
-            SchemaHistoryRepository history = new SchemaHistoryRepository(
+            SchemaHistoryRepository repository = new SchemaHistoryRepository(
                     SchemaDataSource.of(dataSource, properties.name()));
-            if (!history.tableExists()) {
-                throw new SchemaMigrationException("the database has no schema history; run the migrate command");
+            if (!repository.tableExists()) {
+                throw new InfrastructureException(InfrastructureCode.SCHEMA_HISTORY_MISSING, List.of());
             }
-            List<Row> rows = history.rows();
-            for (Row row : rows) {
-                if (files.stream().noneMatch(f -> f.version() == row.version())) {
-                    throw new SchemaMigrationException("V" + row.version() + " (" + row.fileName()
-                            + ") was applied but has no schema file");
+            SchemaHistory history = new SchemaHistory(repository.rows());
+            history.requireFileForEveryVersion(files);
+            for (MigrationFile file : files) {
+                switch (history.verdictOf(file)) {
+                    case INTACT -> {
+                    }
+                    case PENDING -> throw SchemaHistory.pending(file);
+                    case FAILED_ONLY, LATEST_FAILED -> throw SchemaHistory.recordedFailed(file);
+                    case DIGEST_CHANGED -> throw history.digestMismatch(file);
                 }
             }
-            for (MigrationFile file : files) {
-                verifyVersion(file, rows.stream().filter(r -> r.version() == file.version()).toList());
-            }
         } catch (CannotGetJdbcConnectionException e) {
-            throw new SchemaMigrationException("cannot reach the database to verify the schema", e);
-        }
-    }
-
-    private static void verifyVersion(MigrationFile file, List<Row> rows) {
-        if (rows.isEmpty()) {
-            throw new SchemaMigrationException("V" + file.version() + " (" + file.fileName()
-                    + ") is pending; run the migrate command");
-        }
-        Row latest = rows.getLast();
-        if (latest.outcome() == Outcome.FAILED) {
-            throw new SchemaMigrationException("V" + file.version() + " (" + file.fileName()
-                    + ") is recorded as FAILED; repair it and run the migrate command");
-        }
-        if (!latest.sha256().equals(file.digest())) {
-            throw new SchemaMigrationException("digest mismatch for V" + file.version() + " (" + file.fileName()
-                    + "): applied " + latest.sha256().hex() + " but the file is " + file.digest().hex());
+            throw new InfrastructureException(InfrastructureCode.SCHEMA_DATABASE_UNREACHABLE, List.of(), e);
         }
     }
 }

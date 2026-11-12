@@ -1,6 +1,7 @@
 package org.pgledger.admin.console;
 
 import org.pgledger.application.LedgerApplicationConfiguration;
+import org.pgledger.database.driver.DriverRegisteredCondition;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;

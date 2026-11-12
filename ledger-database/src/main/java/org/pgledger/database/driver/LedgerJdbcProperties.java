@@ -20,4 +20,14 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "ledger.jdbc")
 public record LedgerJdbcProperties(String url, String username, String password,
         @DefaultValue("10") @Min(1) int poolSize, @DefaultValue @Valid DriverRegistration driver) {
+
+    /**
+     * Never prints the password, and not the password inside the URL either. A record prints every component by
+     * default, and a settings object ends up in logs and failure messages ({@code LegacySourceProperties} does the same).
+     */
+    @Override
+    public String toString() {
+        return "LedgerJdbcProperties[url=" + RegisteredDriver.sanitize(url) + ", username=" + username + ", poolSize="
+                + poolSize + ", driver=" + driver + "]";
+    }
 }

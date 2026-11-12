@@ -36,7 +36,7 @@ import org.pgledger.database.repository.ReceiptCompletionRepository;
 import org.pgledger.database.repository.ReceiptRepository;
 import org.pgledger.database.repository.SessionGrantRepository;
 import org.pgledger.database.schema.GrantApplier;
-import org.pgledger.database.schema.SchemaMigrationException;
+import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.support.Databases;
@@ -151,11 +151,11 @@ class DmlAccountTest {
     }
 
     static Stream<String> statementsTheApplicationAccountMayRun() {
-        return Stream.of("INSERT INTO history (id, at, author_id, login, actor_assurance, entity, entity_id, op, "
+        return Stream.of("INSERT INTO history (id, occurred_at, author_id, login, actor_assurance, entity, entity_id, op, "
                 + "changes, reason, request_id) VALUES (1, TIMESTAMP '2026-11-05 10:00:00', 'claude:a', "
                 + "'ledger_author', 'DECLARED', 'DEFECT', 'X', 'CREATE', '{}', 'a reason of length', "
                 + "'11111111-1111-1111-1111-111111111111')",
-                "INSERT INTO owner_audit (id, at, actor, operation, subject) VALUES (1, TIMESTAMP '2026-11-05 10:00:00', "
+                "INSERT INTO owner_audit (id, occurred_at, actor, operation, subject) VALUES (1, TIMESTAMP '2026-11-05 10:00:00', "
                         + "'token:owner', 'GRANT_ISSUED', 'claude:a|p')", "SELECT COUNT(*) FROM owner_audit",
                 "SELECT COUNT(*) FROM schema_history");
     }
@@ -263,7 +263,7 @@ class DmlAccountTest {
                     new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
                             java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)), Clock.systemUTC())
                     .migrate())
-                    .isInstanceOf(SchemaMigrationException.class);
+                    .isInstanceOf(InfrastructureException.class);
         }
         try (Env migrated = environment(true, true)) {
             allowed(migrated.app(), "SELECT version, outcome FROM schema_history");

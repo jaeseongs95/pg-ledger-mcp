@@ -20,7 +20,7 @@ import org.springframework.context.annotation.Import;
 
 /**
  * The ledger services of the CLI and the doors of the commands to them. It exists only when
- * {@link DriverRegisteredCondition} holds, exactly like the console of the admin web; otherwise none of its beans (and no
+ * {@link CliDatabaseCondition} holds, exactly like the console of the admin web; otherwise none of its beans (and no
  * DataSource) is created and the commands that need the database find no {@link CliLedger}, no migrator and no
  * {@link SessionKeyRegistry}.
  *
@@ -31,7 +31,7 @@ import org.springframework.context.annotation.Import;
  * {@link SchemaReadiness}.
  */
 @Configuration(proxyBeanMethods = false)
-@Conditional(DriverRegisteredCondition.class)
+@Conditional(CliDatabaseCondition.class)
 @Import({LedgerApplicationConfiguration.class, LedgerDatabaseConfiguration.class, LedgerSchemaConfiguration.class})
 public class CliLedgerConfiguration {
 

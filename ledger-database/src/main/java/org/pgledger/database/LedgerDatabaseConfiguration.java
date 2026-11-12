@@ -16,6 +16,7 @@ import org.springframework.context.annotation.Import;
 @Import(LedgerJdbcConfiguration.class)
 public class LedgerDatabaseConfiguration {
 
+    /** A {@code @Bean} method because {@link Clock} is a JDK class: the one UTC clock of the application (principle 4.5). */
     @Bean
     Clock clock() {
         return Clock.systemUTC();

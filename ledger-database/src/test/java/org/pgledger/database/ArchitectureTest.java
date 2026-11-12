@@ -1,6 +1,7 @@
 package org.pgledger.database;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,6 +26,8 @@ import org.pgledger.testing.ArchitectureRules;
 import org.pgledger.testing.CodingScan;
 import org.pgledger.testing.SourceRules;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 /** The ARC rules that apply to the database module (the shared rules come from the domain test fixtures). */
 class ArchitectureTest {
@@ -66,8 +69,12 @@ class ArchitectureTest {
                                 "org.springframework.jdbc.core.JdbcOperations")
                         .orShould().dependOnClassesThat().haveFullyQualifiedName(
                                 "org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate")),
-                new Rule("ARC-013 no @Transactional here", noClasses().should().beAnnotatedWith(
-                        "org.springframework.transaction.annotation.Transactional")),
+                // the database module never opens a transaction: the caller (the service) owns it. The one use of
+                // @Transactional here is MANDATORY on the class that allocates ids, which only refuses a call without one.
+                new Rule("ARC-013 @Transactional here only as propagation MANDATORY, on a class",
+                        classes().that().areAnnotatedWith(Transactional.class).should(haveMandatoryPropagation())),
+                new Rule("ARC-013 no @Transactional on a method here", noMethods().should().beAnnotatedWith(
+                        Transactional.class)),
                 new Rule("ARC-027 DriverManager, class loaders and the pool only in the driver package",
                         noClasses().that().resideOutsideOfPackage("org.pgledger.database.driver..").should()
                                 .dependOnClassesThat().haveFullyQualifiedName("java.sql.DriverManager")
@@ -101,6 +108,20 @@ class ArchitectureTest {
     @DisplayName("ARC-017: configuration properties are records")
     void configurationPropertiesAreRecords() {
         classes().that().areAnnotatedWith(ConfigurationProperties.class).should().beRecords().check(MAIN);
+    }
+
+    /** A class whose {@code @Transactional} is {@code propagation = MANDATORY}. */
+    private static ArchCondition<JavaClass> haveMandatoryPropagation() {
+        return new ArchCondition<>("be @Transactional(propagation = MANDATORY)") {
+            @Override
+            public void check(JavaClass type, ConditionEvents events) {
+                Propagation propagation = type.getAnnotationOfType(Transactional.class).propagation();
+                if (propagation != Propagation.MANDATORY) {
+                    events.add(SimpleConditionEvent.violated(type, type.getName() + " is @Transactional with "
+                            + propagation));
+                }
+            }
+        };
     }
 
     /** A class with a code unit that has a catch block for {@code throwable}. */

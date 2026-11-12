@@ -42,9 +42,9 @@ class GrantProjectTest {
         List<Long> ids = s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(),
                 List.of("defect", "task"), "2030-01-01T00:00:00Z", "second"), TestOwners.OWNER);
         assertThat(ids).hasSize(2);
-        assertThat(s.count("SELECT COUNT(*) FROM session_grant WHERE author_id = ? AND scope = 'DEFECT'", author))
+        assertThat(s.count("SELECT COUNT(*) FROM session_grant WHERE author_id = ? AND grant_scope = 'DEFECT'", author))
                 .isEqualTo(2);
-        assertThat(s.count("SELECT COUNT(*) FROM session_grant WHERE author_id = ? AND scope = 'DEFECT' "
+        assertThat(s.count("SELECT COUNT(*) FROM session_grant WHERE author_id = ? AND grant_scope = 'DEFECT' "
                 + "AND revoked_at IS NULL", author)).isEqualTo(1);
         assertThat(s.count("SELECT COUNT(*) FROM session_grant WHERE author_id = ? AND granted_by = 'user:owner'",
                 author)).isEqualTo(3);

@@ -29,7 +29,7 @@ public class GrantStateRepository {
     /** True when the author holds a live grant (not revoked, not expired) for the scope; stamps its last use. */
     public boolean markUsed(AuthorId author, ProjectId project, Scope scope, Instant now) {
         return jdbc.sql("UPDATE session_grant SET last_used_at = :now "
-                + "WHERE author_id = :author AND project_id = :project AND scope = :scope "
+                + "WHERE author_id = :author AND project_id = :project AND grant_scope = :scope "
                 + "AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > :now)")
                 .param("now", UtcTime.toDb(now))
                 .param("author", author.value())
@@ -58,7 +58,7 @@ public class GrantStateRepository {
             sql += " AND project_id = :project";
         }
         if (scope != null) {
-            sql += " AND scope = :scope";
+            sql += " AND grant_scope = :scope";
         }
         JdbcClient.StatementSpec spec = jdbc.sql(sql).param("author", author.value());
         if (project != null) {
@@ -80,7 +80,7 @@ public class GrantStateRepository {
     public List<SessionGrant> findLive(AuthorId author, Instant now) {
         return new ArrayList<>(jdbc.sql(LIVE_COLUMNS
                 + "WHERE author_id = :author AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > :now) "
-                + "ORDER BY project_id, scope")
+                + "ORDER BY project_id, grant_scope")
                 .param("author", author.value())
                 .param("now", UtcTime.toDb(now))
                 .query(GRANT_ROW)
@@ -91,18 +91,18 @@ public class GrantStateRepository {
     public List<SessionGrant> findAllLive(Instant now) {
         return new ArrayList<>(jdbc.sql(LIVE_COLUMNS
                 + "WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > :now) "
-                + "ORDER BY author_id, project_id, scope")
+                + "ORDER BY author_id, project_id, grant_scope")
                 .param("now", UtcTime.toDb(now))
                 .query(GRANT_ROW)
                 .list());
     }
 
-    private static final String LIVE_COLUMNS = "SELECT id, author_id, project_id, scope, granted_by, granted_at, "
+    private static final String LIVE_COLUMNS = "SELECT id, author_id, project_id, grant_scope, granted_by, granted_at, "
             + "expires_at, revoked_at, last_used_at, note, active_key FROM session_grant ";
 
     private static final RowMapper<SessionGrant> GRANT_ROW = (rs, n) -> new SessionGrant(rs.getLong("id"),
             AuthorId.of(rs.getString("author_id")), ProjectId.of(rs.getString("project_id")),
-            Scope.valueOf(rs.getString("scope")), AuthorId.of(rs.getString("granted_by")),
+            Scope.valueOf(rs.getString("grant_scope")), AuthorId.of(rs.getString("granted_by")),
             UtcTime.read(rs, "granted_at"), UtcTime.read(rs, "expires_at"), UtcTime.read(rs, "revoked_at"),
             UtcTime.read(rs, "last_used_at"), rs.getString("note"), rs.getString("active_key"));
 }

@@ -35,14 +35,13 @@ class AnsiRulesTest {
     private static final Path SCHEMA = Path.of("src", "main", "resources", "db");
     private static final Path TEMPLATES = Path.of("src", "main", "resources", "db-templates");
 
-    /** Reserved words of ANSI SQL, H2 and PostgreSQL that an identifier must not be (see the allow-list below). */
+    /** Reserved words of SQL:2003, H2 and PostgreSQL that an identifier must not be (AT and SCOPE too: F10, no allow-list). */
     private static final Set<String> RESERVED = Set.of("condition", "release", "user", "type", "value", "key", "order",
             "group", "table", "column", "select", "from", "where", "check", "default", "primary", "references",
             "unique", "index", "constraint", "all", "any", "as", "case", "end", "in", "is", "not", "null", "or", "and",
             "like", "limit", "offset", "window", "year", "month", "day", "hour", "minute", "second", "row", "rows",
-            "true", "false", "to", "on", "using", "when", "with");
-    /** SQL-standard words that PostgreSQL and H2 accept as column names and that the catalogue fixes (SCH-018). */
-    private static final Set<String> ACCEPTED = Set.of("at", "scope");
+            "true", "false", "to", "on", "using", "when", "with",
+            "at", "scope");
     private static final Pattern IDENTIFIER = Pattern.compile("[a-z][a-z0-9_]*");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private static final Pattern ADJOINING_LITERALS = Pattern.compile("\"\\s*\\+\\s*\"");
@@ -151,7 +150,7 @@ class AnsiRulesTest {
         List<String> names = DdlModel.parse(sql.stripped()).identifiers();
         assertThat(sql.raw()).doesNotContain("\"");
         assertThat(names).isNotEmpty().allMatch(n -> IDENTIFIER.matcher(n).matches() && n.length() <= 30);
-        assertThat(names.stream().filter(n -> RESERVED.contains(n) && !ACCEPTED.contains(n))).isEmpty();
+        assertThat(names.stream().filter(RESERVED::contains)).isEmpty();
     }
 
     @ParameterizedTest

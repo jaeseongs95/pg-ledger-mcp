@@ -6,6 +6,7 @@ import java.util.List;
 import org.pgledger.database.time.UtcTime;
 import org.pgledger.domain.rule.AttentionKind;
 import org.pgledger.domain.rule.DefectStatus;
+import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.value.CodeValue;
 import org.pgledger.domain.value.DefectId;
 import org.pgledger.domain.value.MaxRows;
@@ -51,8 +52,6 @@ public class DefectQueryRepository {
     private static final String SELECT = "SELECT id, title, category, severity, status, merged_into, " + OWNER
             + " AS owner, version, created_at, updated_at FROM defect WHERE project_id = :project";
 
-    private static final String HAS_FIX = "EXISTS (SELECT 1 FROM defect_fix x WHERE x.defect_id = defect.id)";
-
     private final JdbcClient jdbc;
 
     public DefectQueryRepository(JdbcClient jdbc) {
@@ -83,13 +82,7 @@ public class DefectQueryRepository {
             sql.append(" AND ").append(OWNER).append(" = :owner");
         }
         if (filter.attention() != null) {
-            sql.append(switch (filter.attention()) {
-                case OPEN_WITH_FIX -> " AND status = 'OPEN' AND " + HAS_FIX;
-                case FIXED_WITHOUT_COMMIT -> " AND status IN ('SOURCE_FIXED', 'VERIFIED') AND NOT " + HAS_FIX;
-                case OPEN_NO_OWNER -> " AND status = 'OPEN' AND owner_actor_id IS NULL";
-                case TASK_UNKNOWN, DONE_NOT_VERIFIED ->
-                    throw new IllegalArgumentException("not a defect attention kind: " + filter.attention());
-            });
+            sql.append(" AND ").append(AttentionSql.condition(filter.attention(), HistoryEntity.DEFECT));
         }
         if (after != null) {
             sql.append(newestFirst
@@ -142,7 +135,7 @@ public class DefectQueryRepository {
         JdbcClient.StatementSpec spec = jdbc.sql(sql).param("project", project.value())
                 .withMaxRows(maxRows.value() + 1);
         for (int i = 0; i < keywords.size(); i++) {
-            spec = spec.param("k" + i, "%" + escapeLike(keywords.get(i)) + "%");
+            spec = spec.param("k" + i, LikePattern.contains(keywords.get(i)));
         }
         return KeysetPage.of(spec.query(DefectQueryRepository::summary).list(), maxRows.value());
     }
@@ -154,9 +147,5 @@ public class DefectQueryRepository {
                 DefectStatus.valueOf(rs.getString("status")), mergedInto == null ? null : DefectId.of(mergedInto),
                 rs.getString("owner"), rs.getLong("version"), UtcTime.read(rs, "created_at"),
                 UtcTime.read(rs, "updated_at"));
-    }
-
-    private static String escapeLike(String keyword) {
-        return keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

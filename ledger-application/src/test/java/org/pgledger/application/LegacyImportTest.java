@@ -328,7 +328,7 @@ class LegacyImportTest {
             assertThat(rig.ctx().jdbc().sql("SELECT active_key FROM session_grant ORDER BY id").query(String.class).list())
                     .containsExactly("claude:e2e-seed|old|defect", "claude:e2e-seed|old|task", "revoked:4",
                             "gemini:expired|old|verify", "claude:e2e-seed|e2e|defect");
-            assertThat(rig.ctx().jdbc().sql("SELECT scope FROM session_grant ORDER BY id").query(String.class).list())
+            assertThat(rig.ctx().jdbc().sql("SELECT grant_scope FROM session_grant ORDER BY id").query(String.class).list())
                     .containsExactly("DEFECT", "TASK", "FIX", "VERIFY", "DEFECT");
             assertThat(rig.count("SELECT COUNT(*) FROM session_grant WHERE last_used_at IS NOT NULL")).isZero();
             assertThat(rig.count("SELECT COUNT(*) FROM session_grant WHERE granted_by <> 'user:owner'")).isZero();
@@ -612,7 +612,9 @@ class LegacyImportTest {
                 List<Map<String, Object>> legacy = rig.legacy().rows("SELECT " + key + " AS k, EXTRACT(EPOCH FROM " + column[1]
                         + ") AS e FROM ledger." + column[0] + " ORDER BY " + key);
                 for (Map<String, Object> row : legacy) {
-                    Instant instant = rig.instant("SELECT " + column[1] + " AS t FROM " + column[0] + " WHERE " + key + " = ?",
+                    // the new schema names the time of a history row occurred_at (the legacy column is at)
+                    String target = "history".equals(column[0]) && "at".equals(column[1]) ? "occurred_at" : column[1];
+                    Instant instant = rig.instant("SELECT " + target + " AS t FROM " + column[0] + " WHERE " + key + " = ?",
                             row.get("K") instanceof UUID ? row.get("K").toString() : row.get("K"));
                     if (row.get("E") == null) {
                         assertThat(instant).as("%s.%s %s", column[0], column[1], row.get("K")).isNull();
@@ -622,9 +624,9 @@ class LegacyImportTest {
                     }
                 }
             }
-            assertThat(rig.instant("SELECT at AS t FROM history WHERE id = 1")).isEqualTo(Instant.parse("2026-11-05T10:00:00.123456Z"));
-            assertThat(rig.instant("SELECT at AS t FROM history WHERE id = 2")).isEqualTo(Instant.parse("2026-11-05T10:00:00.654321Z"));
-            assertThat(rig.instant("SELECT at AS t FROM history WHERE id = 3")).isEqualTo(Instant.parse("2026-11-05T10:00:00Z"));
+            assertThat(rig.instant("SELECT occurred_at AS t FROM history WHERE id = 1")).isEqualTo(Instant.parse("2026-11-05T10:00:00.123456Z"));
+            assertThat(rig.instant("SELECT occurred_at AS t FROM history WHERE id = 2")).isEqualTo(Instant.parse("2026-11-05T10:00:00.654321Z"));
+            assertThat(rig.instant("SELECT occurred_at AS t FROM history WHERE id = 3")).isEqualTo(Instant.parse("2026-11-05T10:00:00Z"));
         });
     }
 
@@ -861,7 +863,7 @@ class LegacyImportTest {
                     Rig rig = new Rig(legacy, ctx);
                     rig.importAll();
                     for (Map<String, Object> row : legacy.rows("SELECT id AS k, EXTRACT(EPOCH FROM at) AS e FROM ledger.history")) {
-                        Instant instant = rig.instant("SELECT at AS t FROM history WHERE id = ?", row.get("K"));
+                        Instant instant = rig.instant("SELECT occurred_at AS t FROM history WHERE id = ?", row.get("K"));
                         assertThat(epoch(instant)).as("%s history %s", zone, row.get("K"))
                                 .isEqualByComparingTo(new BigDecimal(row.get("E").toString()));
                     }

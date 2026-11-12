@@ -13,6 +13,10 @@ dependencies {
 
     testImplementation(testFixtures(project(":ledger-domain")))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // The test slices of Spring Boot 4 are modules of their own (version from the Boot BOM): @JdbcTest and @DataJdbcTest
+    // for the repository tests (principle 7.2), on the embedded H2 below.
+    testImplementation("org.springframework.boot:spring-boot-starter-jdbc-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-data-jdbc-test")
     // JSON test data is written as records and serialised with Jackson 3 (Boot BOM)
     testImplementation("tools.jackson.core:jackson-databind")
     // ArchUnit: not in the Boot BOM, see gradle/libs.versions.toml
