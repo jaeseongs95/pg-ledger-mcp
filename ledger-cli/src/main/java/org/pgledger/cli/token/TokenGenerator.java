@@ -3,6 +3,7 @@ package org.pgledger.cli.token;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
+import org.springframework.stereotype.Component;
 
 /**
  * Makes the bearer tokens of the product (the agents' token of the MCP server, the admin token): 32 random bytes from a
@@ -12,6 +13,7 @@ import java.util.Base64;
  * product uses the platform's default {@code SecureRandom} (on Linux a CSPRNG seeded by the kernel). Reference:
  * https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/security/SecureRandom.html
  */
+@Component
 public final class TokenGenerator {
 
     /** The random bytes of a token. */

@@ -37,6 +37,32 @@ public final class CliOptions {
         return Optional.of(values.getFirst());
     }
 
+    /**
+     * As {@link #value}, but an absent option is null. This is the one place where an option that was not given becomes null,
+     * for the commands of the application services whose records say "not given" with a null component
+     * ({@code CodeCommand}, {@code GrantCommand}); everything of this tool that is not such a record keeps the
+     * {@link Optional}.
+     */
+    public static String valueOrNull(ApplicationArguments arguments, String name) {
+        return value(arguments, name).orElse(null);
+    }
+
+    /**
+     * As {@link #valueOrNull}, for a whole number (white space around it is allowed).
+     *
+     * @throws UsageException INVALID_OPTION_VALUE when the value is not a number (the {@link NumberFormatException} is the
+     *         cause; the message names no value)
+     */
+    public static Integer integerOrNull(ApplicationArguments arguments, String name) {
+        return value(arguments, name).map(text -> {
+            try {
+                return Integer.valueOf(text.strip());
+            } catch (NumberFormatException notANumber) {
+                throw new UsageException(ErrorCode.INVALID_OPTION_VALUE, notANumber);
+            }
+        }).orElse(null);
+    }
+
     /** As {@link #value}, but the option is required: its absence is MISSING_ARGUMENT. */
     public static String required(ApplicationArguments arguments, String name) {
         return value(arguments, name).orElseThrow(() -> new UsageException(ErrorCode.MISSING_ARGUMENT));

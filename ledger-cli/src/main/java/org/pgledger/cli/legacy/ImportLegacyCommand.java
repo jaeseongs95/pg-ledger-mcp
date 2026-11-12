@@ -15,12 +15,18 @@ import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.cli.database.CliLedger;
-import org.pgledger.domain.error.ConflictCode;
+import org.pgledger.cli.database.DatabaseBeans;
+import org.pgledger.cli.database.LedgerRefusals;
+import org.pgledger.cli.database.LedgerRefusals.Context;
+import org.pgledger.cli.database.LedgerRefusals.TableMismatch;
+import org.pgledger.domain.error.AdminException;
 import org.pgledger.domain.error.ConflictException;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
-import org.pgledger.domain.error.LookupCode;
+import org.pgledger.domain.error.LedgerException;
 import org.pgledger.domain.error.LookupException;
+import org.pgledger.domain.error.TransitionException;
+import org.pgledger.domain.error.TrustException;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationIssue;
 import org.springframework.beans.factory.ObjectProvider;
@@ -49,9 +55,6 @@ public class ImportLegacyCommand implements Command {
     static final String OWNER_ACCOUNT = "owner-account";
     /** Read by {@code OwnerAccountEnvironmentPostProcessor}: the password of the owner account is the next line of standard input. */
     static final String STDIN = "stdin";
-
-    /** The arguments of a failed comparison come in groups: table, legacy rows, new rows, legacy digest, new digest. */
-    private static final int MISMATCH_GROUP = 5;
 
     private final ObjectProvider<CliLedger> ledger;
     private final CliOutput output;
@@ -85,10 +88,7 @@ public class ImportLegacyCommand implements Command {
         if (CliOptions.flag(arguments, STDIN) && ownerAccount.isEmpty()) {
             throw new UsageException(ErrorCode.INVALID_OPTION_VALUE);
         }
-        CliLedger target = ledger.getIfAvailable();
-        if (target == null) {
-            throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
-        }
+        CliLedger target = DatabaseBeans.require(ledger);
         LegacyImportService importer = target.importer();
         if (!importer.sourceConfigured()) {
             throw new FailureException(ErrorCode.IMPORT_SOURCE_NOT_CONFIGURED);
@@ -102,37 +102,37 @@ public class ImportLegacyCommand implements Command {
                 String.valueOf(report.rows()), String.valueOf(report.tables().size()), report.schema()));
     }
 
-    /** Runs the service; each refusal it knows becomes the refusal of this command, any other one is left to the door. */
+    /**
+     * Runs the service; a refusal of the ledger becomes the refusal of this command ({@link LedgerRefusals}, context IMPORT),
+     * after what the owner needs to find the rows is printed: the values that cannot be imported, one per line, or the tables
+     * of a failed comparison.
+     */
     private ImportReport execute(CliLedger target, LegacyImportService importer, boolean verifyOnly) {
         try {
             return verifyOnly ? importer.verify() : importer.importLegacy(target.actor());
-        } catch (ConflictException refused) {
-            if (refused.code() == ConflictCode.DUPLICATE_KEY) {
-                throw new FailureException(ErrorCode.IMPORT_TARGET_NOT_EMPTY, refused, String.join(", ",
-                        refused.args()));
-            }
-            throw refused;
-        } catch (LookupException refused) {
-            if (refused.code() == LookupCode.NOT_FOUND && refused.args().size() > 1) {
-                throw new FailureException(ErrorCode.IMPORT_SOURCE_INCOMPLETE, refused, refused.args().get(1));
-            }
-            throw refused;
-        } catch (ValidationException refused) {
-            for (ValidationIssue issue : refused.issues()) {
-                output.info(messages.get("import-legacy.violation", issue.path(), reasonText(issue)));
-            }
-            throw new FailureException(ErrorCode.IMPORT_DATA_REFUSED, refused, String.valueOf(refused.issues().size()));
-        } catch (InfrastructureException refused) {
-            if (refused.code() == InfrastructureCode.INTEGRITY_VIOLATION && refused.args().size() >= MISMATCH_GROUP) {
-                List<String> all = refused.args();
-                for (int from = 0; from + MISMATCH_GROUP <= all.size(); from += MISMATCH_GROUP) {
-                    output.info(messages.get("import-legacy.mismatch",
-                            all.subList(from, from + MISMATCH_GROUP).toArray(String[]::new)));
+        } catch (LedgerException refused) {
+            report(refused);
+            throw LedgerRefusals.translate(refused, Context.IMPORT);
+        }
+    }
+
+    private void report(LedgerException refused) {
+        switch (refused) {
+            case ValidationException invalid -> {
+                for (ValidationIssue issue : invalid.issues()) {
+                    output.info(messages.get("import-legacy.violation", issue.path(), reasonText(issue)));
                 }
-                throw new FailureException(ErrorCode.IMPORT_VERIFY_FAILED, refused,
-                        all.subList(0, MISMATCH_GROUP).toArray(String[]::new));
             }
-            throw refused;
+            case InfrastructureException failed -> {
+                if (failed.code() == InfrastructureCode.INTEGRITY_VIOLATION) {
+                    for (TableMismatch mismatch : TableMismatch.of(failed.args())) {
+                        output.info(messages.get("import-legacy.mismatch", mismatch.texts()));
+                    }
+                }
+            }
+            case ConflictException _, LookupException _, TrustException _, TransitionException _, AdminException _ -> {
+                // nothing more to show than the refusal itself
+            }
         }
     }
 

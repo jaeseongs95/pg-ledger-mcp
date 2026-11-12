@@ -9,16 +9,14 @@ import org.pgledger.application.legacy.LegacyImportService;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.domain.error.LedgerException;
-import org.pgledger.domain.error.ValidationException;
-import org.pgledger.domain.error.ValidationIssue;
 import org.pgledger.domain.value.OwnerIdentity;
 import org.springframework.dao.DataAccessException;
 
 /**
  * The door of the owner commands to the ledger: the application services the admin web uses, the actor of the audit trail
- * and the one place that turns a refusal of the ledger into the CLI's refusal. It exists only when a usable JDBC driver
- * is registered (see {@link CliLedgerConfiguration}), so a command that asks for it and finds none reports
- * DRIVER_NOT_CONFIGURED.
+ * and the door that turns a refusal of the ledger into the CLI's refusal ({@link LedgerRefusals}). It exists only when a
+ * usable JDBC driver is registered (see {@link CliLedgerConfiguration}, which imports it as a component under its
+ * condition), so a command that asks for it and finds none reports DRIVER_NOT_CONFIGURED.
  */
 public final class CliLedger {
 
@@ -77,18 +75,9 @@ public final class CliLedger {
         try {
             return work.get();
         } catch (LedgerException refused) {
-            throw refusal(refused);
+            throw LedgerRefusals.translate(refused, LedgerRefusals.Context.GENERIC);
         } catch (DataAccessException failure) {
             throw new FailureException(ErrorCode.DATABASE_FAILED, failure);
         }
-    }
-
-    private static FailureException refusal(LedgerException refused) {
-        String detail = refused.code().token();
-        if (refused instanceof ValidationException invalid && !invalid.issues().isEmpty()) {
-            ValidationIssue first = invalid.issues().getFirst();
-            detail = detail + ": " + first.path() + " " + first.reason().name();
-        }
-        return new FailureException(ErrorCode.LEDGER_REFUSED, refused, detail);
     }
 }

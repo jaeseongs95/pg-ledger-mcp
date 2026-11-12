@@ -399,17 +399,22 @@ class SecretStoreTest {
     }
 
     @Test
-    @DisplayName("SEC-021 a protection is chosen by the attribute views of the file system: POSIX first, then ACL, a file system with neither has none")
+    @DisplayName("SEC-021 (changed by CLI-PRN-11) a protection is chosen by the attribute views of the file system: POSIX first, then ACL; a file system with neither is refused as NON_POSIX_FILESYSTEM naming the directory")
     void sec021_protectionFollowsTheAttributeViews() throws IOException {
         FileSystem system = FileSystems.getDefault();
         Set<String> views = system.supportedFileAttributeViews();
-        Optional<SecretProtection> chosen = SecretProtection.of(system, new SystemProcessUser());
+        SecretProtection chosen = SecretProtection.of(tmp, new SystemProcessUser());
 
-        assertThat(chosen).isPresent();
-        assertThat(chosen.orElseThrow() instanceof SecretProtection.Posix).isEqualTo(views.contains("posix"));
-        assertThat(chosen.orElseThrow() instanceof SecretProtection.Acl).isEqualTo(!views.contains("posix") && views.contains("acl"));
+        assertThat(chosen instanceof SecretProtection.Posix).isEqualTo(views.contains("posix"));
+        assertThat(chosen instanceof SecretProtection.Acl).isEqualTo(!views.contains("posix") && views.contains("acl"));
         try (FileSystem zip = FileSystems.newFileSystem(tmp.resolve("neither.zip"), Map.of("create", "true"))) {
-            assertThat(SecretProtection.of(zip, new SystemProcessUser())).isEmpty();
+            Path inside = zip.getPath("/secrets");
+
+            assertThatThrownBy(() -> SecretProtection.of(inside, new SystemProcessUser()))
+                    .isInstanceOfSatisfying(FailureException.class, refused -> {
+                        assertThat(refused.code()).isEqualTo(ErrorCode.NON_POSIX_FILESYSTEM);
+                        assertThat(refused.arguments()).containsExactly(inside.toString());
+                    });
         }
     }
 }

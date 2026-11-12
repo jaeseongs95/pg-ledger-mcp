@@ -131,8 +131,7 @@ public class SecretStore {
     /** The protection of this file system; a file system with neither POSIX permissions nor ACLs is refused. */
     private SecretProtection protection() {
         try {
-            return SecretProtection.of(directory.getFileSystem(), processUser)
-                    .orElseThrow(() -> new FailureException(ErrorCode.NON_POSIX_FILESYSTEM, directory.toString()));
+            return SecretProtection.of(directory, processUser);
         } catch (IOException e) {
             throw new FailureException(ErrorCode.IO_FAILED, e, directory.toString(), reason(e));
         }

@@ -68,7 +68,9 @@ public class SecretSetCommand implements Command {
             output.info(messages.get("secret-set.kept", name.value()));
             return;
         }
-        // --stdin is the one opt-in way to give the secret without a terminal: its first line, nothing from an argument
+        // --stdin is the one opt-in way to give the secret without a terminal: its first line, nothing from an argument.
+        // Made here, not injected: the source is chosen per command line (the flag), both are SecretInput implementations
+        // (so a bean of that type would be ambiguous), and the stdin one only wraps the stream of this run.
         SecretInput source = fromStandardInput ? new StdinSecretInput(standardInput.stream()) : input;
         char[] value = source.read(messages.get("secret-set.prompt", name.value()));
         try {
