@@ -43,7 +43,10 @@ import org.springframework.test.context.ContextConfiguration;
  * words of SQL:2003) are written and read through their repositories, and the text of the columns is what the schema files
  * say. The schema is built by the real {@code db/V*.sql} files when the context starts.
  */
-// Boot's pooled DataSource on an embedded H2 (Replace.NONE): see SearchQueryRepositoryJdbcTest for the reason.
+// A named in-memory H2 behind Boot's pooled (Hikari) DataSource, Boot's embedded replacement switched off (Replace.NONE).
+// Why: in H2 2.4.240 a CHECK ... IN (<constants>) constraint keeps the session that created it, so after that session is
+// closed every later insert into the table fails with "The database has been closed" (ConditionInConstantSet,
+// SessionLocal.getDatabase). Boot's embedded replacement closes a connection after every call, a pool keeps them open.
 @DataJdbcTest(properties = {"ledger.schema.long-text-type=CLOB",
         "spring.datasource.url=jdbc:h2:mem:w2mappingslice;DB_CLOSE_DELAY=-1"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)

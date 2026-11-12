@@ -172,14 +172,21 @@ public class SchemaMigrator {
 
     private boolean failed(SchemaHistoryRepository repository, MigrationFile file, List<Row> before,
             RuntimeException cause) {
-        if (appliedByAnotherProcess(repository, file, before)) {
-            LOG.info("V{} was applied by another migration process", file.version(), cause);
-            return false;
-        }
-        List<Row> now = new SchemaHistory(repository.rows()).attemptsOf(file.version());
-        repository.append(new Row(file.version(), file.fileName(), file.digest(), nextTime(now), Outcome.FAILED));
-        throw new InfrastructureException(InfrastructureCode.SCHEMA_MIGRATION_FAILED,
+        InfrastructureException failure = new InfrastructureException(InfrastructureCode.SCHEMA_MIGRATION_FAILED,
                 List.of(String.valueOf(file.version()), file.fileName()), cause);
+        try {
+            if (appliedByAnotherProcess(repository, file, before)) {
+                LOG.info("V{} was applied by another migration process", file.version(), cause);
+                return false;
+            }
+            List<Row> now = new SchemaHistory(repository.rows()).attemptsOf(file.version());
+            repository.append(new Row(file.version(), file.fileName(), file.digest(), nextTime(now), Outcome.FAILED));
+        } catch (DataAccessException recording) {
+            // the history cannot be read or written either: the failure of the file is still what the caller must learn,
+            // so it stays the cause, and the failure of recording it is attached, not thrown in its place
+            failure.addSuppressed(recording);
+        }
+        throw failure;
     }
 
     /**

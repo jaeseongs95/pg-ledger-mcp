@@ -47,6 +47,7 @@ import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.DataAccessException;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
@@ -222,6 +223,26 @@ class SchemaMigratorTest {
                         T0.plusNanos(1000)), success(3, "V3__three.sql", THREE, T0.plusSeconds(60))));
         verifier(fixed).verify();
         assertThat(tableExists("t_four")).isTrue();
+    }
+
+    /** SCH-034: a failure while the failure is recorded does not hide the failure of the file. */
+    @Test
+    void sch034_theCauseSurvivesAFailureToRecordTheFailure() {
+        // the first statement makes the database refuse the FAILED row of this file; the second statement is what fails
+        String refusesFailedRows = "ALTER TABLE schema_history ADD CONSTRAINT ck_no_failed CHECK (outcome <> 'FAILED');\n"
+                + "INSERT INTO no_such_table (id) VALUES (1);\n";
+        migrator(files(Map.of("V1__one.sql", ONE))).migrate();
+        Path dir = files(Map.of("V1__one.sql", ONE, "V2__two.sql", refusesFailedRows));
+
+        InfrastructureException failure = refusedWith(() -> migrator(dir).migrate(),
+                InfrastructureCode.SCHEMA_MIGRATION_FAILED);
+
+        assertThat(failure.args()).containsExactly("2", "V2__two.sql");
+        assertThat(failure.getCause()).as("the original failure of the file").isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("no_such_table");
+        assertThat(failure.getSuppressed()).as("the failure of recording it").hasSize(1);
+        assertThat(failure.getSuppressed()[0]).isInstanceOf(DataAccessException.class);
+        assertThat(history().stream().filter(r -> r.version() == 2)).as("the FAILED row was refused").isEmpty();
     }
 
     @Test
