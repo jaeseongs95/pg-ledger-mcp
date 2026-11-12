@@ -438,7 +438,7 @@ class DocsTest {
 
     @ParameterizedTest
     @EnumSource(Language.class)
-    @DisplayName("DOC-033 the License section of the README states AGPL-3.0-or-later, the MIT License of the releases up to 1.x and the copyright line")
+    @DisplayName("DOC-033 the License section of the README states AGPL-3.0-or-later, the MIT License only for the published v1.0.0 and v1.1.0 and the copyright line")
     void readmeStatesTheLicense(Language language) {
         String heading = language == Language.EN ? "License" : "라이선스";
         String section = language.readme().part(heading).text();
