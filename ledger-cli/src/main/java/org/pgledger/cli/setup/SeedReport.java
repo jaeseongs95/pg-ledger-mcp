@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.pgledger.domain.model.CommonCode;
 import org.pgledger.seed.SeedCode;
 import org.pgledger.seed.SeedDigest;
@@ -35,7 +36,7 @@ record SeedReport(int seed, int present, int same, int changed, String seedDiges
             SeedCode have = byKey.get(key(wanted));
             if (have != null) {
                 found.add(have);
-                if (have.equals(wanted)) {
+                if (Objects.equals(have, wanted)) {
                     same++;
                 }
             }

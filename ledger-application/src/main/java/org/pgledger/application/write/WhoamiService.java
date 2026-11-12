@@ -47,7 +47,9 @@ public class WhoamiService {
      *        the error of the gate, so a session finds out here why it cannot write.
      */
     public Whoami whoami(String actor, Channel channel) {
-        return switch (attestation.prove(actor, ToolScope.current(), "", ToolScope.argumentsDigest())) {
+        // outside a tool call there is no tool and no digest: the contract of AttestationVerifier says null for that
+        return switch (attestation.prove(actor, ToolScope.current().orElse(null), "",
+                ToolScope.argumentsDigest().orElse(null))) {
             case AttestationVerifier.Proof.MalformedAuthor malformed ->
                 new Whoami(malformed.text(), false, channel.mayVerify(), channel.login(), List.of());
             case AttestationVerifier.Proof.Proven proven -> {

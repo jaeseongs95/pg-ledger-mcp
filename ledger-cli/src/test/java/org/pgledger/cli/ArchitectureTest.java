@@ -15,6 +15,11 @@ import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.pgledger.testing.PrincipleRules;
+import java.util.Map;
+import java.util.stream.Stream;
 import org.pgledger.cli.secret.ConsoleSecretInput;
 import org.pgledger.cli.secret.SecretInput;
 import org.pgledger.cli.secret.StandardInput;
@@ -33,6 +38,36 @@ class ArchitectureTest {
     private static final JavaClasses MAIN = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
             .importPackages("org.pgledger.cli");
+
+    /** ARC-PRN-01 .. 06 (TEST_CASES.md section 25): what this module allows of each rule (key to reason). */
+    private static final Map<String, Map<String, String>> PRINCIPLE_ALLOWED = Map.of(
+            PrincipleRules.BEAN_OF_OWN_TYPE, Map.of(
+                    "CliDriverConfiguration.driverRegistrationFileLocation",
+                    "the value comes from a setting of this tool (ledger.cli.driver.file); the record is a class of the database "
+                            + "module, which serves two programs and cannot know the setting of either",
+                    "CliDriverConfiguration.driverRegistrar",
+                    "the registrar is a class of the database module that serves two programs (this tool and the admin web) and "
+                            + "takes what differs between them as arguments: the JDBC URL and the one directory a jar may be in, "
+                            + "a setting of this tool; the module cannot make it a component",
+                    "CliDriverDataSourceConfiguration.applicationAccountAccess",
+                    "the settings of the application account are bound from a filtered view of the environment, without the "
+                            + "source of the owner account, which no annotation can say; the class belongs to the database module"),
+            PrincipleRules.OR_ELSE_NULL, Map.of(
+                    "CliOptions.java",
+                    "valueOrNull and integerOrNull are the one place where an option that was not given becomes null, for the "
+                            + "records of the application services (CodeCommand, GrantCommand) and of the TLS request, which say "
+                            + "'not given' with a null component and may not hold an Optional (ARC-PRN-02); every other command "
+                            + "keeps the Optional"));
+
+    static Stream<PrincipleRules.Rule> principleRules() {
+        return PrincipleRules.all(MAIN, Path.of("src", "main", "java"), PRINCIPLE_ALLOWED).stream();
+    }
+
+    @ParameterizedTest
+    @MethodSource("principleRules")
+    void thePrincipleRuleHolds(PrincipleRules.Rule rule) {
+        assertThat(rule.problems()).isEmpty();
+    }
 
     @Test
     @DisplayName("SEC-001 permissions are given at creation: no code widens a file and narrows it later")

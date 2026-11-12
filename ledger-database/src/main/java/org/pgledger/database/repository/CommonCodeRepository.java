@@ -1,5 +1,6 @@
 package org.pgledger.database.repository;
 
+import java.util.Objects;
 import java.util.Optional;
 import org.pgledger.domain.model.CodeCatalog;
 import org.pgledger.domain.model.CommonCode;
@@ -37,7 +38,7 @@ public class CommonCodeRepository {
     }
 
     public Optional<CommonCode> find(CodeGroup group, CodeValue code) {
-        return catalog(group).entries().stream().filter(c -> c.code().equals(code)).findFirst();
+        return catalog(group).entries().stream().filter(c -> Objects.equals(c.code(), code)).findFirst();
     }
 
     public void insert(CommonCode code) {

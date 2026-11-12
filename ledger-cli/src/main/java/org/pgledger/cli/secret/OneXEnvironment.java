@@ -6,8 +6,9 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
- * The settings of the environment file of a 1.x installation ({@code /etc/pg-ledger-mcp/pg-ledger-mcp.env}), as the 1.x
- * installer wrote it (commit 9fb62fe, {@code deploy/install.sh}): one {@code KEY=VALUE} per line, the value unquoted, a
+ * The settings of the environment file of a 1.x installation ({@code /etc/pg-ledger-mcp/env}), as the 1.x
+ * installer wrote it (tag v1.1.0, {@code deploy/install.sh} with {@code ETC=/etc/$NAME}; the 1.x units read it with
+ * {@code EnvironmentFile=@ETC@/env}): one {@code KEY=VALUE} per line, the value unquoted, a
  * comment line starting with {@code #}. The 1.x installer itself read a value as the last occurrence of the key. The service
  * read the file as a systemd {@code EnvironmentFile}, which takes more than the installer wrote, so this reads that
  * superset (https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#EnvironmentFile=): empty lines, lines

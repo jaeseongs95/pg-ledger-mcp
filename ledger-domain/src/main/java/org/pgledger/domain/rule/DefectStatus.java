@@ -1,6 +1,7 @@
 package org.pgledger.domain.rule;
 
 import java.util.List;
+import java.util.Objects;
 import org.pgledger.domain.error.TransitionCode;
 import org.pgledger.domain.error.TransitionException;
 import org.pgledger.domain.value.DefectId;
@@ -55,7 +56,7 @@ public enum DefectStatus implements LifecycleState {
                 }
             }
             case MERGED -> {
-                if (target == null || target.id().equals(self) || target.status() == MERGED) {
+                if (target == null || Objects.equals(target.id(), self) || target.status() == MERGED) {
                     throw new TransitionException(TransitionCode.MERGE_TARGET_INVALID, List.of());
                 }
             }

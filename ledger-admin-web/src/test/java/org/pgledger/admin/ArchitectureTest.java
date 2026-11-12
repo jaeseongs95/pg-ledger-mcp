@@ -24,7 +24,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.testing.ArchitectureRules;
 import org.pgledger.testing.CodingScan;
+import org.pgledger.testing.PrincipleRules;
 import org.pgledger.testing.SourceRules;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -39,6 +41,30 @@ class ArchitectureTest {
 
     private static final JavaClasses MAIN = ArchitectureRules.productionClasses("org.pgledger.admin");
     private static final Path MAIN_JAVA = Path.of("src", "main", "java");
+
+    /** ARC-PRN-01 .. 06 (TEST_CASES.md section 25): what this module allows of each rule (key to reason). */
+    private static final Map<String, Map<String, String>> PRINCIPLE_ALLOWED = Map.of(
+            PrincipleRules.BEAN_OF_OWN_TYPE, Map.of(
+                    "AdminBeansConfiguration.adminMode",
+                    "the console exists exactly when the ledger database does: the value is decided from which beans exist (the "
+                            + "DataSource of the registered driver), which only a method that is given them can ask",
+                    "SetupConfiguration.driverRegistrationFileLocation",
+                    "the value comes from a setting of this application (ledger.admin.driver-file); the record is a class of the "
+                            + "database module, which serves two programs and cannot know the setting of either",
+                    "SetupConfiguration.driverRegistrar",
+                    "the registrar is a class of the database module that serves two programs (the admin web and the command line "
+                            + "tool) and takes what differs between them as arguments: the JDBC URL and the one directory a jar may "
+                            + "be in, a setting of this application; the module cannot make it a component"));
+
+    static Stream<PrincipleRules.Rule> principleRules() {
+        return PrincipleRules.all(MAIN, MAIN_JAVA, PRINCIPLE_ALLOWED).stream();
+    }
+
+    @ParameterizedTest
+    @MethodSource("principleRules")
+    void thePrincipleRuleHolds(PrincipleRules.Rule rule) {
+        assertThat(rule.problems()).isEmpty();
+    }
     private static final Path TEST_JAVA = Path.of("src", "test", "java");
 
     /** One rule of the catalogue under its ID. */

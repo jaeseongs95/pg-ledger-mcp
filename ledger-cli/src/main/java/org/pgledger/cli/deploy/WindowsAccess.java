@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
@@ -86,7 +87,7 @@ final class WindowsAccess {
     static List<AclEntry> with(List<AclEntry> current, AclEntry added) {
         List<AclEntry> acl = new ArrayList<>();
         for (AclEntry entry : current) {
-            if (!(entry.type() == AclEntryType.ALLOW && entry.principal().equals(added.principal()))) {
+            if (!(entry.type() == AclEntryType.ALLOW && Objects.equals(entry.principal(), added.principal()))) {
                 acl.add(entry);
             }
         }
@@ -110,7 +111,7 @@ final class WindowsAccess {
 
             @Override
             public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
-                if (directory.equals(skipped)) {
+                if (Objects.equals(directory, skipped)) {
                     return FileVisitResult.SKIP_SUBTREE;
                 }
                 add(directory, true);

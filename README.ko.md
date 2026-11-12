@@ -191,7 +191,7 @@ MCP를 직접 호출하는 쪽은 호스트로 인증되지 않습니다. bearer
   `UPDATE`와 `DELETE` 없음). DDL 계정은 `migrate`, `setup`, `import-legacy`에만 쓰며, 비밀번호는 숨김 입력으로 받고 저장하지 않습니다. 데이터베이스의 세션 시간대는
   UTC여야 하고, 앱 계정이 스키마를 쓸 수 있도록 허용되어 있어야 합니다. 이는 DBMS의 단계이며 제품 SQL에 포함되지 않습니다. `setup`이 이를 확인하고 빠져 있으면
   알려 줍니다(첫 설정 참조).
-- **jar와 드라이버.** `./gradlew build`로 jar를 빌드하고, 호스트에 필요한 jar 세 개를 한 디렉터리에 모읍니다. 데이터베이스의 JDBC 드라이버는 직접 구하며
+- **jar와 드라이버.** `./gradlew assemble`로 jar를 빌드하고(jar만 만듭니다. `./gradlew build`는 시험까지 실행하며 시험에는 별도의 PostgreSQL이 필요합니다. 빌드와 시험 참조), 호스트에 필요한 jar 세 개를 한 디렉터리에 모읍니다. 데이터베이스의 JDBC 드라이버는 직접 구하며
   그 클래스를 지정합니다. 제품에 동봉되어 있지 않습니다.
 
 ```sh
@@ -440,7 +440,7 @@ SHA-256, 시각에 대한 Ed25519 서명입니다. 가로챈 토큰으로 다른
 설치는 같은 호스트의 1.x 서비스를 대체합니다. 1.x 서비스는 전환할 때까지 1.x 데이터베이스를 쓰므로, 멈추고, 설치하고, 가져오고, 확인하는 순서로 진행합니다.
 설치기는 1.x의 어떤 것도 스스로 멈추지 않습니다.
 
-1. **백업.** DBMS의 덤프 도구로 장부 데이터베이스를 덤프하고, 1.x 설정 디렉터리 `/etc/pg-ledger-mcp`(파일 `/etc/pg-ledger-mcp/pg-ledger-mcp.env`에 1.x의
+1. **백업.** DBMS의 덤프 도구로 장부 데이터베이스를 덤프하고, 1.x 설정 디렉터리 `/etc/pg-ledger-mcp`(파일 `/etc/pg-ledger-mcp/env`에 1.x의
    토큰과 비밀번호가 있습니다)와 `/etc/systemd/system`의 1.x 유닛 파일을 복사해 둡니다.
 2. **1.x 서비스 중지.** 기본 이름으로 실행 중인 호스트에서는 `sudo systemctl stop pg-ledger-mcp pg-ledger-mcp-admin`입니다. 새 서버가 실행될 때까지 1.x의
    클라이언트는 거부됩니다. 1.x를 새 설치와 나란히 두려면 새 설치에 자체 `--name=<name>`과 포트를 주십시오.
@@ -449,7 +449,7 @@ SHA-256, 시각에 대한 Ed25519 서명입니다. 가로챈 토큰으로 다른
 4. **1.x의 토큰과 함께 설치.** Linux 설치에 `--from-1x-env=<file>`을 더합니다.
 
    ```sh
-   sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --from-1x-env=/etc/pg-ledger-mcp/pg-ledger-mcp.env
+   sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --from-1x-env=/etc/pg-ledger-mcp/env
    ```
 
    설치기가 1.x 파일을 root로 열고, `secret-import-1x`가 `DBHUB_AUTH_TOKEN`을 `ledger.mcp.token`과 `ledger.admin.agent-token`으로,

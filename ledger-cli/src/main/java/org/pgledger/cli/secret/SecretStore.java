@@ -17,6 +17,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.UserPrincipal;
 import java.util.Arrays;
+import java.util.Objects;
 
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
@@ -145,7 +146,7 @@ public class SecretStore {
         // The service reads the secrets with its own account: a path owned by anyone else (for example root) is useless.
         UserPrincipal actual = Files.getOwner(path, LinkOption.NOFOLLOW_LINKS);
         UserPrincipal current = processUser.current(path.getFileSystem());
-        if (!actual.equals(current)) {
+        if (!Objects.equals(actual, current)) {
             throw new FailureException(ErrorCode.FOREIGN_OWNER, path.toString(), actual.getName(), current.getName());
         }
         protection.requireOwnerOnlyAccess(path);

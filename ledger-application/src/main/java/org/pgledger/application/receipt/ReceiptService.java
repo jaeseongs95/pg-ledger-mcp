@@ -81,7 +81,7 @@ public class ReceiptService {
         if (stored.origin() == ReceiptOrigin.LEGACY) {
             throw new ConflictException(ConflictCode.REQUEST_ID_LEGACY, List.of(id.toString()));
         }
-        boolean same = stored.operation() == operation && stored.payloadSha256().equals(digest)
+        boolean same = stored.operation() == operation && Objects.equals(stored.payloadSha256(), digest)
                 && Objects.equals(stored.authorId().value(), author.value())
                 && Objects.equals(stored.login(), channel.login());
         if (!same) {

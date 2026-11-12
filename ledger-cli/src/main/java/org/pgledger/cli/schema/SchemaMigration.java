@@ -77,11 +77,11 @@ public class SchemaMigration {
     }
 
     /**
-     * Applies the pending schema files and prints the versions applied (nothing when the schema is up to date), then, when an
-     * application account is given, applies its grants, also when no file was pending: an upgrade that adds a table has to
+     * Applies the pending schema files and prints the versions applied (nothing when the schema is up to date). The caller
+     * grants the application account next ({@link #grant}), also when no file was pending: an upgrade that adds a table has to
      * grant it, and granting again changes nothing.
      */
-    public void migrate(Optional<String> appAccount) {
+    public void migrate() {
         SchemaMigrator target = DatabaseBeans.require(migrator);
         List<Integer> applied;
         try {
@@ -99,10 +99,10 @@ public class SchemaMigration {
             output.info(messages.get("migrate.applied", String.valueOf(applied.size()),
                     applied.stream().map(version -> "V" + version).collect(Collectors.joining(", "))));
         }
-        appAccount.ifPresent(this::grant);
     }
 
-    private void grant(String appAccount) {
+    /** The ANSI grants of the application account on the tables of the schema; granting again changes nothing. */
+    public void grant(String appAccount) {
         GrantApplier applier = DatabaseBeans.require(grants);
         try {
             applier.apply(appAccount);

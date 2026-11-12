@@ -207,7 +207,7 @@ What every target has in common:
   DDL account is used only by `migrate`, `setup` and `import-legacy`; its password is typed with hidden input and is never stored. The
   session time zone of the database must be UTC, and the application account must be allowed to use the schema, a step of your DBMS
   that is not part of the product SQL: `setup` checks it and says so when it is missing (see First setup).
-- **Jars and the driver.** Build the jars with `./gradlew build` and collect the three jars of the host in one directory. The
+- **Jars and the driver.** Build the jars with `./gradlew assemble` (the jars only; `./gradlew build` also runs the tests, which need a PostgreSQL of their own, see Build and test) and collect the three jars of the host in one directory. The
   JDBC driver of your database is obtained by you, and you name its class; it is not bundled.
 
 ```sh
@@ -490,7 +490,7 @@ The installation replaces the 1.x service on the same host, which stays on the 1
 import, check. Do the steps in this order; the installer stops nothing of 1.x by itself.
 
 1. **Back up.** Dump the ledger database with the dump tool of your DBMS, and copy the 1.x settings directory `/etc/pg-ledger-mcp`
-   (the file `/etc/pg-ledger-mcp/pg-ledger-mcp.env` holds the 1.x tokens and passwords) and the 1.x unit files in `/etc/systemd/system`.
+   (the file `/etc/pg-ledger-mcp/env` holds the 1.x tokens and passwords) and the 1.x unit files in `/etc/systemd/system`.
 2. **Stop the 1.x services.** On a host that runs them under the default names:
    `sudo systemctl stop pg-ledger-mcp pg-ledger-mcp-admin`. Their clients are refused until the new server runs. To keep 1.x running
    next to the new installation, give the new one its own `--name=<name>` and its own ports instead.
@@ -500,7 +500,7 @@ import, check. Do the steps in this order; the installer stops nothing of 1.x by
 4. **Install with the tokens of 1.x.** Add `--from-1x-env=<file>` to the Linux installation:
 
    ```sh
-   sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --from-1x-env=/etc/pg-ledger-mcp/pg-ledger-mcp.env
+   sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --from-1x-env=/etc/pg-ledger-mcp/env
    ```
 
    The installer opens the 1.x file as root and `secret-import-1x` moves `DBHUB_AUTH_TOKEN` to `ledger.mcp.token` and

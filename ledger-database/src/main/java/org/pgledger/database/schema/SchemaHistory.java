@@ -1,6 +1,7 @@
 package org.pgledger.database.schema;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.pgledger.database.repository.SchemaHistoryRepository.Outcome;
 import org.pgledger.database.repository.SchemaHistoryRepository.Row;
@@ -76,7 +77,7 @@ public record SchemaHistory(List<Row> rows) {
             return Verdict.PENDING;
         }
         return lastSuccess(attempts).map(applied -> {
-            if (!applied.sha256().equals(file.digest())) {
+            if (!Objects.equals(applied.sha256(), file.digest())) {
                 return Verdict.DIGEST_CHANGED;
             }
             return attempts.getLast().outcome() == Outcome.FAILED ? Verdict.LATEST_FAILED : Verdict.INTACT;
@@ -87,7 +88,7 @@ public record SchemaHistory(List<Row> rows) {
     public boolean latestFailureIsOf(MigrationFile file) {
         List<Row> attempts = attemptsOf(file.version());
         return !attempts.isEmpty() && attempts.getLast().outcome() == Outcome.FAILED
-                && attempts.getLast().sha256().equals(file.digest());
+                && Objects.equals(attempts.getLast().sha256(), file.digest());
     }
 
     /**

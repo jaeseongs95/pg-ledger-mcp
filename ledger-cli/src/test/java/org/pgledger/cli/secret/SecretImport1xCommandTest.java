@@ -52,7 +52,7 @@ class SecretImport1xCommandTest {
     }
 
     private Path envFile(String text) throws IOException {
-        Path file = tmp.resolve("pg-ledger-mcp.env");
+        Path file = tmp.resolve("env");
         Files.writeString(file, text, StandardCharsets.UTF_8);
         return file;
     }

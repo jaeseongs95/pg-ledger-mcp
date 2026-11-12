@@ -15,6 +15,11 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.pgledger.testing.PrincipleRules;
+import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * HK-018 (code side): no network, process, reflection or framework access in any hook class; file system access only in
@@ -26,6 +31,19 @@ class ArchitectureTest {
 
     private static final JavaClasses hook = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS).importPackages("org.pgledger.hook");
+
+    /** ARC-PRN-01 .. 06 (TEST_CASES.md section 25): what this module allows of each rule (key to reason). The hook allows nothing. */
+    private static final Map<String, Map<String, String>> PRINCIPLE_ALLOWED = Map.of();
+
+    static Stream<PrincipleRules.Rule> principleRules() {
+        return PrincipleRules.all(hook, Path.of("src", "main", "java"), PRINCIPLE_ALLOWED).stream();
+    }
+
+    @ParameterizedTest
+    @MethodSource("principleRules")
+    void thePrincipleRuleHolds(PrincipleRules.Rule rule) {
+        assertThat(rule.problems()).isEmpty();
+    }
 
     @Test
     @DisplayName("HK-018 no hook class uses a network, process, reflection, foreign-memory, JDBC, Spring or Lombok API")

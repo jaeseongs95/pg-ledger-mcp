@@ -89,10 +89,8 @@ public class CodesController {
         if (!makesActive || form.confirmReactivation() != null || form.group() == null || form.code() == null) {
             return;
         }
-        // the list shows the state of a code as the text of its wire token
         boolean retired = catalog.codes(new CodesQuery(form.group().token(), true, Choices.ALL, null)).items().stream()
-                .anyMatch(existing -> Objects.equals(existing.code(), form.code())
-                        && Objects.equals(CodeState.INACTIVE.token(), existing.state()));
+                .anyMatch(existing -> Objects.equals(existing.code(), form.code()) && existing.state() == CodeState.INACTIVE);
         if (retired) {
             throw ValidationException.invalid("confirm_reactivation", ValidationReason.REQUIRED);
         }

@@ -1,6 +1,7 @@
 package org.pgledger.cli.schema;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.Command;
@@ -46,6 +47,8 @@ public class MigrateCommand implements Command {
         if (!operands.isEmpty()) {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
-        migration.migrate(migration.appAccount(arguments));
+        Optional<String> appAccount = migration.appAccount(arguments);
+        migration.migrate();
+        appAccount.ifPresent(migration::grant);
     }
 }

@@ -11,6 +11,11 @@ import java.nio.file.Path;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.pgledger.testing.PrincipleRules;
+import java.util.Map;
+import java.util.stream.Stream;
 import org.pgledger.testing.ArchitectureRules;
 import org.pgledger.testing.CodingScan;
 import org.pgledger.testing.SourceRules;
@@ -20,6 +25,19 @@ class ArchitectureTest {
 
     private static final JavaClasses classes = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS).importPackages("org.pgledger.attestation");
+
+    /** ARC-PRN-01 .. 06 (TEST_CASES.md section 25): what this module allows of each rule (key to reason). The attestation allows nothing. */
+    private static final Map<String, Map<String, String>> PRINCIPLE_ALLOWED = Map.of();
+
+    static Stream<PrincipleRules.Rule> principleRules() {
+        return PrincipleRules.all(classes, Path.of("src", "main", "java"), PRINCIPLE_ALLOWED).stream();
+    }
+
+    @ParameterizedTest
+    @MethodSource("principleRules")
+    void thePrincipleRuleHolds(PrincipleRules.Rule rule) {
+        assertThat(rule.problems()).isEmpty();
+    }
 
     @Test
     @DisplayName("ATT-020 the module uses no network, file, process, reflection, JDBC, Spring, Jackson or other module of the product")

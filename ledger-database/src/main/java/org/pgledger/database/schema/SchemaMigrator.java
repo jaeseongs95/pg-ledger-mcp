@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import javax.sql.DataSource;
 import org.pgledger.database.repository.SchemaHistoryRepository;
 import org.pgledger.database.repository.SchemaHistoryRepository.Outcome;
@@ -201,7 +202,7 @@ public class SchemaMigrator {
         while (true) {
             List<Row> now = new SchemaHistory(repository.rows()).attemptsOf(file.version());
             if (now.size() > before.size() && now.stream()
-                    .anyMatch(r -> r.outcome() == Outcome.SUCCESS && r.sha256().equals(file.digest()))) {
+                    .anyMatch(r -> r.outcome() == Outcome.SUCCESS && Objects.equals(r.sha256(), file.digest()))) {
                 return true;
             }
             if (System.nanoTime() - deadline >= 0) {

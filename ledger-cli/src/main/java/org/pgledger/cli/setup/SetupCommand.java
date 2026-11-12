@@ -84,7 +84,8 @@ public class SetupCommand implements Command {
         Optional<String> appAccount = migration.appAccount(arguments);
         // a seed that cannot be read is found before the database is touched
         List<SeedCode> wanted = seed.codes();
-        migration.migrate(appAccount);
+        migration.migrate();
+        appAccount.ifPresent(migration::grant);
         requireApplicationAccount();
         CliLedger target = DatabaseBeans.require(ledger);
         int added = 0;

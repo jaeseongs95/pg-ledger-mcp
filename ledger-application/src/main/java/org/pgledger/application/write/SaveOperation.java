@@ -201,7 +201,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
             return candidate;
         }
         DefectId candidate = DefectId.of(explicit);
-        if (!candidate.projectCode().equals(project.code())) {
+        if (!Objects.equals(candidate.projectCode(), project.code())) {
             String prefix = project.code().value() + "-D-";
             throw new ValidationException(ValidationCode.ID_PREFIX_MISMATCH, List.of(explicit, prefix),
                     List.of(new ValidationIssue("id", ValidationReason.MUST_START_WITH, List.of(prefix))), Map.of());

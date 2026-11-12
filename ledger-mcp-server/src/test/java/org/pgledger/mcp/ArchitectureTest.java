@@ -21,7 +21,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.mcp.archfixture.LeakyTokenCheck;
 import org.pgledger.testing.ArchitectureRules;
 import org.pgledger.testing.CodingScan;
+import org.pgledger.testing.PrincipleRules;
 import org.pgledger.testing.SourceRules;
+import java.util.Map;
 
 /**
  * The ARC rules that apply to the MCP server module (the shared rules come from the domain test fixtures), and the
@@ -32,6 +34,19 @@ class ArchitectureTest {
 
     private static final JavaClasses MAIN = ArchitectureRules.productionClasses("org.pgledger.mcp");
     private static final Path MAIN_JAVA = Path.of("src", "main", "java");
+
+    /** ARC-PRN-01 .. 06 (TEST_CASES.md section 25): what this module allows of each rule (key to reason). */
+    private static final Map<String, Map<String, String>> PRINCIPLE_ALLOWED = Map.of();
+
+    static Stream<PrincipleRules.Rule> principleRules() {
+        return PrincipleRules.all(MAIN, MAIN_JAVA, PRINCIPLE_ALLOWED).stream();
+    }
+
+    @ParameterizedTest
+    @MethodSource("principleRules")
+    void thePrincipleRuleHolds(PrincipleRules.Rule rule) {
+        assertThat(rule.problems()).isEmpty();
+    }
     private static final Path TEST_JAVA = Path.of("src", "test", "java");
 
     /** One rule of the catalogue under its ID. */

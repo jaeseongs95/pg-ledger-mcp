@@ -24,7 +24,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.testing.ArchitectureRules;
 import org.pgledger.testing.CodingScan;
+import org.pgledger.testing.PrincipleRules;
 import org.pgledger.testing.SourceRules;
+import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +37,28 @@ class ArchitectureTest {
     private static final JavaClasses MAIN = ArchitectureRules.productionClasses("org.pgledger.database");
     private static final Path MAIN_JAVA = Path.of("src", "main", "java");
     private static final Path TEST_JAVA = Path.of("src", "test", "java");
+
+    /** ARC-PRN-01 .. 06 (TEST_CASES.md section 25): what this module allows of each rule (key to reason). */
+    private static final Map<String, Map<String, String>> PRINCIPLE_ALLOWED = Map.of(
+            PrincipleRules.BEAN_OF_OWN_TYPE, Map.of(
+                    "LedgerDataSourceConfiguration.registeredDriver",
+                    "the driver is made at run time from the jar the user registered, inside a class loader of its own "
+                            + "(DriverLoader.load, a factory call): there is no class of ours with a constructor that Spring could "
+                            + "call, and the auto-configuration of Spring Boot cannot load a driver from a path"),
+            PrincipleRules.OPTIONAL_STORED, Map.of(
+                    "LedgerJdbcConfiguration.jdbcMappingContext",
+                    "it overrides AbstractJdbcConfiguration.jdbcMappingContext of Spring Data JDBC, whose signature takes an "
+                            + "Optional<NamingStrategy>; an override cannot change the type of a parameter"));
+
+    static Stream<PrincipleRules.Rule> principleRules() {
+        return PrincipleRules.all(MAIN, MAIN_JAVA, PRINCIPLE_ALLOWED).stream();
+    }
+
+    @ParameterizedTest
+    @MethodSource("principleRules")
+    void thePrincipleRuleHolds(PrincipleRules.Rule rule) {
+        assertThat(rule.problems()).isEmpty();
+    }
 
     /** One rule of the catalogue under its ID. */
     private record Rule(String id, ArchRule rule) {
