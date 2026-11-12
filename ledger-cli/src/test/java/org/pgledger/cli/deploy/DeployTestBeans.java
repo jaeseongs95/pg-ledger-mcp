@@ -30,7 +30,8 @@ final class DeployTestBeans {
     }
 
     static DeployInputReader reader() {
-        return new DeployInputReader(Validation.buildDefaultValidatorFactory().getValidator(), platforms(), defaults());
+        return new DeployInputReader(Validation.buildDefaultValidatorFactory().getValidator(), platforms(), defaults(),
+                new DeployFiles());
     }
 
     static DeployRenderer renderer() {

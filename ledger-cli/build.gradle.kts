@@ -23,6 +23,8 @@ dependencies {
     // The seed bundle (the initial data of a new installation) and its reader; the H2 driver that reads it comes with this
     // module and is on the runtime class path of this tool only (the root build, DRV-014, allows it nowhere else).
     implementation(project(":ledger-seed"))
+    // The ACME client of tls-issue and tls-renew (RFC 8555, HTTP-01): see gradle/libs.versions.toml
+    implementation(libs.acme4j.client)
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: see gradle/libs.versions.toml
@@ -32,6 +34,13 @@ dependencies {
     // The test database support (the PostgreSQL of the test PC: settings, pools, schema per test, PostgreSQL driver) and the
     // builder of the legacy ledger (the table shapes of the old schema and the data of the old installer), MIG-024.
     testImplementation(testFixtures(project(":ledger-database")))
+}
+
+// acme4j annotates its classes with SpotBugs' @SuppressFBWarnings, whose class file is not on the class path (the annotation is
+// only a static-analysis hint, never read at run time). javac reports that as a [classfile] warning, and the build turns warnings
+// into errors; the one category is switched off for this module instead of adding the SpotBugs annotations (an LGPL-2.1 artifact).
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.add("-Xlint:-classfile")
 }
 
 tasks.bootJar {

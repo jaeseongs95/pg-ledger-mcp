@@ -86,13 +86,14 @@ class InterruptedInstallTest {
     }
 
     @Test
-    @DisplayName("INS-039 usesDatabase: secret-set, token-generate, secret-import-1x, mcp-check, render-deploy, prepare-host, seal-host and install-default never use the ledger database, every other command does")
+    @DisplayName("INS-039 usesDatabase: secret-set, token-generate, secret-import-1x, mcp-check, render-deploy, prepare-host, seal-host, install-default, tls-issue and tls-renew (TLS) never use the ledger database, every other command does")
     void ins039_whichCommandsUseTheDatabase() {
         for (CliCommand command : CliCommand.values()) {
             boolean without = command == CliCommand.SECRET_SET || command == CliCommand.TOKEN_GENERATE
                     || command == CliCommand.SECRET_IMPORT_1X || command == CliCommand.MCP_CHECK
                     || command == CliCommand.RENDER_DEPLOY || command == CliCommand.PREPARE_HOST
-                    || command == CliCommand.SEAL_HOST || command == CliCommand.INSTALL_DEFAULT;
+                    || command == CliCommand.SEAL_HOST || command == CliCommand.INSTALL_DEFAULT
+                    || command == CliCommand.TLS_ISSUE || command == CliCommand.TLS_RENEW;
             assertThat(command.usesDatabase()).as(command.cliName()).isEqualTo(!without);
         }
     }

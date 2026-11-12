@@ -181,10 +181,65 @@ class InstallScriptsTest {
     }
 
     @Test
-    @DisplayName("INS-024 (changed by INS-046) install.sh is thin: at most 100 lines in all (a third of it the header that names the documentation it follows and the comment of each step that stays) and at most 55 lines of commands (the option loop, the check of the options, one user, one prepare-host call, the secrets and tokens, one migrate call, units, nginx; the directories, the copies and the modes are Java now)")
+    @DisplayName("INS-024 (changed by INS-046 and TLS-041) install.sh is thin: at most 135 lines in all (a third of it the header that names the documentation it follows and the comment of each step that stays) and at most 80 lines of commands (the option loop, the check of the options, one user, one prepare-host call, the secrets and tokens, one setup call, units, nginx, and the automatic certificate: the order, the second render, the reload and the timer; the directories, the copies and the modes are Java)")
     void ins024_theLineBudget() {
-        assertThat(lines(SH)).hasSizeLessThanOrEqualTo(100);
-        assertThat(shCodeLines()).hasSizeLessThanOrEqualTo(55);
+        assertThat(lines(SH)).hasSizeLessThanOrEqualTo(135);
+        assertThat(shCodeLines()).hasSizeLessThanOrEqualTo(80);
+    }
+
+    @Test
+    @DisplayName("TLS-040 install.sh reads the options of the automatic certificate (--tls-acme, --acme-directory and the two host names go on to Java, --acme-email and --agree-tos stay in the script), starts no certificate program, and the lines of the installation without --tls-acme are those of before")
+    void tls040_theOptionsOfTheAutomaticCertificate() {
+        List<String> code = shCodeLines();
+
+        assertThat(code).contains("    --tls-acme) ACME=1; set -- \"$@\" \"$arg\" ;;",
+                "    --acme-directory=*) ACME_DIR=${arg#*=}; set -- \"$@\" \"$arg\" ;;",
+                "    --mcp-host=*) MCP_HOST=${arg#*=}; set -- \"$@\" \"$arg\" ;;",
+                "    --admin-host=*) ADMIN_HOST=${arg#*=}; set -- \"$@\" \"$arg\" ;;",
+                "    --acme-email=*) EMAIL=${arg#*=} ;;", "    --agree-tos) AGREE=--agree-tos ;;");
+        assertThat(text(SH).toLowerCase(Locale.ROOT)).doesNotContain("certbot", "acme.sh", "cloudflare", "lightsail");
+        // the steps of an installation without --tls-acme are in the file as they were, in the same order
+        assertThat(code).containsSubsequence("java -Duser.timezone=UTC -jar \"$JARS/ledger-cli.jar\" --ledger.secrets.home=/nonexistent render-deploy --check --java=\"$JAVA\" \"$@\"",
+                "useradd --system --user-group --no-create-home --shell /usr/sbin/nologin \"$SVC\" || [ $? = 9 ]",
+                "as_svc setup --owner-account=\"$OWNER\" --app-account=\"$APP_ACCOUNT\" $STDIN", "systemctl daemon-reload",
+                "systemctl enable \"$SVC\" \"$ADMIN\"", "systemctl restart \"$SVC\" \"$ADMIN\"", "if [ -n \"$NGINX\" ]; then", "if [ -n \"$ACME\" ]; then");
+    }
+
+    @Test
+    @DisplayName("TLS-041 with --tls-acme the order is: the site of port 80 (prepare-host), the units, nginx loads it, tls-issue (tls-renew when fullchain.pem exists), render-deploy again for the 443 blocks, nginx loads it, the timer is enabled; the options of the steps are those of Java, and --agree-tos and the address go to tls-issue only")
+    void tls041_theOrderOfTheFirstIssuance() {
+        List<String> code = shCodeLines();
+        int prepare = firstIndex(code, "prepare-host");
+        int reload = firstIndex(code, "nginx -s reload");
+        int issue = firstIndex(code, "as_svc tls-issue");
+        int renew = firstIndex(code, "as_svc tls-renew");
+        int render = firstIndex(code, "render-deploy --java=");
+        int reloadAgain = code.subList(render, code.size()).indexOf("  nginx -s reload") + render;
+        int timer = firstIndex(code, "systemctl enable --now \"$SVC-tls-renew.timer\"");
+
+        assertThat(List.of(prepare, reload, renew, issue, render, reloadAgain, timer)).doesNotContain(-1).isSorted();
+        assertThat(code.get(firstIndex(code, "if [ -f \"$ETC/tls/fullchain.pem\" ]; then"))).isNotNull();
+        assertThat(code.stream().filter(line -> line.contains("--agree-tos") || line.contains("$AGREE") || line.contains("--acme-email")))
+                .as("the terms flag and the address reach tls-issue only").allSatisfy(line -> assertThat(line).containsAnyOf("tls-issue", "AGREE=", "EMAIL="));
+        assertThat(code.stream().filter(line -> line.contains("tls-renew") && line.contains("as_svc")).toList()).allSatisfy(line ->
+                assertThat(line).doesNotContain("AGREE").doesNotContain("EMAIL"));
+        assertThat(code.stream().filter(line -> line.contains("render-deploy")).toList()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("TLS-042 the calls of tls-issue and tls-renew give only options that exist in their usage text")
+    void tls042_theOptionsExist() throws IOException {
+        Properties usage = usageTexts();
+        int calls = 0;
+        for (String line : shCodeLines()) {
+            for (String command : List.of("tls-issue", "tls-renew")) {
+                if (line.contains("as_svc " + command + " ")) {
+                    calls++;
+                    assertOptionsAreDeclared(line, command, usage);
+                }
+            }
+        }
+        assertThat(calls).isEqualTo(2);
     }
 
     @Test
@@ -421,7 +476,7 @@ class InstallScriptsTest {
     void ins043_the1xServicesAreNotTouched() {
         for (String line : shCodeLines()) {
             if (line.contains("systemctl")) {
-                assertThat(line).as(line).containsPattern("systemctl (daemon-reload|enable \"\\$SVC\" \"\\$ADMIN\"|restart \"\\$SVC\" \"\\$ADMIN\")$");
+                assertThat(line).as(line).containsPattern("systemctl (daemon-reload|enable \"\\$SVC\" \"\\$ADMIN\"|restart \"\\$SVC\" \"\\$ADMIN\"|enable --now \"\\$SVC-tls-renew.timer\")$");
             }
         }
         assertThat(text(SH)).doesNotContain("pg-ledger-mcp.service");
@@ -455,7 +510,7 @@ class InstallScriptsTest {
                 assertThat(explained).as("a comment above: %s", line).isTrue();
             }
         }
-        assertThat(found).as("useradd, runuser, three systemctl, two nginx").isEqualTo(7);
+        assertThat(found).as("useradd, runuser, three systemctl and the timer, four nginx (two for the automatic certificate)").isEqualTo(10);
         Properties usage = usageTexts();
         for (String line : shCodeLines()) {
             if (line.contains(" prepare-host ")) {

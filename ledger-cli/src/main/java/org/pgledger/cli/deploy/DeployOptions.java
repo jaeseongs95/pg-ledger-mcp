@@ -26,6 +26,10 @@ public final class DeployOptions {
     public static final String NGINX_CONF = "nginx-conf";
     public static final String TLS_CERTIFICATE = "tls-certificate";
     public static final String TLS_KEY = "tls-key";
+    /** A flag, Linux only, with {@link #NGINX_CONF}: the certificate is made and renewed by {@code tls-issue} and {@code tls-renew} (ACME); not with the operator's own certificate. */
+    public static final String TLS_ACME = "tls-acme";
+    /** The ACME directory URL of the certificate authority (an option of {@code tls-issue} and {@code tls-renew} too); with {@link #TLS_ACME} only. */
+    public static final String ACME_DIRECTORY = "acme-directory";
     /**
      * The name of the instance, default {@code pg-ledger-mcp}: the service names ({@code <name>} and {@code <name>-admin}),
      * the Linux service user, the jar, settings and secret directories and the WinSW ids all follow it, so that two instances
@@ -41,10 +45,11 @@ public final class DeployOptions {
 
     /** The options that take a value, in the order of their usage text. */
     public static final List<String> ALL = List.of(NAME, PLATFORM, HOME, JAVA, JDBC_URL, APP_ACCOUNT, SCHEMA, LONG_TEXT_TYPE,
-            MCP_PORT, ADMIN_PORT, MCP_HOST, ADMIN_HOST, NGINX_CONF, TLS_CERTIFICATE, TLS_KEY, ROOT);
+            MCP_PORT, ADMIN_PORT, MCP_HOST, ADMIN_HOST, NGINX_CONF, TLS_CERTIFICATE, TLS_KEY, ACME_DIRECTORY, ROOT);
 
     /** Every option of the command, as the set the runner checks the command line against. */
-    public static final Set<String> NAMES = Stream.concat(ALL.stream(), Stream.of(CHECK)).collect(Collectors.toUnmodifiableSet());
+    public static final Set<String> NAMES = Stream.concat(ALL.stream(), Stream.of(CHECK, TLS_ACME))
+            .collect(Collectors.toUnmodifiableSet());
 
     private DeployOptions() {
     }

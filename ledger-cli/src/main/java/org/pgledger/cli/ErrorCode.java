@@ -60,7 +60,13 @@ public enum ErrorCode {
     HOST_FAILED,
     HOST_UNSUPPORTED,
     APP_ACCOUNT_NO_ACCESS,
-    SEED_UNAVAILABLE;
+    SEED_UNAVAILABLE,
+    TLS_TERMS_NOT_AGREED,
+    TLS_CHALLENGE_TOKEN,
+    TLS_ISSUE_FAILED,
+    TLS_NO_CERTIFICATE,
+    TLS_NO_ACCOUNT,
+    TLS_FILES_FAILED;
 
     public String messageKey() {
         return "error." + name();

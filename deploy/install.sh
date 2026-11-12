@@ -23,6 +23,9 @@
 # and Java reads it from standard input. A unit file of 1.x that a new unit replaces is kept as <file>.1x-backup by prepare-host.
 # --stdin gives the passwords on standard input instead of the terminal (an installation without one), as docker login
 # --password-stdin does: first the password of the application account (read only while it is not stored), then the DDL one.
+# Automatic certificate: --tls-acme (with --nginx-conf, --mcp-host and --admin-host) orders the certificate with tls-issue (ACME, HTTP-01)
+# and renews it with a systemd timer; --agree-tos (the terms of the authority), --acme-email and --acme-directory belong to it. Ports 80
+# and 443 must reach nginx. Without --tls-acme nothing of this runs and the options and the steps are those of before.
 set -eu
 umask 022
 
@@ -35,6 +38,12 @@ APP_ACCOUNT=
 NGINX=
 FROM_ENV=
 STDIN=
+MCP_HOST=
+ADMIN_HOST=
+ACME=
+ACME_DIR=
+EMAIL=
+AGREE=
 
 die() { echo "install.sh: $*" >&2; exit 1; }
 # runuser: a Java process cannot become another user, so the commands that touch the secrets are started as the service user.
@@ -53,6 +62,12 @@ for arg in "$@"; do
     --nginx-conf=*) NGINX=1; set -- "$@" "$arg" ;;
     --from-1x-env=*) FROM_ENV=${arg#*=} ;;
     --stdin) STDIN=--stdin ;;
+    --mcp-host=*) MCP_HOST=${arg#*=}; set -- "$@" "$arg" ;;
+    --admin-host=*) ADMIN_HOST=${arg#*=}; set -- "$@" "$arg" ;;
+    --tls-acme) ACME=1; set -- "$@" "$arg" ;;
+    --acme-directory=*) ACME_DIR=${arg#*=}; set -- "$@" "$arg" ;;
+    --acme-email=*) EMAIL=${arg#*=} ;;
+    --agree-tos) AGREE=--agree-tos ;;
     *) set -- "$@" "$arg" ;;
   esac
 done
@@ -95,5 +110,22 @@ systemctl restart "$SVC" "$ADMIN"
 if [ -n "$NGINX" ]; then
   nginx -t
   nginx -s reload
+fi
+# Automatic certificate (--tls-acme): the first certificate is ordered while nginx answers the proof of the authority on port 80, which
+# the site loaded above does (prepare-host leaves the 443 blocks out until the certificate files exist). tls-issue orders it as the
+# service user (the terms of the authority are agreed to with --agree-tos only); a re-run asks tls-renew, which orders only what is due.
+# Then render-deploy writes the site again, now with the 443 blocks, and nginx loads it.
+if [ -n "$ACME" ]; then
+  if [ -f "$ETC/tls/fullchain.pem" ]; then
+    as_svc tls-renew --name="$NAME" --mcp-host="$MCP_HOST" --admin-host="$ADMIN_HOST" ${ACME_DIR:+--acme-directory="$ACME_DIR"}
+  else
+    as_svc tls-issue --name="$NAME" --mcp-host="$MCP_HOST" --admin-host="$ADMIN_HOST" ${ACME_DIR:+--acme-directory="$ACME_DIR"} ${EMAIL:+--acme-email="$EMAIL"} $AGREE
+  fi
+  java -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" --ledger.secrets.home=/nonexistent render-deploy --java="$JAVA" "$@"
+  # nginx: the check and the reload again, for the 443 blocks.
+  nginx -t
+  nginx -s reload
+  # systemctl: the timer of the renewal (twice a day) is the service manager's.
+  systemctl enable --now "$SVC-tls-renew.timer"
 fi
 echo "install.sh: done. Check the MCP server with: java -jar $LIB/ledger-cli.jar mcp-check --url=<its public URL>"

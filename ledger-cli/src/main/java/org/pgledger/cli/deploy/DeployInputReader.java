@@ -2,6 +2,7 @@ package org.pgledger.cli.deploy;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -33,10 +34,14 @@ final class DeployInputReader {
     /** The name of the instance and the two ports an option that is not given takes (the seed bundle, the one place they are written). */
     private final InstallDefaults defaults;
 
-    DeployInputReader(Validator validator, ServicePlatforms platforms, InstallDefaults defaults) {
+    /** Looks at the certificate files of an automatic certificate, below the root of the command. */
+    private final DeployFiles files;
+
+    DeployInputReader(Validator validator, ServicePlatforms platforms, InstallDefaults defaults, DeployFiles files) {
         this.validator = validator;
         this.platforms = platforms;
         this.defaults = defaults;
+        this.files = files;
     }
 
     /**
@@ -48,13 +53,31 @@ final class DeployInputReader {
         for (String option : DeployOptions.ALL) {
             CliOptions.value(arguments, option).ifPresent(value -> values.put(option, value));
         }
+        if (CliOptions.flag(arguments, DeployOptions.TLS_ACME)) {
+            values.put(DeployOptions.TLS_ACME, "");
+        }
         DeployParameters parameters = parameters(values);
         try {
-            return new DeployInput(parameters,
-                    values.containsKey(DeployOptions.ROOT) ? Path.of(values.get(DeployOptions.ROOT)) : null);
+            Path root = values.containsKey(DeployOptions.ROOT) ? Path.of(values.get(DeployOptions.ROOT)) : null;
+            return new DeployInput(certificateIssued(parameters, root), root);
         } catch (InvalidPathException e) {
             throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, e, DeployOptions.ROOT);
         }
+    }
+
+    /**
+     * An automatic certificate: whether the two files of it exist (below the root, as the files of the command go there).
+     * Until they do, the nginx site holds the port 80 blocks only. This is the one thing the rendering takes from the host;
+     * the renderer itself still only reads its parameters.
+     */
+    private DeployParameters certificateIssued(DeployParameters parameters, Path root) {
+        if (parameters.nginx() == null || parameters.nginx().acme() == null) {
+            return parameters;
+        }
+        // the files are looked up with the platform of the host the command runs on, and refused before by requireReachable
+        Path certificate = files.resolve(root, parameters.nginx().certificate());
+        Path key = files.resolve(root, parameters.nginx().key());
+        return parameters.withCertificateIssued(Files.isRegularFile(certificate) && Files.isRegularFile(key));
     }
 
     /**
@@ -72,8 +95,22 @@ final class DeployInputReader {
         String conf = values.get(DeployOptions.NGINX_CONF);
         String certificate = values.get(DeployOptions.TLS_CERTIFICATE);
         String key = values.get(DeployOptions.TLS_KEY);
+        String acmeDirectory = values.get(DeployOptions.ACME_DIRECTORY);
         DeployParameters.Nginx nginx = null;
-        if (conf != null) {
+        if (values.containsKey(DeployOptions.TLS_ACME)) {
+            // the automatic certificate and the operator's own are two ways to the same files: both at once is a mistake
+            if (certificate != null) {
+                throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, DeployOptions.TLS_CERTIFICATE);
+            }
+            if (key != null) {
+                throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, DeployOptions.TLS_KEY);
+            }
+            nginx = new DeployParameters.Nginx(require(conf), layout.tlsDirectory() + "/" + DeployLayout.TLS_CHAIN_FILE,
+                    layout.tlsDirectory() + "/" + DeployLayout.TLS_KEY_FILE, new DeployParameters.Acme(acmeDirectory, false));
+        } else if (acmeDirectory != null) {
+            // a certificate authority without the automatic certificate is a mistake of the command line, not a setting to ignore
+            throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, DeployOptions.ACME_DIRECTORY);
+        } else if (conf != null) {
             nginx = new DeployParameters.Nginx(conf, require(certificate), require(key));
         } else if (certificate != null || key != null) {
             // a certificate without a site is a mistake of the command line, not a setting to ignore

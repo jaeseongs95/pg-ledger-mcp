@@ -227,9 +227,13 @@ cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-
 | `--admin-port=<n>` | 관리 웹의 루프백 포트, 기본값 8865 |
 | `--mcp-host=<host>` | MCP 서버의 공개 호스트 이름. 그 `Host` 검사에서 허용됩니다 |
 | `--admin-host=<host>` | 관리 웹의 공개 호스트 이름 |
-| `--nginx-conf=<path>` | Linux: 이 파일에 nginx 사이트를 씁니다. 두 호스트 이름, `--tls-certificate=<path>`, `--tls-key=<path>`가 필요합니다 |
+| `--nginx-conf=<path>` | Linux: 이 파일에 nginx 사이트를 씁니다. 두 호스트 이름과, `--tls-certificate=<path>` 및 `--tls-key=<path>` 또는 `--tls-acme`가 필요합니다 |
 | `--tls-certificate=<path>` | 운영자의 TLS 인증서. 인증서를 발급하거나 갱신하는 것은 없습니다 |
 | `--tls-key=<path>` | 운영자의 TLS 키 |
+| `--tls-acme` | 운영자의 인증서와 키 대신 주는 플래그입니다. 인증서를 `ledger-cli`가 만들고 갱신합니다(자동 인증서 참조) |
+| `--acme-directory=<url>` | `--tls-acme`와 함께 쓰는 선택 옵션입니다. 인증 기관의 ACME 디렉터리 URL이며, 기본값은 Let's Encrypt의 운영 디렉터리 `https://acme-v02.api.letsencrypt.org/directory`입니다 |
+| `--acme-email=<address>` | `--tls-acme`와 함께 쓰는 선택 옵션입니다. ACME 계정의 연락 주소입니다 |
+| `--agree-tos` | `--tls-acme`와 함께 씁니다. 인증 기관의 서비스 약관을 읽고 동의한다는 표시이며, 첫 주문에 필요합니다 |
 | `--from-1x-env=<file>` | 1.x에서 이전: 1.x 환경 파일. 그 안의 토큰 두 개를 어떤 토큰이든 만들기 전에 비밀로 옮깁니다(1.x에서 이전 참조) |
 | `--stdin` | 비밀번호를 터미널 대신 표준 입력에서 읽음. 먼저 앱 계정의 비밀번호(아직 저장되어 있지 않을 때만), 그다음 DDL 계정의 비밀번호. `docker login --password-stdin`과 같은 관례입니다 |
 
@@ -256,6 +260,47 @@ sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<dri
 ```sh
 sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --mcp-host=<mcp-host> --admin-host=<admin-host> --nginx-conf=/etc/nginx/conf.d/pg-ledger-mcp.conf --tls-certificate=<certificate> --tls-key=<key>
 ```
+
+### 자동 인증서
+
+`--tls-certificate`와 `--tls-key` 대신 `--tls-acme`를 주면 `ledger-cli`가 인증서를 직접 만들고 갱신합니다. 표준 ACME 클라이언트(RFC 8555)이며
+라이브러리 acme4j(Apache-2.0)로 만들었습니다. acme4j는 jose4j(Apache-2.0)와 Bouncy Castle(MIT 계열인 Bouncy Castle 라이선스)을 함께 가져오며,
+인증서 요청을 만드는 데 Bouncy Castle을 씁니다. 인증 기관은 ACME 디렉터리를 제공하는 어느 곳이든 됩니다. `--acme-directory=<url>`로 지정하며
+기본값은 Let's Encrypt의 운영 디렉터리입니다. 증명은 HTTP-01만 쓰므로 어떤 업체의 DNS나 CDN 인터페이스도 쓰지 않습니다. 결과는 `/etc/<name>/tls`의
+`fullchain.pem`과 `privkey.pem`이며 계정 키 `account.key`가 그 옆에 있습니다. 표준 PEM 파일이므로 다른 프록시도 그대로 쓸 수 있습니다. 키는 JDK로
+만들고(EC P-256), 서비스 사용자만 읽을 수 있게 저장하며, 출력하지 않습니다. 파일은 원자적으로 교체하므로 갱신이 실패해도 이전 인증서가 그대로 남습니다.
+
+운영자가 할 일은 다음 순서입니다.
+
+1. 두 호스트 이름, 즉 `--mcp-host`와 `--admin-host`의 DNS 레코드(`A`와 `AAAA`)를 서버로 지정합니다.
+2. 방화벽에서 `80`과 `443` 포트를 허용합니다. `80` 포트는 nginx에 닿아야 합니다. 인증 기관이 그곳에서 HTTP로 증명을 가져갑니다.
+3. 서버 앞에 CDN이나 다른 프록시를 두는 경우, 그 프록시는 경로 `/.well-known/acme-challenge/`를 `80` 포트의 서버로 그대로 통과시켜야 하며, 그 경로를
+   캐시하거나 리다이렉트해서는 안 됩니다. 오래 유지되는 MCP 연결(Streamable HTTP)에는 충분히 긴 프록시 타임아웃이 필요합니다. nginx 사이트 자체는 MCP
+   호스트에 `proxy_buffering off`와 `proxy_read_timeout 3600s`를 둡니다.
+4. 인증 기관의 서비스 약관을 읽고 `--agree-tos`를 줍니다. `--acme-email=<address>`는 선택 연락 주소입니다.
+
+```sh
+sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --mcp-host=<mcp-host> --admin-host=<admin-host> --nginx-conf=/etc/nginx/conf.d/pg-ledger-mcp.conf --tls-acme --agree-tos
+```
+
+nginx 사이트에는 자기 두 호스트 이름의 `server` 블록만 있습니다. `default_server`를 차지하지 않고 다른 사이트를 건드리지 않으므로 같은 호스트의 다른 서비스와
+함께 쓸 수 있습니다. 호스트 이름마다 80 포트 블록이 `/.well-known/acme-challenge/`를 웹 루트 `/var/www/<name>-acme`에서 제공하고 나머지는 https로
+리다이렉트하며, 443 블록은 PEM 파일을 씁니다.
+
+첫 발급: nginx는 인증서 파일이 생기기 전에는 443 블록을 읽을 수 없으므로, `render-deploy`는 `fullchain.pem`과 `privkey.pem`이 있을 때만 443 블록을 씁니다.
+그래서 설치기는 80 포트 블록만 있는 사이트를 쓰고, nginx가 읽게 한 뒤, 서비스 사용자로 `tls-issue`를 실행하고, `render-deploy`를 다시 실행하며(이제 443 블록이
+포함됩니다), nginx가 사이트를 다시 읽게 하고, 타이머를 켭니다. 설치기를 다시 실행하면 대신 `tls-renew`를 불러, 갱신할 때가 된 것만 주문합니다.
+
+갱신: `render-deploy --tls-acme`는 systemd 서비스 `<name>-tls-renew.service`와 타이머 `<name>-tls-renew.timer`를 씁니다. 타이머는 하루 두 번, 무작위 시각에
+실행됩니다. `tls-renew`는 현재 인증서가 30일 안에 만료되거나(`--renew-before-days=<n>`) 두 호스트 이름과 정확히 일치하지 않을 때만 새 인증서를 주문하며,
+그렇지 않으면 아무것도 하지 않고 그렇게 알립니다. 서비스는 서비스 사용자로 권한(capability) 없이 실행되고 TLS 디렉터리와 웹 루트만 쓸 수 있으며, 끝난 뒤
+`ExecStartPost=+/usr/bin/systemctl reload nginx`로 nginx를 다시 읽게 합니다. 이는 고정된 명령 한 줄이며, nginx를 다시 읽게 할 수 있는 것은 root뿐이므로
+systemd가 샌드박스 밖에서 전체 권한으로 실행합니다(systemd.service(5)의 `+` 접두사). 서비스 사용자의 입력은 이 명령에 닿지 않고, 관리할 `sudo` 규칙이나 polkit
+규칙도 없으며, 네트워크와 통신하고 키를 쓰는 프로세스는 아무 권한도 갖지 않습니다.
+
+자동 인증서는 Linux에서만 쓸 수 있습니다. nginx 사이트가 Linux용이기 때문입니다. Windows 설치기에는 자체 웹 서버가 없으며(Windows 서버는 운영자가 준비한
+리버스 프록시 뒤에 둡니다), 명령 자체는 어느 호스트에서나 실행됩니다. `--webroot=<dir>`와 `--tls-dir=<dir>`를 주면 증명은 운영자가 고른 웹 서버가 제공하는
+위치에, PEM 파일은 운영자의 프록시가 읽는 위치에 쓰이며, `--name=<name>`은 기본 디렉터리가 속한 인스턴스를 고릅니다.
 
 ### Windows: 개인 PC 또는 서버
 
@@ -349,10 +394,12 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 | `revoke` | `revoke <author> [<project> [<scope>]]` | 유효한 부여를 회수합니다 |
 | `grants` | `grants [<author>]` | 유효한 부여를 나열합니다 |
 | `mcp-check` | `mcp-check [--url=<url>] [--ledger.mcp.token=<token>]` | 실행 중인 MCP 서버에 연결해 도구를 확인합니다 |
-| `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>] [--check]` | 서비스 정의(systemd 유닛, Windows에서는 WinSW 설정)와 설정, 선택적 nginx 사이트를 씁니다. 설치기가 호출합니다 |
-| `prepare-host` | `prepare-host --jars=<dir> --driver-jar=<file> [--winsw=<file>] --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | 호스트의 파일을 준비합니다(root로, Windows에서는 관리자 권한으로 실행). 폴더를 소유자·모드 또는 ACL과 함께 만들고, jar와 드라이버(Windows에서는 WinSW도)를 복사하고, `render-deploy`가 쓰는 것을 씁니다. 설치기가 호출합니다 |
-| `seal-host` | `seal-host --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | Windows, 마지막 단계: LocalService에 필요한 접근을 주고 비밀을 넘깁니다. 설치기가 호출합니다 |
+| `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> (--tls-certificate=<path> --tls-key=<path> | --tls-acme [--acme-directory=<url>])] [--root=<directory>] [--check]` | 서비스 정의(systemd 유닛, Windows에서는 WinSW 설정)와 설정, 선택적 nginx 사이트를 씁니다. 설치기가 호출합니다 |
+| `prepare-host` | `prepare-host --jars=<dir> --driver-jar=<file> [--winsw=<file>] --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> (--tls-certificate=<path> --tls-key=<path> | --tls-acme [--acme-directory=<url>])] [--root=<directory>]` | 호스트의 파일을 준비합니다(root로, Windows에서는 관리자 권한으로 실행). 폴더를 소유자·모드 또는 ACL과 함께 만들고, jar와 드라이버(Windows에서는 WinSW도)를 복사하고, `render-deploy`가 쓰는 것을 씁니다. 설치기가 호출합니다 |
+| `seal-host` | `seal-host --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> (--tls-certificate=<path> --tls-key=<path> | --tls-acme [--acme-directory=<url>])] [--root=<directory>]` | Windows, 마지막 단계: LocalService에 필요한 접근을 주고 비밀을 넘깁니다. 설치기가 호출합니다 |
 | `install-default` | `install-default <name>` | 시드 번들에서 설치 기본값 하나(`instance-name`, `mcp-port`, `admin-port`)를 출력합니다. 설치기가 기본값을 이것으로 받습니다 |
+| `tls-issue` | `tls-issue --mcp-host=<host> --admin-host=<host> [--name=<name>] [--webroot=<dir>] [--tls-dir=<dir>] [--acme-directory=<url>] [--acme-email=<address>] [--agree-tos]` | ACME를 쓰는 인증 기관에서 두 호스트 이름의 인증서를 발급받아 `fullchain.pem`과 `privkey.pem`을 씁니다. 첫 실행은 계정을 만들며 `--agree-tos`가 필요합니다. 자동 인증서 참조 |
+| `tls-renew` | `tls-renew --mcp-host=<host> --admin-host=<host> [--name=<name>] [--webroot=<dir>] [--tls-dir=<dir>] [--acme-directory=<url>] [--renew-before-days=<n>]` | 현재 인증서가 `--renew-before-days`(기본 30일) 안에 만료되거나 두 호스트 이름과 정확히 일치하지 않을 때 새 인증서를 발급받고, 그렇지 않으면 아무것도 하지 않습니다. `--tls-acme`의 타이머가 실행합니다 |
 
 ## 관리 웹
 
