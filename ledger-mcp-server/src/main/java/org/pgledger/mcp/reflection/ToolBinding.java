@@ -16,7 +16,8 @@ import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationIssue;
 import org.pgledger.domain.error.ValidationReason;
-import org.pgledger.mcp.tool.PresenceAware;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.exc.InvalidTypeIdException;
@@ -67,6 +68,8 @@ import tools.jackson.databind.json.JsonMapper;
  * required, {@code @Choice}), not written per argument.
  */
 public final class ToolBinding {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ToolBinding.class);
 
     private final String name;
     private final Object bean;
@@ -153,13 +156,16 @@ public final class ToolBinding {
      * refuses it before it looks at a digest), and arguments that are no JSON (which the wire cannot carry) have none
      * either: {@code null} equals no signed digest.
      */
-    private static String argumentsDigest(Map<String, Object> given) {
+    private String argumentsDigest(Map<String, Object> given) {
         if (!given.containsKey(ArgumentsDigest.ATTESTATION_MEMBER)) {
             return null;
         }
         try {
             return ArgumentsDigest.of(given);
         } catch (IllegalArgumentException notJson) {
+            // not a failure of the call: nothing was signed for such arguments, and the gate refuses the call for that (the
+            // digest stays null); the reason is kept for whoever looks at why the attestation did not match
+            LOG.debug("the arguments of tool {} are no JSON, so there is no digest of them", name, notJson);
             return null;
         }
     }
@@ -175,11 +181,7 @@ public final class ToolBinding {
                 return null;
             }
             JavaType type = mapper.constructType(parameter.type());
-            Object value = mapper.convertValue(source, type);
-            if (value instanceof PresenceAware<?> aware && source instanceof Map<?, ?> written) {
-                return aware.withMentioned(Set.copyOf(written.keySet().stream().map(String::valueOf).toList()));
-            }
-            return value;
+            return mapper.convertValue(source, type);
         } catch (JacksonException failure) {
             issues.add(issue(parameter.name(), failure));
             causes.add(failure);

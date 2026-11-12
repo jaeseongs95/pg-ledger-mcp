@@ -3,7 +3,6 @@ package org.pgledger.mcp.tool;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import java.util.Map;
 import org.pgledger.application.write.BatchOpInput;
 
 /**
@@ -23,14 +22,15 @@ public sealed interface BatchOp {
 
     BatchOpInput toInput();
 
-    record Save(@JsonProperty("entity") String entity, @JsonProperty("fields") Map<String, String> fields,
+    record Save(@JsonProperty("entity") String entity, @JsonProperty("fields") SaveFields fields,
             @JsonProperty("reason") String reason, @JsonProperty("id") String id,
             @JsonProperty("expected_version") Long expectedVersion, @JsonProperty("request_id") String requestId)
             implements BatchOp {
 
         @Override
         public BatchOpInput toInput() {
-            return new BatchOpInput.Save(entity, fields, reason, id, expectedVersion, requestId);
+            return new BatchOpInput.Save(entity, fields == null ? null : fields.toInput(), reason, id, expectedVersion,
+                    requestId);
         }
     }
 

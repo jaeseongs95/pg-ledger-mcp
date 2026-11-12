@@ -12,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pgledger.application.support.Parallel;
 import org.pgledger.application.support.Parallel.Outcome;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.write.SaveCommand;
@@ -26,7 +27,7 @@ import org.pgledger.domain.error.LedgerException;
 class ReceiptConcurrencyTest {
 
     private static SaveCommand create(Scenario s, String requestId, String title) {
-        return new SaveCommand(requestId, "defect", null, 0L, s.defectFields(title), Scenario.REASON);
+        return new SaveCommand(requestId, "defect", null, 0L, Fields.of(s.defectFields(title)), Scenario.REASON);
     }
 
     private static Optional<ErrorCode> code(Outcome<?> outcome) {
@@ -83,7 +84,7 @@ class ReceiptConcurrencyTest {
             calls.add(() -> n % 2 == 0
                     ? s.bean(SaveService.class).save(actor, create(s, null, "mixed " + n))
                     : s.bean(SaveService.class).save(actor, new SaveCommand(null, "task", null, 0L,
-                            s.taskFields("mixed " + n), Scenario.REASON)));
+                            Fields.of(s.taskFields("mixed " + n)), Scenario.REASON)));
         }
         List<Outcome<Object>> outcomes = Parallel.all(calls, 12);
         // a stress write may lose the race of its request id: that is a business failure, anything else is not

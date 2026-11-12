@@ -9,7 +9,6 @@ import org.pgledger.application.read.HistoryService;
 import org.pgledger.application.read.ListService;
 import org.pgledger.application.read.SearchService;
 import org.pgledger.application.read.StatsService;
-import org.pgledger.database.repository.KeywordMatch;
 import org.pgledger.domain.rule.AttentionKind;
 import org.pgledger.domain.rule.CodeGroup;
 import org.pgledger.domain.rule.ConditionState;
@@ -92,7 +91,7 @@ public class ReadTools implements ToolAdapter {
             @McpToolParam(description = "param.search_kinds", required = false) @Choice(from = HistoryEntity.class,
                     only = {"DEFECT", "TASK", "CONDITION"}) List<String> kinds,
             @McpToolParam(description = "param.keywords", required = false) List<String> keywords,
-            @McpToolParam(description = "param.match", required = false) @Choice(from = KeywordMatch.class) String match,
+            @McpToolParam(description = "param.match", required = false) @Choice(from = SearchService.Match.class) String match,
             @McpToolParam(description = "param.exclude_status", required = false) List<String> exclude_status,
             @McpToolParam(description = "param.created_from", required = false) String created_from,
             @McpToolParam(description = "param.created_to", required = false) String created_to,

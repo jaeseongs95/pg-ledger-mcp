@@ -44,6 +44,14 @@ public final class ViolationTranslator {
 
     private final String pathPrefix;
 
+    /**
+     * The wire name of a property ({@code maxRows} is {@code max_rows}), for a failure that does not come from a
+     * constraint (a form field that cannot be read as its type) and still has to name its path the way the others do.
+     */
+    public static String wireName(String property) {
+        return WIRE.of(property);
+    }
+
     /** Translates to paths as the properties are named. */
     public ViolationTranslator() {
         this("");

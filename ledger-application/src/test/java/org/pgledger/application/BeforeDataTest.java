@@ -14,6 +14,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.history.Snapshot;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.MergeFixture;
 import org.pgledger.application.support.Parallel;
 import org.pgledger.application.support.Parallel.Outcome;
@@ -210,7 +211,7 @@ class BeforeDataTest {
         String requestId = Scenario.uuid();
         assertThatThrownBy(() -> s.ctx().tx(() -> {
             s.bean(SaveService.class).save(Scenario.AUTHOR, new SaveCommand(requestId, "defect", d.id(), 1L,
-                    Map.of("title", "rolled back"), Scenario.REASON));
+                    Fields.of("title", "rolled back"), Scenario.REASON));
             throw new IllegalStateException("after the row update");
         })).isInstanceOf(IllegalStateException.class);
         assertThat(s.count("SELECT COUNT(*) FROM history")).isEqualTo(history);
@@ -242,7 +243,7 @@ class BeforeDataTest {
     @DisplayName("SVC-BEF-10: a replay of an edit writes no second history row")
     void bef10_replay(Scenario s) {
         SaveResult d = s.newDefect("d");
-        SaveCommand edit = new SaveCommand(Scenario.uuid(), "defect", d.id(), 1L, Map.of("title", "x"),
+        SaveCommand edit = new SaveCommand(Scenario.uuid(), "defect", d.id(), 1L, Fields.of("title", "x"),
                 Scenario.REASON);
         s.bean(SaveService.class).save(Scenario.AUTHOR, edit);
         long rows = s.history(HistoryEntity.DEFECT, d.id()).size();

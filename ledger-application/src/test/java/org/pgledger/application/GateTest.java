@@ -21,6 +21,7 @@ import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.GrantService.RevokeCommand;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Parallel;
 import org.pgledger.application.support.Scenario;
@@ -378,7 +379,7 @@ class GateTest {
     @DisplayName("SVC-GATE-12: a revoked session cannot replay a stored receipt")
     void gate12_theGateRunsBeforeTheReceiptLookup(Scenario s) {
         String actor = s.actorWith("defect");
-        SaveCommand command = new SaveCommand(Scenario.uuid(), "defect", null, 0L, s.defectFields("t"),
+        SaveCommand command = new SaveCommand(Scenario.uuid(), "defect", null, 0L, Fields.of(s.defectFields("t")),
                 Scenario.REASON);
         SaveResult first = s.bean(SaveService.class).save(actor, command);
         assertThat(s.bean(SaveService.class).save(actor, command)).isEqualTo(first);
@@ -398,7 +399,7 @@ class GateTest {
     void gate13_lastUsedAt(Scenario s) {
         String actor = s.actorWith("defect");
         assertThat(defectGrant(s, actor).lastUsedAt()).isNull();
-        SaveCommand tooShort = new SaveCommand(null, "defect", null, 0L, s.defectFields("t"), "short");
+        SaveCommand tooShort = new SaveCommand(null, "defect", null, 0L, Fields.of(s.defectFields("t")), "short");
         Expect.failure(() -> s.bean(SaveService.class).save(actor, tooShort), ValidationCode.REASON_INVALID);
         assertThat(defectGrant(s, actor).lastUsedAt()).as("rolled back with the failed write").isNull();
         s.ctx().clock().set(java.time.Instant.parse("2026-11-05T12:34:56Z"));
@@ -499,7 +500,7 @@ class GateTest {
     @DisplayName("SVC-GATE-17: a missing grant beats a short reason")
     void gate17_grantBeforeReason(Scenario s) {
         Expect.failure(() -> s.bean(SaveService.class).save(Scenario.NOGRANT, new SaveCommand(null, "defect", null,
-                0L, s.defectFields("t"), "short")), TrustCode.SESSION_NOT_GRANTED);
+                0L, Fields.of(s.defectFields("t")), "short")), TrustCode.SESSION_NOT_GRANTED);
     }
 
     @Test
@@ -507,19 +508,19 @@ class GateTest {
     void gate17_reasonBeforeVersion(Scenario s) {
         SaveResult d = s.newDefect("d");
         Expect.failure(() -> s.bean(SaveService.class).save(Scenario.AUTHOR, new SaveCommand(null, "defect", d.id(),
-                99L, java.util.Map.of("title", "x"), "short")), ValidationCode.REASON_INVALID);
+                99L, Fields.of("title", "x"), "short")), ValidationCode.REASON_INVALID);
     }
 
     @Test
     @DisplayName("SVC-GATE-17: a stored receipt is replayed before the version is looked at")
     void gate17_receiptBeforeVersion(Scenario s) {
         SaveResult d = s.newDefect("d");
-        SaveCommand edit = new SaveCommand(Scenario.uuid(), "defect", d.id(), 1L, java.util.Map.of("title", "x"),
+        SaveCommand edit = new SaveCommand(Scenario.uuid(), "defect", d.id(), 1L, Fields.of("title", "x"),
                 Scenario.REASON);
         SaveResult first = s.bean(SaveService.class).save(Scenario.AUTHOR, edit);
         assertThat(first.version()).isEqualTo(2);
         assertThat(s.bean(SaveService.class).save(Scenario.AUTHOR, edit)).isEqualTo(first);
-        SaveCommand fresh = new SaveCommand(Scenario.uuid(), "defect", d.id(), 1L, java.util.Map.of("title", "y"),
+        SaveCommand fresh = new SaveCommand(Scenario.uuid(), "defect", d.id(), 1L, Fields.of("title", "y"),
                 Scenario.REASON);
         assertThat(Expect.outcome(() -> s.bean(SaveService.class).save(Scenario.AUTHOR, fresh)))
                 .contains(ConflictCode.VERSION_CONFLICT);

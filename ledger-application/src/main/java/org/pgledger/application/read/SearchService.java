@@ -41,6 +41,15 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 public class SearchService {
 
+    /**
+     * What the caller names as {@code match}: any keyword is enough, or every keyword must be found. The values are the
+     * ones of the repository's {@code KeywordMatch}; the callers of this service (the MCP tool offers them as a closed
+     * set) name them here and need no type of the database module.
+     */
+    public enum Match {
+        ANY, ALL
+    }
+
     /** Longest keyword. */
     public static final int MAX_KEYWORD = 200;
 
@@ -118,7 +127,10 @@ public class SearchService {
         }
         List<String> keywords = q.keywords() == null ? List.of() : q.keywords();
         KeywordMatch match = q.match() == null ? KeywordMatch.ANY
-                : Tokens.parseName("match", q.match(), KeywordMatch.values());
+                : switch (Tokens.parseName("match", q.match(), Match.values())) {
+                    case ANY -> KeywordMatch.ANY;
+                    case ALL -> KeywordMatch.ALL;
+                };
         Set<String> excluded = new LinkedHashSet<>();
         if (q.excludeStatus() != null) {
             q.excludeStatus().forEach(raw -> excluded.add(status(raw).name()));

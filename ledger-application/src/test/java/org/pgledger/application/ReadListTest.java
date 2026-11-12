@@ -34,6 +34,7 @@ import org.pgledger.application.read.Page;
 import org.pgledger.application.read.SearchService;
 import org.pgledger.application.read.SearchService.SearchQuery;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.LedgerAppContext;
 import org.pgledger.application.support.Scenario;
@@ -68,16 +69,16 @@ class ReadListTest {
             Scenario s = new Scenario(ctx);
             List<BatchOpInput> ops = new ArrayList<>();
             IntStream.rangeClosed(1, ROWS).forEach(i -> {
-                ops.add(new BatchOpInput.Save("defect", s.defectFields("row " + i), Scenario.REASON, null, null,
+                ops.add(new BatchOpInput.Save("defect", Fields.of(s.defectFields("row " + i)), Scenario.REASON, null, null,
                         null));
-                ops.add(new BatchOpInput.Save("task", s.taskFields("row " + i), Scenario.REASON, null, null, null));
+                ops.add(new BatchOpInput.Save("task", Fields.of(s.taskFields("row " + i)), Scenario.REASON, null, null, null));
             });
             for (int from = 0; from < ops.size(); from += 100) {
                 s.bean(BatchService.class).batch(Scenario.AUTHOR, null, ops.subList(from, Math.min(from + 100,
                         ops.size())));
             }
             List<BatchOpInput> conditions = IntStream.rangeClosed(1, ROWS).mapToObj(i -> (BatchOpInput)
-                    new BatchOpInput.Save("condition", s.conditionFields("r1", "c" + i), Scenario.REASON,
+                    new BatchOpInput.Save("condition", Fields.of(s.conditionFields("r1", "c" + i)), Scenario.REASON,
                             s.conditionId(String.format("%04d", i)), null, null)).toList();
             s.bean(BatchService.class).batch(Scenario.AUTHOR, null, conditions);
             IntStream.rangeClosed(1, ROWS).forEach(i -> s.bean(ProjectService.class).add(new ProjectCommand(
@@ -208,9 +209,9 @@ class ReadListTest {
             Scenario own = new Scenario(ctx);
             List<BatchOpInput> ops = new ArrayList<>();
             IntStream.rangeClosed(1, 40).forEach(i -> {
-                ops.add(new BatchOpInput.Save("defect", own.defectFields("row " + i), Scenario.REASON, null, null,
+                ops.add(new BatchOpInput.Save("defect", Fields.of(own.defectFields("row " + i)), Scenario.REASON, null, null,
                         null));
-                ops.add(new BatchOpInput.Save("task", own.taskFields("row " + i), Scenario.REASON, null, null, null));
+                ops.add(new BatchOpInput.Save("task", Fields.of(own.taskFields("row " + i)), Scenario.REASON, null, null, null));
             });
             own.bean(BatchService.class).batch(Scenario.AUTHOR, null, ops);
             return own;

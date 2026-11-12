@@ -12,6 +12,7 @@ import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.ProjectService;
 import org.pgledger.application.admin.ProjectService.ProjectCommand;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
@@ -69,7 +70,7 @@ class SaveDigestTest {
 
     private static SaveCommand save(String requestId, String entity, String id, Long version,
             Map<String, String> fields) {
-        return new SaveCommand(requestId, entity, id, version, fields, Scenario.REASON);
+        return new SaveCommand(requestId, entity, id, version, Fields.of(fields), Scenario.REASON);
     }
 
     @Test
@@ -102,8 +103,8 @@ class SaveDigestTest {
                 fields("project_id", PROJECT, "purpose", "edited purpose")));
         saves.save(Scenario.AUTHOR, save(CLEAR_ORIGIN, "task", CODE + "-T-0001", 2L, fields("origin_ref", null)));
         s.bean(BatchService.class).batch(Scenario.AUTHOR, "00000000-0000-4000-8000-0000000000ff",
-                List.of(new BatchOpInput.Save("defect", fields("project_id", PROJECT, "title", "batch defect",
-                        "category", "ARC", "severity", "P2", "behavior", "b", "root_cause", "c"), Scenario.REASON,
+                List.of(new BatchOpInput.Save("defect", Fields.of(fields("project_id", PROJECT, "title", "batch defect",
+                        "category", "ARC", "severity", "P2", "behavior", "b", "root_cause", "c")), Scenario.REASON,
                         CODE + "-D-0002", 0L, BATCH_SAVE)));
 
         SoftAssertions digests = new SoftAssertions();

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.Parallel;
 import org.pgledger.application.support.Parallel.Outcome;
 import org.pgledger.application.support.Scenario;
@@ -86,11 +87,11 @@ class IdsTest {
     @DisplayName("SVC-IDS-05: failed requests consume no number")
     void ids05_failuresConsumeNothing(Scenario s) {
         Expect.failure(() -> s.bean(SaveService.class).save(Scenario.AUTHOR, new SaveCommand(null, "defect", null, 0L,
-                s.defectFields(" "), Scenario.REASON)), ValidationCode.VALIDATION_FAILED);
+                Fields.of(s.defectFields(" ")), Scenario.REASON)), ValidationCode.VALIDATION_FAILED);
         Expect.failure(() -> s.bean(SaveService.class).save(Scenario.NOGRANT, defect(s, null, "x")),
                 org.pgledger.domain.error.TrustCode.SESSION_NOT_GRANTED);
         Expect.failure(() -> s.bean(SaveService.class).save(Scenario.AUTHOR, new SaveCommand(null, "defect", null, 0L,
-                s.defectFields("x"), "short")), ValidationCode.REASON_INVALID);
+                Fields.of(s.defectFields("x")), "short")), ValidationCode.REASON_INVALID);
         assertThat(s.newDefect("good").id()).isEqualTo(s.defectId(1));
     }
 
@@ -165,7 +166,7 @@ class IdsTest {
     @Test
     @DisplayName("SVC-IDS-12: a batch of creates is consecutive, and a failing batch gives its numbers back")
     void ids12_batches(Scenario s) {
-        BatchOpInput create = new BatchOpInput.Save("defect", s.defectFields("b"), Scenario.REASON, null, null, null);
+        BatchOpInput create = new BatchOpInput.Save("defect", Fields.of(s.defectFields("b")), Scenario.REASON, null, null, null);
         BatchOpInput failing = new BatchOpInput.Transition("defect", s.defectId(99), 1L, "DISPUTED", Scenario.REASON,
                 Scenario.EVIDENCE, null, null, null);
         Expect.failure(() -> s.bean(BatchService.class).batch(Scenario.AUTHOR, null, List.of(create, create, failing)),

@@ -6,6 +6,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.write.BatchOpInput;
 import org.pgledger.domain.model.BatchOpKind;
 import tools.jackson.databind.PropertyNamingStrategies;
@@ -19,7 +20,7 @@ class BatchWireTest {
 
     private static BatchOpInput filled(BatchOpKind kind) {
         return switch (kind) {
-            case SAVE -> new BatchOpInput.Save("defect", Map.of("title", "x"), "reason", "id", 1L, "request");
+            case SAVE -> new BatchOpInput.Save("defect", Fields.of("title", "x"), "reason", "id", 1L, "request");
             case TRANSITION -> new BatchOpInput.Transition("defect", "id", 1L, "OPEN", "reason", "uri", "sha",
                     "target", "request");
             case RECORD_FIX -> new BatchOpInput.RecordFix("defect", "repo", "commit", "reason", "branch", "ci",

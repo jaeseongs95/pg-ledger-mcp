@@ -18,6 +18,7 @@ import org.pgledger.application.admin.SessionKeyService;
 import org.pgledger.application.gate.AttestationProperties;
 import org.pgledger.application.gate.SignedAttestationVerifier;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
@@ -71,7 +72,7 @@ class AttestationGateTest {
     }
 
     private static SaveCommand create(Scenario s, String requestId, String title) {
-        return new SaveCommand(requestId, "defect", null, 0L, s.defectFields(title), Scenario.REASON);
+        return new SaveCommand(requestId, "defect", null, 0L, Fields.of(s.defectFields(title)), Scenario.REASON);
     }
 
     private static String now(Scenario s, String author, String tool, String requestId) {
@@ -137,7 +138,7 @@ class AttestationGateTest {
         String versionOne = String.join(".", "pgla1", encodedAuthor, "bGVkZ2VyX3NhdmU", "", "1700000000", signature);
         Expect.failure(() -> save(s, versionOne, create(s, requestId, "v1")), TrustCode.ATTESTATION_VERSION_UNSUPPORTED);
         Expect.failure(() -> asTool("ledger_batch", () -> s.bean(BatchService.class).batch(versionOne, requestId,
-                List.of(new BatchOpInput.Save("defect", s.defectFields("v1"), Scenario.REASON, null, null, null)))),
+                List.of(new BatchOpInput.Save("defect", Fields.of(s.defectFields("v1")), Scenario.REASON, null, null, null)))),
                 TrustCode.ATTESTATION_VERSION_UNSUPPORTED);
         Expect.failure(() -> asTool("ledger_whoami", () -> s.bean(WhoamiService.class).whoami(versionOne,
                 Channel.AUTHOR)), TrustCode.ATTESTATION_VERSION_UNSUPPORTED);
@@ -300,7 +301,7 @@ class AttestationGateTest {
         Instant at = s.ctx().clock().instant();
         Map<String, String> fields = s.defectFields("t");
         fields.put("project_id", "no-such-project");
-        SaveCommand unknownProject = new SaveCommand(requestId, "defect", null, 0L, fields, Scenario.REASON);
+        SaveCommand unknownProject = new SaveCommand(requestId, "defect", null, 0L, Fields.of(fields), Scenario.REASON);
 
         // a forged signature wins over an unknown project and over a missing grant
         String forged = TestKeyRing.token(TestKeyRing.newPair(), ungranted, SAVE, requestId, at);
@@ -336,8 +337,8 @@ class AttestationGateTest {
         String author = s.actorWith("defect");
         String batchId = newRequestId();
         List<BatchOpInput> ops = List.of(
-                new BatchOpInput.Save("defect", s.defectFields("one"), Scenario.REASON, null, null, null),
-                new BatchOpInput.Save("defect", s.defectFields("two"), Scenario.REASON, null, null, newRequestId()));
+                new BatchOpInput.Save("defect", Fields.of(s.defectFields("one")), Scenario.REASON, null, null, null),
+                new BatchOpInput.Save("defect", Fields.of(s.defectFields("two")), Scenario.REASON, null, null, newRequestId()));
         assertThat(asTool("ledger_batch", () -> s.bean(BatchService.class).batch(now(s, author, "ledger_batch", batchId),
                 batchId, ops)).results()).hasSize(2);
 
@@ -402,7 +403,7 @@ class AttestationGateTest {
         String author = s.actorWith("defect");
         String batchId = newRequestId();
         List<BatchOpInput> ops = List.of(
-                new BatchOpInput.Save("defect", s.defectFields("one"), Scenario.REASON, null, null, null));
+                new BatchOpInput.Save("defect", Fields.of(s.defectFields("one")), Scenario.REASON, null, null, null));
         String token = s.ctx().keys().token(author, "ledger_batch", batchId, OTHER_DIGEST, s.ctx().clock().instant());
 
         LedgerException failure = Expect.failure(() -> asTool("ledger_batch", DIGEST,
@@ -454,7 +455,7 @@ class AttestationGateTest {
         Map<String, String> fields = s.defectFields("fails");
         fields.put("project_id", "no-such-project");
         Expect.failure(() -> asTool(SAVE, OTHER_DIGEST, () -> s.bean(SaveService.class).save(token,
-                new SaveCommand(requestId, "defect", null, 0L, fields, Scenario.REASON))), LookupCode.NOT_FOUND);
+                new SaveCommand(requestId, "defect", null, 0L, Fields.of(fields), Scenario.REASON))), LookupCode.NOT_FOUND);
         assertThat(s.count("SELECT COUNT(*) FROM request_receipt WHERE request_id = ?", requestId)).isZero();
 
         Expect.failure(() -> asTool(SAVE, DIGEST, () -> s.bean(SaveService.class).save(token,

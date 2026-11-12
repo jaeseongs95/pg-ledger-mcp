@@ -134,11 +134,11 @@ public final class Scenario {
     // ------------------------------------------------------------------ commands
 
     public SaveCommand create(String entity, String id, Map<String, String> fields) {
-        return new SaveCommand(null, entity, id, 0L, fields, REASON);
+        return new SaveCommand(null, entity, id, 0L, Fields.of(fields), REASON);
     }
 
     public SaveCommand edit(String entity, String id, long version, Map<String, String> fields) {
-        return new SaveCommand(null, entity, id, version, fields, REASON);
+        return new SaveCommand(null, entity, id, version, Fields.of(fields), REASON);
     }
 
     public TransitionCommand move(String entity, String id, long version, String to, String evidence) {

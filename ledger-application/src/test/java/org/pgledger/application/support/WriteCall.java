@@ -42,7 +42,7 @@ public record WriteCall(String name, BiConsumer<Scenario, String> invoke) {
                 new WriteCall("correct", (s, actor) -> s.bean(CorrectService.class).correct(actor,
                         new CorrectCommand(null, 1L, Scenario.REASON))),
                 new WriteCall("batch", (s, actor) -> s.bean(BatchService.class).batch(actor, null,
-                        List.of(new BatchOpInput.Save("defect", s.defectFields("t"), Scenario.REASON, null, null,
+                        List.of(new BatchOpInput.Save("defect", Fields.of(s.defectFields("t")), Scenario.REASON, null, null,
                                 null)))),
                 new WriteCall("review", (s, actor) -> s.bean(ReviewService.class).review(actor,
                         new TransitionCommand(null, "defect", s.defectId(1), 1L, "DISPUTED", Scenario.REASON,

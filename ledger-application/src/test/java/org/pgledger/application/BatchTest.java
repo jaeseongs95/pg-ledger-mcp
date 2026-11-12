@@ -14,6 +14,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.history.Snapshot;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
@@ -39,7 +40,7 @@ class BatchTest {
     private static final JsonMapper JSON = new JsonMapper();
 
     private BatchOpInput.Save saveDefect(Scenario s, String title) {
-        return new BatchOpInput.Save("defect", s.defectFields(title), Scenario.REASON, null, null, null);
+        return new BatchOpInput.Save("defect", Fields.of(s.defectFields(title)), Scenario.REASON, null, null, null);
     }
 
     private BatchResult batch(Scenario s, String actor, String requestId, List<BatchOpInput> ops) {
@@ -165,14 +166,14 @@ class BatchTest {
         String own = Scenario.uuid();
         String batchId = Scenario.uuid();
         BatchResult first = batch(s, Scenario.AUTHOR, batchId, List.of(
-                new BatchOpInput.Save("defect", s.defectFields("own"), Scenario.REASON, null, null, own),
+                new BatchOpInput.Save("defect", Fields.of(s.defectFields("own")), Scenario.REASON, null, null, own),
                 saveDefect(s, "derived")));
         SaveResult byOwnId = s.bean(SaveService.class).save(Scenario.AUTHOR, new SaveCommand(own, "defect", null, 0L,
-                s.defectFields("own"), Scenario.REASON));
+                Fields.of(s.defectFields("own")), Scenario.REASON));
         assertThat(byOwnId).isEqualTo(first.results().get(0));
         SaveResult byDerivedId = s.bean(SaveService.class).save(Scenario.AUTHOR, new SaveCommand(
                 org.pgledger.domain.value.RequestId.parse(batchId).derive(1).toString(), "defect", null, 0L,
-                s.defectFields("derived"), Scenario.REASON));
+                Fields.of(s.defectFields("derived")), Scenario.REASON));
         assertThat(byDerivedId).isEqualTo(first.results().get(1));
     }
 
@@ -187,13 +188,13 @@ class BatchTest {
         String c1 = s.conditionId("1");
         String c2 = s.conditionId("2");
         BatchResult result = batch(s, Scenario.AUTHOR, null, List.of(
-                new BatchOpInput.Save("task", s.taskFields("one"), Scenario.REASON, t1, null, null),
-                new BatchOpInput.Save("condition", s.conditionFields("r", "one"), Scenario.REASON, c1, null, null),
+                new BatchOpInput.Save("task", Fields.of(s.taskFields("one")), Scenario.REASON, t1, null, null),
+                new BatchOpInput.Save("condition", Fields.of(s.conditionFields("r", "one")), Scenario.REASON, c1, null, null),
                 new BatchOpInput.Link("defect_task", d.id(), t1, Scenario.REASON, null, null),
                 new BatchOpInput.Link("condition_task", c1, t1, Scenario.REASON, null, null),
                 new BatchOpInput.Link("condition_defect", c1, d.id(), Scenario.REASON, null, null),
-                new BatchOpInput.Save("task", s.taskFields("two"), Scenario.REASON, t2, null, null),
-                new BatchOpInput.Save("condition", s.conditionFields("r", "two"), Scenario.REASON, c2, null, null),
+                new BatchOpInput.Save("task", Fields.of(s.taskFields("two")), Scenario.REASON, t2, null, null),
+                new BatchOpInput.Save("condition", Fields.of(s.conditionFields("r", "two")), Scenario.REASON, c2, null, null),
                 new BatchOpInput.Link("condition_task", c2, t2, Scenario.REASON, null, null)));
         assertThat(result.count()).isEqualTo(8);
     }
@@ -235,8 +236,8 @@ class BatchTest {
     void bat12_sameRowTwice(Scenario s) {
         SaveResult d = s.newDefect("d");
         BatchResult result = batch(s, Scenario.AUTHOR, null, List.of(
-                new BatchOpInput.Save("defect", Map.of("title", "x1"), Scenario.REASON, d.id(), 1L, null),
-                new BatchOpInput.Save("defect", Map.of("title", "x2"), Scenario.REASON, d.id(), 2L, null)));
+                new BatchOpInput.Save("defect", Fields.of("title", "x1"),Scenario.REASON, d.id(), 1L, null),
+                new BatchOpInput.Save("defect", Fields.of("title", "x2"),Scenario.REASON, d.id(), 2L, null)));
         SaveResult second = (SaveResult) result.results().get(1);
         assertThat(second.version()).isEqualTo(3);
         Snapshot.DefectRow before = s.before(second.historyId(), Snapshot.DefectRow.class);
