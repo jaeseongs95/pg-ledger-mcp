@@ -8,8 +8,9 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 class TokenConfiguration {
 
+    /** A {@code @Bean} method because {@link SecureRandom} is a JDK class; {@link TokenGenerator} is a component that takes it. */
     @Bean
-    TokenGenerator tokenGenerator() {
-        return new TokenGenerator(new SecureRandom());
+    SecureRandom secureRandom() {
+        return new SecureRandom();
     }
 }

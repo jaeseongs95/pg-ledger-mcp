@@ -83,7 +83,7 @@ class ArchitectureTest {
     @Test
     @DisplayName("Console output goes through one place only: no System.out/err or printStackTrace elsewhere")
     void consoleOutputHasOneSink() {
-        noClasses().that().areNotAssignableTo(CliOutputConfiguration.class).should(ACCESS_STANDARD_STREAMS).check(MAIN);
+        noClasses().that().areNotAssignableTo(StreamCliOutput.class).should(ACCESS_STANDARD_STREAMS).check(MAIN);
     }
 
     @Test

@@ -70,7 +70,7 @@ class RenderDeployCommandTest {
 
         assertThat(result.exitCode()).isZero();
         assertThat(result.failure()).isNull();
-        List<RenderedFile> expected = DeployRenderer.render(DeployParameters.of(java.util.Map.of(
+        List<RenderedFile> expected = DeployTestBeans.render((java.util.Map.of(
                 DeployOptions.JAVA, "/usr/lib/jvm/java-25/bin/java", DeployOptions.JDBC_URL,
                 "jdbc:postgresql://db.example.org:5432/ledger", DeployOptions.APP_ACCOUNT, "ledger_app",
                 DeployOptions.MCP_HOST, "mcp.example.org", DeployOptions.ADMIN_HOST, "admin.example.org",

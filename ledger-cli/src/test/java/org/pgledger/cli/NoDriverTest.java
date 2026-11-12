@@ -10,6 +10,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.api.DisplayName;
+import org.pgledger.cli.database.CliLedger;
+import org.pgledger.cli.key.SessionKeyRegistry;
 import org.pgledger.cli.support.CliExtension;
 import org.pgledger.cli.support.CliExtension.Cli;
 import org.pgledger.cli.support.CliExtension.Outcome;
@@ -39,6 +41,7 @@ class NoDriverTest {
                 Arguments.of((Object) new String[] { "codes" }),
                 Arguments.of((Object) new String[] { "grant", "claude:e2e-author", "e2e", "defect" }),
                 Arguments.of((Object) new String[] { "revoke", "claude:e2e-author" }),
+                Arguments.of((Object) new String[] { "key-revoke", "claude:e2e-author", "--fingerprint=abc" }),
                 Arguments.of((Object) new String[] { "grants" }));
     }
 
@@ -51,7 +54,9 @@ class NoDriverTest {
         assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
         assertThat(result.code()).contains(ErrorCode.DRIVER_NOT_CONFIGURED);
         assertThat(captured.getAll()).contains("driver-register").doesNotContain("Hikari");
-        assertThat(result.context().containsBean("cliLedger")).isFalse();
+        // the components of the database configuration are imported (their names are class names), so ask by type
+        assertThat(result.context().getBeanFactory().getBeanNamesForType(CliLedger.class)).isEmpty();
+        assertThat(result.context().getBeanFactory().getBeanNamesForType(SessionKeyRegistry.class)).isEmpty();
         assertThat(result.context().containsBean("dataSource")).isFalse();
     }
 }

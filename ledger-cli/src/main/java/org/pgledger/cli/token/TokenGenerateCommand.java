@@ -65,12 +65,12 @@ public class TokenGenerateCommand implements Command {
         boolean print = CliOptions.flag(arguments, PRINT);
         SecretName name = new SecretName(operands.getFirst());
         Optional<SecretName> copy = CliOptions.value(arguments, COPY_TO).map(SecretName::new);
-        if (copy.isPresent() && copy.get().equals(name)) {
+        if (copy.filter(name::equals).isPresent()) {
             throw new UsageException(ErrorCode.INVALID_OPTION_VALUE);
         }
         // both names are looked at before anything is written: a store that cannot be used refuses with nothing stored
         boolean present = store.exists(name);
-        boolean copyPresent = copy.isPresent() && store.exists(copy.get());
+        boolean copyPresent = copy.filter(store::exists).isPresent();
         if (present) {
             output.info(messages.get("token-generate.kept", name.value()));
         } else {
@@ -85,8 +85,8 @@ public class TokenGenerateCommand implements Command {
                 Arrays.fill(token, '\0');
             }
         }
-        if (copy.isPresent() && !copyPresent) {
-            copyTo(name, copy.get());
+        if (!copyPresent) {
+            copy.ifPresent(target -> copyTo(name, target));
         }
     }
 

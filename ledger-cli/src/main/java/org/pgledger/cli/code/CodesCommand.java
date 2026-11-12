@@ -7,9 +7,9 @@ import org.pgledger.cli.CliMessages;
 import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.Command;
 import org.pgledger.cli.ErrorCode;
-import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.cli.database.CliLedger;
+import org.pgledger.cli.database.DatabaseBeans;
 import org.pgledger.domain.model.CommonCode;
 import org.pgledger.domain.rule.CodeGroup;
 import org.pgledger.domain.value.Tokens;
@@ -44,10 +44,7 @@ public class CodesCommand implements Command {
         if (operands.size() > 1) {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
-        CliLedger target = ledger.getIfAvailable();
-        if (target == null) {
-            throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
-        }
+        CliLedger target = DatabaseBeans.require(ledger);
         List<CodeGroup> groups = target.call(() -> operands.isEmpty() ? Arrays.asList(CodeGroup.values())
                 : List.of(Tokens.parse("group", operands.getFirst(), CodeGroup.values())));
         for (CodeGroup group : groups) {

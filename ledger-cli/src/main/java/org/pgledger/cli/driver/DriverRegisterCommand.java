@@ -13,11 +13,9 @@ import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.cli.database.CliActor;
-import org.pgledger.database.driver.DriverLoader;
 import org.pgledger.database.driver.DriverRegistrar;
 import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.database.driver.DriverRegistrationFile;
-import org.pgledger.database.driver.LedgerJdbcProperties;
 import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.domain.rule.OwnerAction;
 import org.pgledger.domain.value.OwnerIdentity;
@@ -28,6 +26,8 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -41,9 +41,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  * driver is used after their next start.
  *
  * <p>When the ledger database can be reached (a driver was registered before) the registration is also recorded in the
- * owner's audit trail as {@code cli:<process user>}, in the transaction that replaces the file; otherwise it is logged
- * with the actor and the digest. The option values are written {@code --name=value} (see {@link CliOptions}); the option
- * {@code class} names the driver class, it is no Spring property.
+ * owner's audit trail as {@code cli:<process user>}; otherwise it is logged with the actor and the digest. The file is
+ * never written inside the transaction of the audit row ({@link DriverRegistrationFile#register}): the checks and the new
+ * file come first, outside any transaction, the audit row is committed, and the old file is replaced after the commit. A
+ * transaction that does not commit leaves the file as it was (DATABASE_FAILED); a replacement that fails after the commit
+ * is DRIVER_FILE_FAILED, and the committed row documents the attempt. The option values are written {@code --name=value}
+ * (see {@link CliOptions}); the option {@code class} names the driver class, it is no Spring property.
  */
 @Component
 public class DriverRegisterCommand implements Command {
@@ -53,8 +56,7 @@ public class DriverRegisterCommand implements Command {
 
     private static final Logger LOG = LoggerFactory.getLogger(DriverRegisterCommand.class);
 
-    private final DriverProperties properties;
-    private final LedgerJdbcProperties jdbc;
+    private final DriverRegistrar registrar;
     private final DriverRegistrationFile file;
     private final Clock clock;
     private final CliActor actor;
@@ -63,13 +65,12 @@ public class DriverRegisterCommand implements Command {
     private final CliOutput output;
     private final CliMessages messages;
 
-    DriverRegisterCommand(DriverProperties properties, LedgerJdbcProperties jdbc, DriverRegistrationFile file,
-            ObjectProvider<Clock> clock, CliActor actor, ObjectProvider<OwnerAuditWriter> audit,
-            ObjectProvider<PlatformTransactionManager> transactions, CliOutput output, CliMessages messages) {
-        this.properties = properties;
-        this.jdbc = jdbc;
+    DriverRegisterCommand(DriverRegistrar registrar, DriverRegistrationFile file, Clock clock, CliActor actor,
+            ObjectProvider<OwnerAuditWriter> audit, ObjectProvider<PlatformTransactionManager> transactions,
+            CliOutput output, CliMessages messages) {
+        this.registrar = registrar;
         this.file = file;
-        this.clock = clock.getIfAvailable(Clock::systemUTC);
+        this.clock = clock;
         this.actor = actor;
         this.audit = audit;
         this.transactions = transactions;
@@ -97,37 +98,36 @@ public class DriverRegisterCommand implements Command {
         OwnerIdentity owner = actor.current();
         DriverRegistration registration;
         try {
-            // the loader has no state and no dependency; it is made here until the registrar becomes a bean (unit W4)
-            registration = new DriverRegistrar(new DriverLoader(), jdbc.url(), properties.directory()).check(jar,
-                    className, clock.instant());
+            registration = registrar.check(jar, className, clock.instant());
         } catch (InfrastructureException refused) {
             throw new FailureException(ErrorCode.DRIVER_INVALID, refused, refused.args().getFirst());
         }
         try {
-            write(registration, owner);
+            register(registration, owner);
         } catch (InfrastructureException failure) {
             throw new FailureException(ErrorCode.DRIVER_FILE_FAILED, failure, file.path().toString());
-        } catch (DataAccessException failure) {
+        } catch (DataAccessException | TransactionException failure) {
             throw new FailureException(ErrorCode.DATABASE_FAILED, failure);
         }
         output.info(messages.get("driver-register.registered", registration.className(),
                 registration.jar().toString(), registration.sha256(), file.path().toString()));
     }
 
-    /** The audit row and the file in one transaction when there is a database; the file and a log line otherwise. */
-    private void write(DriverRegistration registration, OwnerIdentity owner) {
+    /**
+     * The audit row and the file, in the order of {@link DriverRegistrationFile#register}; this runs in no transaction of its
+     * own (the call opens it). Without a database there is no row: a log line stands in for it, and the file is replaced at once.
+     */
+    private void register(DriverRegistration registration, OwnerIdentity owner) {
         OwnerAuditWriter writer = audit.getIfAvailable();
         PlatformTransactionManager manager = transactions.getIfAvailable();
         String detail = "jar=" + registration.jar() + " sha256=" + registration.sha256();
         if (writer == null || manager == null) {
-            LOG.info("driver registered by {}: {} {} (no ledger database is configured, so there is no row of the owner's "
-                    + "audit trail)", owner.value(), registration.className(), DriverRegistrar.printable(detail));
-            file.write(registration);
+            file.register(registration, TransactionOperations.withoutTransaction(), () -> LOG.info(
+                    "driver registered by {}: {} {} (no ledger database is configured, so there is no row of the owner's "
+                            + "audit trail)", owner.value(), registration.className(), DriverRegistrar.printable(detail)));
             return;
         }
-        new TransactionTemplate(manager).executeWithoutResult(status -> {
-            writer.record(owner, OwnerAction.DRIVER_REGISTERED, registration.className(), detail);
-            file.write(registration);
-        });
+        file.register(registration, new TransactionTemplate(manager),
+                () -> writer.record(owner, OwnerAction.DRIVER_REGISTERED, registration.className(), detail));
     }
 }

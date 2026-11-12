@@ -11,11 +11,13 @@ import org.pgledger.attestation.KeyBlock;
 import org.pgledger.attestation.PublicKeys;
 import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.CliMessages;
+import org.pgledger.cli.CliOptions;
 import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.Command;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
+import org.pgledger.cli.database.DatabaseBeans;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.stereotype.Component;
@@ -70,18 +72,19 @@ public class KeyRegisterCommand implements Command {
         if (operands.size() > 3) {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
-        Optional<String> replaced = replaceOption(arguments);
+        Optional<String> replaced = CliOptions.value(arguments, REPLACE).map(KeyRegisterCommand::normalised);
         String author = operands.get(0);
         PublicKey key;
-        String server = null;
+        Optional<String> server;
         if (KeyBlock.isBlock(operands.get(1))) {
             KeyBlock block = readBlock(operands.get(1));
             if (!Objects.equals(block.author(), author)) {
                 throw new FailureException(ErrorCode.KEY_BLOCK_AUTHOR_MISMATCH, block.author(), author);
             }
-            server = block.server();
+            server = Optional.of(block.server());
             key = PublicKeys.decode(block.publicKey());
         } else {
+            server = Optional.empty();
             try {
                 key = PublicKeys.decode(operands.get(1));
             } catch (AttestationException invalid) {
@@ -89,24 +92,20 @@ public class KeyRegisterCommand implements Command {
             }
         }
         String fingerprint = PublicKeys.fingerprint(key);
-        if (!fingerprint.equals(operands.get(2).strip().toLowerCase(Locale.ROOT))) {
+        if (!Objects.equals(fingerprint, normalised(operands.get(2)))) {
             throw new FailureException(ErrorCode.FINGERPRINT_MISMATCH, fingerprint);
         }
-        SessionKeyRegistry target = registry.getIfAvailable();
-        if (target == null) {
-            throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
-        }
-        if (replaced.isPresent()) {
-            target.registerReplacing(author, PublicKeys.encode(key), replaced.get());
-            output.info(messages.get("key-register.replaced", author, fingerprint, replaced.get()));
-        } else {
-            target.register(author, PublicKeys.encode(key));
+        SessionKeyRegistry target = DatabaseBeans.require(registry);
+        String encoded = PublicKeys.encode(key);
+        replaced.ifPresentOrElse(current -> {
+            target.registerReplacing(author, encoded, current);
+            output.info(messages.get("key-register.replaced", author, fingerprint, current));
+        }, () -> {
+            target.register(author, encoded);
             output.info(messages.get("key-register.registered", author, fingerprint));
-        }
-        if (server != null) {
-            // the owner compares the server next to the fingerprint: the key was made for this server's name
-            output.info(messages.get("key-register.server", server, fingerprint));
-        }
+        });
+        // the owner compares the server next to the fingerprint: the key was made for this server's name
+        server.ifPresent(name -> output.info(messages.get("key-register.server", name, fingerprint)));
     }
 
     /** The block the hook command printed, or the failure that names what is wrong with it. */
@@ -119,18 +118,8 @@ public class KeyRegisterCommand implements Command {
         }
     }
 
-    /** The value of {@code --replace=<fingerprint>}, empty when the option is absent. */
-    private static Optional<String> replaceOption(ApplicationArguments arguments) {
-        List<String> values = arguments.getOptionValues(REPLACE);
-        if (values == null) {
-            return Optional.empty();
-        }
-        if (values.size() > 1) {
-            throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
-        }
-        if (values.isEmpty() || values.getFirst().isBlank()) {
-            throw new UsageException(ErrorCode.MISSING_OPTION_VALUE);
-        }
-        return Optional.of(values.getFirst().strip().toLowerCase(Locale.ROOT));
+    /** A fingerprint as the owner typed it: without surrounding white space, in lower case. */
+    private static String normalised(String fingerprint) {
+        return fingerprint.strip().toLowerCase(Locale.ROOT);
     }
 }

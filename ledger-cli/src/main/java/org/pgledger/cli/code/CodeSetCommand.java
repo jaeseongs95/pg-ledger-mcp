@@ -10,9 +10,9 @@ import org.pgledger.cli.CliOptions;
 import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.Command;
 import org.pgledger.cli.ErrorCode;
-import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.cli.database.CliLedger;
+import org.pgledger.cli.database.DatabaseBeans;
 import org.pgledger.domain.rule.CodeState;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
@@ -63,27 +63,18 @@ public class CodeSetCommand implements Command {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
         String descriptionKo = operands.size() == 4 ? operands.get(3) : null;
-        String nameEn = CliOptions.value(arguments, NAME_EN).orElse(null);
-        String descriptionEn = CliOptions.value(arguments, DESCRIPTION_EN).orElse(null);
-        Integer sort = CliOptions.value(arguments, SORT).map(CodeSetCommand::sortOrder).orElse(null);
+        String nameEn = CliOptions.valueOrNull(arguments, NAME_EN);
+        String descriptionEn = CliOptions.valueOrNull(arguments, DESCRIPTION_EN);
+        // an absent --sort is null for the service (an existing code keeps its position, a new one gets the default); a
+        // value that is no number is INVALID_OPTION_VALUE with the number format failure as its cause
+        Integer sort = CliOptions.integerOrNull(arguments, SORT);
         CodeState state = CliOptions.flag(arguments, INACTIVE) ? CodeState.INACTIVE : CodeState.ACTIVE;
-        CliLedger target = ledger.getIfAvailable();
-        if (target == null) {
-            throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
-        }
+        CliLedger target = DatabaseBeans.require(ledger);
         CodeCommand command = new CodeCommand(operands.get(0), operands.get(1), operands.get(2), nameEn, descriptionKo,
                 descriptionEn, sort, state.name());
         CodeResult result = target.call(() -> target.codes().set(command, target.actor()));
         output.info(messages.get("code-set.set", result.code().group().name(), result.code().code().value(),
                 result.code().state().name(), String.valueOf(result.code().sortOrder()),
                 String.valueOf(result.revision())));
-    }
-
-    private static int sortOrder(String text) {
-        try {
-            return Integer.parseInt(text.strip());
-        } catch (NumberFormatException notANumber) {
-            throw new UsageException(ErrorCode.INVALID_OPTION_VALUE);
-        }
     }
 }

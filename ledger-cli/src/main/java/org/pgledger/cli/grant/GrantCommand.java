@@ -12,6 +12,7 @@ import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.cli.database.CliLedger;
+import org.pgledger.cli.database.DatabaseBeans;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.stereotype.Component;
@@ -55,12 +56,9 @@ public class GrantCommand implements Command {
         if (operands.size() < 3) {
             throw new UsageException(ErrorCode.MISSING_ARGUMENT);
         }
-        String note = CliOptions.value(arguments, NOTE).orElse(null);
-        String expires = CliOptions.value(arguments, EXPIRES).orElse(null);
-        CliLedger target = ledger.getIfAvailable();
-        if (target == null) {
-            throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
-        }
+        String note = CliOptions.valueOrNull(arguments, NOTE);
+        String expires = CliOptions.valueOrNull(arguments, EXPIRES);
+        CliLedger target = DatabaseBeans.require(ledger);
         String author = operands.get(0);
         String project = operands.get(1);
         List<String> scopes = operands.subList(2, operands.size());

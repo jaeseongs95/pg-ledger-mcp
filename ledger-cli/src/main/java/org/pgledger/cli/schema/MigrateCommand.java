@@ -12,6 +12,7 @@ import org.pgledger.cli.Command;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
+import org.pgledger.cli.database.DatabaseBeans;
 import org.pgledger.database.schema.GrantApplier;
 import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.database.schema.SchemaMigrator;
@@ -78,15 +79,14 @@ public class MigrateCommand implements Command {
         if (CliOptions.flag(arguments, STDIN) && ownerAccount.isEmpty()) {
             throw new UsageException(ErrorCode.INVALID_OPTION_VALUE);
         }
-        Optional<String> appAccount = CliOptions.value(arguments, APP_ACCOUNT);
         // a plain account name only: no SQL is made from anything else
-        if (appAccount.isPresent() && !GrantApplier.isAccountName(appAccount.get())) {
-            throw new UsageException(ErrorCode.INVALID_OPTION_VALUE);
-        }
-        SchemaMigrator target = migrator.getIfAvailable();
-        if (target == null) {
-            throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
-        }
+        Optional<String> appAccount = CliOptions.value(arguments, APP_ACCOUNT).map(account -> {
+            if (!GrantApplier.isAccountName(account)) {
+                throw new UsageException(ErrorCode.INVALID_OPTION_VALUE);
+            }
+            return account;
+        });
+        SchemaMigrator target = DatabaseBeans.require(migrator);
         List<Integer> applied;
         try {
             // the history is written in UTC, so the JVM zone is checked like in every other command
@@ -103,9 +103,7 @@ public class MigrateCommand implements Command {
             output.info(messages.get("migrate.applied", String.valueOf(applied.size()),
                     applied.stream().map(version -> "V" + version).collect(Collectors.joining(", "))));
         }
-        if (appAccount.isPresent()) {
-            grant(appAccount.get());
-        }
+        appAccount.ifPresent(this::grant);
     }
 
     /**
@@ -113,10 +111,7 @@ public class MigrateCommand implements Command {
      * that adds a table has to grant it, and granting again changes nothing.
      */
     private void grant(String appAccount) {
-        GrantApplier applier = grants.getIfAvailable();
-        if (applier == null) {
-            throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
-        }
+        GrantApplier applier = DatabaseBeans.require(grants);
         try {
             applier.apply(appAccount);
         } catch (InfrastructureException failed) {

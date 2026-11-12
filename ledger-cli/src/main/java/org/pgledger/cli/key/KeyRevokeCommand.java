@@ -5,11 +5,12 @@ import java.util.Locale;
 import java.util.Set;
 import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.CliMessages;
+import org.pgledger.cli.CliOptions;
 import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.Command;
 import org.pgledger.cli.ErrorCode;
-import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
+import org.pgledger.cli.database.DatabaseBeans;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.stereotype.Component;
@@ -60,28 +61,11 @@ public class KeyRevokeCommand implements Command {
         if (operands.size() > 1) {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
-        String fingerprint = fingerprintOption(arguments);
-        SessionKeyRegistry target = registry.getIfAvailable();
-        if (target == null) {
-            throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
-        }
+        // the option is required, because it is the confirmation; a fingerprint is compared without case and white space
+        String fingerprint = CliOptions.required(arguments, FINGERPRINT).strip().toLowerCase(Locale.ROOT);
+        SessionKeyRegistry target = DatabaseBeans.require(registry);
         String author = operands.getFirst();
         target.revoke(author, fingerprint);
         output.info(messages.get("key-revoke.revoked", author, fingerprint));
-    }
-
-    /** The value of {@code --fingerprint=<fingerprint>}; the option is required, because it is the confirmation. */
-    private static String fingerprintOption(ApplicationArguments arguments) {
-        List<String> values = arguments.getOptionValues(FINGERPRINT);
-        if (values == null) {
-            throw new UsageException(ErrorCode.MISSING_ARGUMENT);
-        }
-        if (values.size() > 1) {
-            throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
-        }
-        if (values.isEmpty() || values.getFirst().isBlank()) {
-            throw new UsageException(ErrorCode.MISSING_OPTION_VALUE);
-        }
-        return values.getFirst().strip().toLowerCase(Locale.ROOT);
     }
 }

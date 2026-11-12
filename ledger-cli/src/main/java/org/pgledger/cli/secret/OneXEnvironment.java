@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
  * read the file as a systemd {@code EnvironmentFile}, which takes more than the installer wrote, so this reads that
  * superset (https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#EnvironmentFile=): empty lines, lines
  * starting with {@code #} or {@code ;} and lines without a valid name are skipped, the value may be wrapped in one pair of
- * matching quotes, and the last occurrence of a key wins. Line ends are LF or CRLF. Nothing of the text is kept in a message.
+ * matching quotes, and the last occurrence of a key wins. Line ends are LF, CRLF or CR ({@link String#lines()}). Nothing of the text is kept in a message.
  */
 public final class OneXEnvironment {
 
@@ -26,7 +26,8 @@ public final class OneXEnvironment {
 
     public static OneXEnvironment parse(String text) {
         Map<String, String> found = new HashMap<>();
-        for (String raw : text.split("\n", -1)) {
+        // String.lines() ends a line at LF, CR or CRLF, so the line end of any platform is not part of a value
+        for (String raw : (Iterable<String>) text.lines()::iterator) {
             String line = raw.strip();
             if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) {
                 continue;

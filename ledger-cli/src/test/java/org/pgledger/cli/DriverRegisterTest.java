@@ -16,12 +16,14 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.pgledger.cli.support.CliExtension;
+import org.pgledger.cli.support.CommitRefusingDataSource;
 import org.pgledger.cli.support.CliExtension.Cli;
 import org.pgledger.cli.support.CliExtension.Outcome;
 import org.pgledger.cli.support.EnglishMessages;
@@ -256,6 +258,56 @@ class DriverRegisterTest {
             assertThat(audit.getFirst().get("subject")).isEqualTo(DRIVER);
             assertThat(audit.getFirst().get("detail").toString()).contains(jar.toString()).contains(sha256(jar));
             assertThat(registered()).isPresent();
+        }
+    }
+
+    /** The temporary files the registration leaves next to the file when it is interrupted. */
+    private List<Path> temporaryFiles() throws IOException {
+        try (Stream<Path> entries = Files.list(file.getParent())) {
+            return entries.filter(entry -> entry.getFileName().toString().startsWith("..jdbc-driver-")).toList();
+        }
+    }
+
+    @Test
+    @DisplayName("CLI-PRN-01 (F3) a transaction whose commit fails (the connection refuses it) leaves the registration file as the first registration wrote it, with no temporary file and no audit row of the failed run: DATABASE_FAILED, exit 1")
+    void aFailedCommitLeavesTheFile(Cli cli) throws Exception {
+        try (TestLedgerDatabase database = TestLedgerDatabase.migrated()) {
+            Outcome first = configured(cli, databaseUrl()).withDatabase(database.dataSource())
+                    .run(root.resolve("secrets"), null, new RecordingOutput(), "driver-register", "--jar=" + jar, "--class=" + DRIVER);
+            assertThat(first.exitCode()).isZero();
+            byte[] written = Files.readAllBytes(file);
+
+            Outcome second = configured(cli, databaseUrl()).withDatabase(CommitRefusingDataSource.around(database.dataSource()))
+                    .run(root.resolve("secrets"), null, new RecordingOutput(), "driver-register", "--jar=" + jar, "--class=" + DRIVER);
+
+            assertThat(second.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+            assertThat(second.code()).contains(ErrorCode.DATABASE_FAILED);
+            assertThat(Files.readAllBytes(file)).as("the file of the first registration").isEqualTo(written);
+            assertThat(temporaryFiles()).isEmpty();
+            assertThat(database.rows("SELECT operation FROM owner_audit")).as("the row of the failed run was rolled back")
+                    .hasSize(1);
+        }
+    }
+
+    @Test
+    @DisplayName("CLI-PRN-02 (F3) a registration file that cannot be replaced after the commit (its path is a directory that holds a file) is DRIVER_FILE_FAILED naming the path (exit 1): the audit row of the attempt is committed, the directory is as it was, no temporary file is left")
+    void aMoveThatFailsIsAnErrorAndTheAttemptIsDocumented(Cli cli) throws Exception {
+        Files.createDirectories(file);
+        Files.writeString(file.resolve("keep.txt"), "kept");
+        try (TestLedgerDatabase database = TestLedgerDatabase.migrated()) {
+            Outcome result = configured(cli, databaseUrl()).withDatabase(database.dataSource())
+                    .run(root.resolve("secrets"), null, new RecordingOutput(), "driver-register", "--jar=" + jar, "--class=" + DRIVER);
+
+            assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+            assertThat(result.code()).contains(ErrorCode.DRIVER_FILE_FAILED);
+            assertThat(result.refusal().orElseThrow().arguments()).containsExactly(file.toString());
+            assertThat(Files.isDirectory(file)).isTrue();
+            assertThat(Files.readString(file.resolve("keep.txt"))).isEqualTo("kept");
+            assertThat(temporaryFiles()).isEmpty();
+            List<Map<String, Object>> audit = database.rows("SELECT actor, operation, subject FROM owner_audit");
+            assertThat(audit).as("the committed row records the attempt").hasSize(1);
+            assertThat(audit.getFirst().get("operation")).isEqualTo("DRIVER_REGISTERED");
+            assertThat(audit.getFirst().get("subject")).isEqualTo(DRIVER);
         }
     }
 }

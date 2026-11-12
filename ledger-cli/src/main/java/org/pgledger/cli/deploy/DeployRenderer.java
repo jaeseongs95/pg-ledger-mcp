@@ -2,39 +2,31 @@ package org.pgledger.cli.deploy;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.stereotype.Component;
 
 /**
- * Renders the files of the deployment from validated parameters: the settings files ({@link ServiceSettings}, every
- * platform) and the definition of the two services that the platform runs them with ({@link SystemdUnits} on Linux,
- * {@link WinswServices} on Windows), and on Linux, when asked, the nginx site ({@link NginxSite}). It is a pure function of
- * its input (no clock, no host name, no environment, no file access), so the output is the same text every time and a test
- * needs neither root, nor Linux, nor Windows. A target that needs another definition is one more class next to those and one
- * more branch here.
+ * Renders the files of the deployment from validated parameters: the definition of the two services that the platform runs
+ * them with ({@link ServicePlatform#serviceDefinitions}: {@link SystemdUnits} on Linux, {@link WinswServices} on Windows),
+ * the settings files ({@link ServiceSettings}, every platform), and on Linux, when asked, the nginx site
+ * ({@link NginxSite}). It is a pure function of its input (no clock, no host name, no environment, no file access), so the
+ * output is the same text every time and a test needs neither root, nor Linux, nor Windows. A target that needs another
+ * definition is one more {@link ServicePlatform}; this class does not know the platforms.
  */
+@Component
 public final class DeployRenderer {
 
-    private DeployRenderer() {
+    private final ServicePlatforms platforms;
+
+    DeployRenderer(ServicePlatforms platforms) {
+        this.platforms = platforms;
     }
 
     /** The files in a fixed order: the service definitions, the settings files, then the nginx site when there is one. */
-    public static List<RenderedFile> render(DeployParameters p) {
+    public List<RenderedFile> render(DeployParameters p) {
         DeployLayout layout = p.layout();
         Service mcp = Service.mcp(layout);
         Service admin = Service.admin(layout);
-        List<RenderedFile> files = new ArrayList<>();
-        switch (layout.platform()) {
-            case LINUX -> {
-                files.add(new RenderedFile(DeployLayout.UNIT_DIRECTORY + "/" + mcp.name() + ".service",
-                        SystemdUnits.unit(p, mcp, "network-online.target", null)));
-                files.add(new RenderedFile(DeployLayout.UNIT_DIRECTORY + "/" + admin.name() + ".service",
-                        SystemdUnits.unit(p, admin, "network-online.target " + mcp.name() + ".service", layout.etc())));
-            }
-            case WINDOWS -> {
-                files.add(new RenderedFile(layout.lib() + "/" + mcp.name() + ".xml", WinswServices.configuration(p, mcp)));
-                files.add(new RenderedFile(layout.lib() + "/" + admin.name() + ".xml",
-                        WinswServices.configuration(p, admin)));
-            }
-        }
+        List<RenderedFile> files = new ArrayList<>(platforms.of(layout.platform()).serviceDefinitions(p));
         files.add(new RenderedFile(layout.etc() + "/application.yaml", ServiceSettings.shared(p)));
         files.add(new RenderedFile(layout.etc() + "/" + mcp.settingsFile(), ServiceSettings.mcp(p)));
         files.add(new RenderedFile(layout.etc() + "/" + admin.settingsFile(), ServiceSettings.admin(p)));

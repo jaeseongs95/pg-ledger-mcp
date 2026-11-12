@@ -6,9 +6,9 @@ import org.pgledger.cli.CliMessages;
 import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.Command;
 import org.pgledger.cli.ErrorCode;
-import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.cli.database.CliLedger;
+import org.pgledger.cli.database.DatabaseBeans;
 import org.pgledger.domain.model.SessionGrant;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
@@ -42,10 +42,7 @@ public class GrantsCommand implements Command {
         if (operands.size() > 1) {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
-        CliLedger target = ledger.getIfAvailable();
-        if (target == null) {
-            throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
-        }
+        CliLedger target = DatabaseBeans.require(ledger);
         List<SessionGrant> live = target.call(() -> operands.isEmpty() ? target.grants().liveAll()
                 : target.grants().live(operands.getFirst()));
         if (live.isEmpty()) {

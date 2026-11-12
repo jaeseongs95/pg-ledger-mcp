@@ -7,9 +7,9 @@ import org.pgledger.cli.CliMessages;
 import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.Command;
 import org.pgledger.cli.ErrorCode;
-import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.cli.database.CliLedger;
+import org.pgledger.cli.database.DatabaseBeans;
 import org.pgledger.domain.model.Project;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
@@ -46,10 +46,7 @@ public class ProjectAddCommand implements Command {
         if (operands.size() > 3) {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
-        CliLedger target = ledger.getIfAvailable();
-        if (target == null) {
-            throw new FailureException(ErrorCode.DRIVER_NOT_CONFIGURED);
-        }
+        CliLedger target = DatabaseBeans.require(ledger);
         Project added = target.call(() -> target.projects()
                 .add(new ProjectCommand(operands.get(0), operands.get(1), operands.get(2)), target.actor()));
         output.info(messages.get("project-add.added", added.id().value(), added.code().value(), added.title()));

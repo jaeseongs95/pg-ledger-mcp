@@ -59,16 +59,22 @@ sealed interface SecretProtection {
         requireOwnerOnlyAccess(path);
     }
 
-    /** The protection of this file system, or empty when it has neither POSIX permissions nor ACLs. */
-    static Optional<SecretProtection> of(FileSystem fileSystem, ProcessUser processUser) throws IOException {
+    /**
+     * The protection of the file system of the secret directory.
+     *
+     * @throws FailureException NON_POSIX_FILESYSTEM naming the directory when the file system has neither POSIX
+     *         permissions nor ACLs
+     */
+    static SecretProtection of(Path directory, ProcessUser processUser) throws IOException {
+        FileSystem fileSystem = directory.getFileSystem();
         Set<String> views = fileSystem.supportedFileAttributeViews();
         if (views.contains("posix")) {
-            return Optional.of(new Posix());
+            return new Posix();
         }
         if (views.contains("acl")) {
-            return Optional.of(new Acl(processUser.current(fileSystem)));
+            return new Acl(processUser.current(fileSystem));
         }
-        return Optional.empty();
+        throw new FailureException(ErrorCode.NON_POSIX_FILESYSTEM, directory.toString());
     }
 
     /** POSIX permissions. */
@@ -134,22 +140,29 @@ sealed interface SecretProtection {
 
         @Override
         public void requireOwnerOnlyAccess(Path path) throws IOException {
+            whatIsOpen(path).ifPresent(open -> {
+                throw new FailureException(ErrorCode.LOOSE_PERMISSIONS, path.toString(), open);
+            });
+        }
+
+        /** What the ACL of the path opens to another principal, empty when the owner alone has access: a query, not a failure. */
+        private Optional<String> whatIsOpen(Path path) throws IOException {
             List<AclEntry> acl = Files.getFileAttributeView(path, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS)
                     .getAcl();
             if (acl.isEmpty()) {
                 // an ACL without any entry grants the owner nothing, and a NULL DACL (which grants everybody everything)
                 // may be reported the same way: neither is the "owner alone" that was asked for
-                throw new FailureException(ErrorCode.LOOSE_PERMISSIONS, path.toString(), "an ACL without an entry");
+                return Optional.of("an ACL without an entry");
             }
             for (AclEntry entry : acl) {
                 // only an ALLOW entry grants anything; DENY, AUDIT and ALARM entries do not
                 boolean granting = entry.type() == AclEntryType.ALLOW && !entry.principal().equals(owner)
                         && !HARMLESS.containsAll(entry.permissions());
                 if (granting) {
-                    throw new FailureException(ErrorCode.LOOSE_PERMISSIONS, path.toString(),
-                            "an ACL that allows " + entry.principal().getName());
+                    return Optional.of("an ACL that allows " + entry.principal().getName());
                 }
             }
+            return Optional.empty();
         }
 
         /**
@@ -165,15 +178,10 @@ sealed interface SecretProtection {
             if (!Files.getOwner(path, LinkOption.NOFOLLOW_LINKS).equals(owner)) {
                 Files.setOwner(path, owner);
             }
-            try {
-                requireOwnerOnlyAccess(path);
-            } catch (FailureException wider) {
-                if (wider.code() != ErrorCode.LOOSE_PERMISSIONS) {
-                    throw wider;
-                }
+            if (whatIsOpen(path).isPresent()) {
                 Files.getFileAttributeView(path, AclFileAttributeView.class).setAcl(ownerOnly(Files.isDirectory(path)));
-                requireOwnerOnlyAccess(path);
             }
+            requireOwnerOnlyAccess(path);
         }
     }
 }

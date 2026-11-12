@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import org.springframework.stereotype.Component;
 
 /**
  * The access of an installation on a file system with ACLs (Windows), written with {@link AclFileAttributeView} and no
@@ -26,7 +27,11 @@ import java.util.Set;
  * and Administrators; the one service account reads and runs the jars, changes the settings and writes its logs; the secrets
  * belong to the service account alone, and Administrators keep only the right to see that a file exists. An ACL is written
  * whole ({@code setAcl}) and is not propagated to the children by the file system: this class sets it on each path itself.
+ *
+ * <p>A component, because {@link #set} and {@link #grantTree} change the file system; the entries and the sets of rights
+ * are values and are built by static functions ({@link #allow}, {@link #closed}, {@link #with} ...) that touch nothing.
  */
+@Component
 final class WindowsAccess {
 
     static final String SYSTEM = "NT AUTHORITY\\SYSTEM";
@@ -50,7 +55,7 @@ final class WindowsAccess {
         MODIFY = Collections.unmodifiableSet(modify);
     }
 
-    private WindowsAccess() {
+    WindowsAccess() {
     }
 
     /** One ALLOW entry; a directory's entry is inherited by the files and directories created in it. */
@@ -90,7 +95,7 @@ final class WindowsAccess {
     }
 
     /** Gives the path to {@code owner} (when not null) and replaces its ACL. */
-    static void set(Path path, UserPrincipal owner, List<AclEntry> acl) throws IOException {
+    void set(Path path, UserPrincipal owner, List<AclEntry> acl) throws IOException {
         AclFileAttributeView view = Files.getFileAttributeView(path, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
         if (owner != null) {
             view.setOwner(owner);
@@ -99,7 +104,7 @@ final class WindowsAccess {
     }
 
     /** Adds the entry of {@code who} to the ACL of the folder and of everything in it, but for the subtree {@code skipped}. */
-    static void grantTree(Path folder, UserPrincipal who, Set<AclEntryPermission> permissions, Path skipped)
+    void grantTree(Path folder, UserPrincipal who, Set<AclEntryPermission> permissions, Path skipped)
             throws IOException {
         Files.walkFileTree(folder, new SimpleFileVisitor<>() {
 

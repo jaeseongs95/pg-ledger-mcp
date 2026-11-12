@@ -10,9 +10,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.CliMessages;
@@ -46,8 +48,47 @@ public class SecretImport1xCommand implements Command {
     static final String ENV = "env";
     static final String STDIN = "stdin";
 
-    static final String AGENT_KEY = "DBHUB_AUTH_TOKEN";
-    static final String ADMIN_KEY = "PGLEDGER_ADMIN_TOKEN";
+    /** The two settings of the 1.x environment that are read: the name in the file, in the order they are checked and reported. */
+    enum OneXKey {
+        /** The bearer token of the agents. */
+        AGENT("DBHUB_AUTH_TOKEN"),
+        /** The sign-in token of the admin web. */
+        ADMIN("PGLEDGER_ADMIN_TOKEN");
+
+        private final String setting;
+
+        OneXKey(String setting) {
+            this.setting = setting;
+        }
+
+        String setting() {
+            return setting;
+        }
+    }
+
+    /** The secrets of the new installation, each with the 1.x setting it comes from; the order is the order of the output. */
+    enum ImportedSecret {
+        MCP_TOKEN("ledger.mcp.token", OneXKey.AGENT),
+        ADMIN_AGENT_TOKEN("ledger.admin.agent-token", OneXKey.AGENT),
+        ADMIN_TOKEN("ledger.admin.token", OneXKey.ADMIN);
+
+        private final SecretName secret;
+        private final OneXKey source;
+
+        ImportedSecret(String name, OneXKey source) {
+            this.secret = new SecretName(name);
+            this.source = source;
+        }
+
+        SecretName secret() {
+            return secret;
+        }
+
+        OneXKey source() {
+            return source;
+        }
+    }
+
     /** A 1.x token is 64 hexadecimal characters; anything under this is not a token that was generated. */
     static final int MINIMUM_LENGTH = 16;
     /** The 1.x file has a few lines; this bounds what a wrong input can make the program hold. */
@@ -80,7 +121,7 @@ public class SecretImport1xCommand implements Command {
         if (!operands.isEmpty()) {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
-        var file = CliOptions.value(arguments, ENV);
+        Optional<String> file = CliOptions.value(arguments, ENV);
         boolean fromStandardInput = CliOptions.flag(arguments, STDIN);
         if (file.isPresent() && fromStandardInput) {
             throw new UsageException(ErrorCode.INVALID_OPTION_VALUE);
@@ -88,56 +129,59 @@ public class SecretImport1xCommand implements Command {
         if (file.isEmpty() && !fromStandardInput) {
             throw new UsageException(ErrorCode.MISSING_ARGUMENT);
         }
-        OneXEnvironment environment = OneXEnvironment.parse(
-                fromStandardInput ? readStandardInput(standardInput.stream()) : readFile(Path.of(file.get())));
-        String agent = environment.value(AGENT_KEY).orElse(null);
-        String admin = environment.value(ADMIN_KEY).orElse(null);
-        requirePresent(agent, admin);
-        requireUsable(agent, admin);
-        // the secrets of the new installation, each with the 1.x setting it comes from; the order is the order of the output
-        Map<String, String> targets = new LinkedHashMap<>();
-        targets.put("ledger.mcp.token", AGENT_KEY);
-        targets.put("ledger.admin.agent-token", AGENT_KEY);
-        targets.put("ledger.admin.token", ADMIN_KEY);
+        // no file means --stdin (checked above); standard input is read only then
+        String text = file.map(name -> readFile(Path.of(name)))
+                .orElseGet(() -> readStandardInput(standardInput.stream()));
+        OneXEnvironment environment = OneXEnvironment.parse(text);
+        Map<OneXKey, String> values = new EnumMap<>(OneXKey.class);
+        for (OneXKey key : OneXKey.values()) {
+            environment.value(key.setting()).ifPresent(value -> values.put(key, value));
+        }
+        requirePresent(values);
+        requireUsable(values);
         // every secret is looked at before the first is written: a store that cannot be used refuses with nothing written
-        Map<SecretName, Boolean> present = new LinkedHashMap<>();
-        targets.keySet().forEach(name -> present.put(new SecretName(name), store.exists(new SecretName(name))));
-        for (Map.Entry<SecretName, Boolean> entry : present.entrySet()) {
-            String name = entry.getKey().value();
-            if (entry.getValue()) {
+        Map<ImportedSecret, Boolean> present = new EnumMap<>(ImportedSecret.class);
+        for (ImportedSecret imported : ImportedSecret.values()) {
+            present.put(imported, store.exists(imported.secret()));
+        }
+        for (ImportedSecret imported : ImportedSecret.values()) {
+            String name = imported.secret().value();
+            if (present.get(imported)) {
                 output.info(messages.get("secret-import-1x.kept", name));
                 continue;
             }
-            char[] value = (AGENT_KEY.equals(targets.get(name)) ? agent : admin).toCharArray();
+            char[] value = values.get(imported.source()).toCharArray();
             try {
-                store.store(entry.getKey(), value);
+                store.store(imported.secret(), value);
             } finally {
                 Arrays.fill(value, '\0');
             }
-            output.info(messages.get("secret-import-1x.stored", name, targets.get(name)));
+            output.info(messages.get("secret-import-1x.stored", name, imported.source().setting()));
         }
     }
 
-    private static void requirePresent(String agent, String admin) {
+    /** The settings that are missing, all of them named (their names, never a value). */
+    private static void requirePresent(Map<OneXKey, String> values) {
         List<String> missing = new ArrayList<>();
-        if (agent == null) {
-            missing.add(AGENT_KEY);
-        }
-        if (admin == null) {
-            missing.add(ADMIN_KEY);
+        for (OneXKey key : OneXKey.values()) {
+            if (!values.containsKey(key)) {
+                missing.add(key.setting());
+            }
         }
         if (!missing.isEmpty()) {
             throw new FailureException(ErrorCode.ENV_KEYS_MISSING, String.join(", ", missing));
         }
     }
 
-    private static void requireUsable(String agent, String admin) {
+    private static void requireUsable(Map<OneXKey, String> values) {
+        String agent = values.get(OneXKey.AGENT);
+        String admin = values.get(OneXKey.ADMIN);
         if (agent.length() < MINIMUM_LENGTH) {
-            throw new FailureException(ErrorCode.INVALID_1X_VALUE, AGENT_KEY);
+            throw new FailureException(ErrorCode.INVALID_1X_VALUE, OneXKey.AGENT.setting());
         }
         // the two tokens guard different things (the agents, the owner's sign-in): one value for both is refused, not carried over
-        if (admin.length() < MINIMUM_LENGTH || admin.equals(agent)) {
-            throw new FailureException(ErrorCode.INVALID_1X_VALUE, ADMIN_KEY);
+        if (admin.length() < MINIMUM_LENGTH || Objects.equals(admin, agent)) {
+            throw new FailureException(ErrorCode.INVALID_1X_VALUE, OneXKey.ADMIN.setting());
         }
     }
 
