@@ -354,6 +354,23 @@ class DocsTest {
         assertThat(documented).as("a code span of the README for %s", name).isTrue();
     }
 
+    private static final List<String> HOST_NAME_TERMS = List.of("DBHUB_ALLOWED_HOSTS", "PGLEDGER_ADMIN_ALLOWED_HOSTS", "--from-1x-env",
+            "--mcp-host=<name>[,<name>...]");
+
+    static Stream<Arguments> hostNameCases() {
+        return languageAnd(HOST_NAME_TERMS);
+    }
+
+    @ParameterizedTest
+    @MethodSource("hostNameCases")
+    @DisplayName("REH4-DOC-01 the README (Migrating from 1.x) and each part of the 2.0.0 note say what the installer does with the public host names of 1.x, and the README option table shows the comma list of --mcp-host and --admin-host")
+    void readmeAndNoteSayWhatTheInstallerDoesWithThe1xHostNames(Language language, String term) {
+        assertThat(language.readme().text()).contains(term);
+        assertThat(note().part(language.partHeading()).text()).contains(term);
+        assertThat(language.readme().codeSpans()).anyMatch(span -> span.startsWith("--mcp-host=<host>[,<host>...]"))
+                .anyMatch(span -> span.startsWith("--admin-host=<host>[,<host>...]"));
+    }
+
     static Stream<Arguments> installNoteCases() {
         return languageAnd(INSTALL_NOTE_TERMS);
     }
