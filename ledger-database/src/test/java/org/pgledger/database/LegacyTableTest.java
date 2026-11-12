@@ -44,7 +44,17 @@ class LegacyTableTest {
             assertThat(table.sourceKey()).as(table.name() + " source key").isSubsetOf(names(table.sourceColumns()));
         }
         Map<String, ColumnRule> task = target.columnRules(LegacyTable.TASK);
-        assertThat(task.get("purpose").nullable()).isFalse();
+        // REH3: purpose, success_condition, behavior, root_cause and condition_text allowed '' in 1.x, so they are nullable; the
+        // columns that identify a row stay NOT NULL, and so does the key of the id
+        assertThat(task.get("purpose").nullable()).isTrue();
+        assertThat(task.get("success_condition").nullable()).isTrue();
+        assertThat(task.get("title").nullable()).isFalse();
+        assertThat(task.get("id_key").nullable()).isFalse();
+        assertThat(task.get("id_key").maxChars()).isEqualTo(360);
+        assertThat(task.get("id").maxChars()).isEqualTo(120);
+        assertThat(target.columnRules(LegacyTable.RELEASE_CONDITION).get("code").maxChars()).isEqualTo(200);
+        assertThat(target.columnRules(LegacyTable.RELEASE_CONDITION).get("release_name").nullable()).isFalse();
+        assertThat(target.columnRules(LegacyTable.DEFECT_FIX).get("ci_ref").maxChars()).isEqualTo(2000);
         assertThat(task.get("owner_actor_id").nullable()).isTrue();
         assertThat(task.get("title").maxChars()).isEqualTo(300);
         assertThat(task.get("origin_ref").maxChars()).isEqualTo(500);

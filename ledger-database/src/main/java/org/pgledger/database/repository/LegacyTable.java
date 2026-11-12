@@ -17,6 +17,9 @@ import java.util.stream.Collectors;
  * table, an {@code ORDER BY}, an {@code INSERT} with one placeholder per column. The schema of the legacy side is an
  * identifier and so cannot be a bind value; the caller passes a validated name.
  *
+ * <p>{@code task} and {@code release_condition} have a column of the new schema that the legacy tables do not: {@code id_key},
+ * the id in upper case under a UNIQUE constraint (the mapping makes it from the legacy id, like the link key).
+ *
  * <p>The new schema avoids the words that SQL:2003 reserves, so two columns are named differently on the two sides:
  * {@code history.at} of the legacy schema is {@code occurred_at} here, and {@code session_grant.scope} is
  * {@code grant_scope}. The legacy side keeps the names the old installer created; the application maps one to the other.
@@ -43,9 +46,10 @@ public enum LegacyTable {
             List.of(text("id"), text("project_id"), text("title"), text("purpose"), text("success_condition"),
                     text("state"), text("owner_actor_id"), text("origin_ref"), text("origin_quote"), number("version"),
                     instant("created_at"), instant("updated_at"), text("created_by")),
-            List.of(text("id"), text("project_id"), text("title"), text("purpose"), text("success_condition"),
-                    text("state"), text("owner_actor_id"), text("origin_ref"), text("origin_quote"), number("version"),
-                    instant("created_at"), instant("updated_at"), text("created_by")), false),
+            List.of(text("id"), text("id_key"), text("project_id"), text("title"), text("purpose"),
+                    text("success_condition"), text("state"), text("owner_actor_id"), text("origin_ref"),
+                    text("origin_quote"), number("version"), instant("created_at"), instant("updated_at"),
+                    text("created_by")), false),
 
     DEFECT("defect", "defect", List.of("id"), List.of("id"),
             List.of(text("id"), text("project_id"), text("title"), text("category"), text("severity"), text("status"),
@@ -81,8 +85,8 @@ public enum LegacyTable {
     RELEASE_CONDITION("condition", "release_condition", List.of("id"), List.of("id"),
             List.of(text("id"), text("project_id"), text("release"), text("goal_label"), text("code"),
                     text("condition_text"), text("state"), number("version"), text("created_by")),
-            List.of(text("id"), text("project_id"), text("release_name"), text("goal_label"), text("code"),
-                    text("condition_text"), text("state"), number("version"), text("created_by")), false),
+            List.of(text("id"), text("id_key"), text("project_id"), text("release_name"), text("goal_label"),
+                    text("code"), text("condition_text"), text("state"), number("version"), text("created_by")), false),
 
     /** The legacy table has no key column: the new schema's {@code link_key} is made from the three id columns. */
     CONDITION_LINK("condition_link", "condition_link", List.of("condition_id"), List.of("link_key"),

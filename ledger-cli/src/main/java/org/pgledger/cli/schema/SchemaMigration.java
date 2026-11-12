@@ -11,6 +11,7 @@ import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.cli.database.DatabaseBeans;
+import org.pgledger.cli.driver.PendingDriverAudit;
 import org.pgledger.database.schema.GrantApplier;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.UtcSessionCheck;
@@ -19,6 +20,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.TransactionException;
 
 /**
  * The migration of the schema that {@code migrate} and {@code setup} share: the options of the commands (the DDL account of the
@@ -42,13 +44,15 @@ public class SchemaMigration {
 
     private final ObjectProvider<SchemaMigrator> migrator;
     private final ObjectProvider<GrantApplier> grants;
+    private final ObjectProvider<PendingDriverAudit> pendingDriver;
     private final CliOutput output;
     private final CliMessages messages;
 
-    SchemaMigration(ObjectProvider<SchemaMigrator> migrator, ObjectProvider<GrantApplier> grants, CliOutput output,
-            CliMessages messages) {
+    SchemaMigration(ObjectProvider<SchemaMigrator> migrator, ObjectProvider<GrantApplier> grants,
+            ObjectProvider<PendingDriverAudit> pendingDriver, CliOutput output, CliMessages messages) {
         this.migrator = migrator;
         this.grants = grants;
+        this.pendingDriver = pendingDriver;
         this.output = output;
         this.messages = messages;
     }
@@ -98,6 +102,24 @@ public class SchemaMigration {
         } else {
             output.info(messages.get("migrate.applied", String.valueOf(applied.size()),
                     applied.stream().map(version -> "V" + version).collect(Collectors.joining(", "))));
+        }
+        recordPendingDriver();
+    }
+
+    /**
+     * The schema is ready now: a driver that {@code driver-register} registered while it was not (the audit table was not there)
+     * gets its row of the owner's audit trail. A registration whose row is there is left alone, so this changes nothing on a
+     * schema that has been through it.
+     */
+    private void recordPendingDriver() {
+        PendingDriverAudit pending = pendingDriver.getIfAvailable();
+        if (pending == null) {
+            return;
+        }
+        try {
+            pending.recordIfMissing().ifPresent(driver -> output.info(messages.get("migrate.driver-audited", driver)));
+        } catch (DataAccessException | TransactionException failure) {
+            throw new FailureException(ErrorCode.DATABASE_FAILED, failure);
         }
     }
 

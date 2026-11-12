@@ -133,9 +133,9 @@ class RealShapesImportTest {
             assertThat(refused.issues()).allSatisfy(issue -> assertThat(issue.reason().name())
                     .isEqualTo("ID_DIFFERS_ONLY_IN_CASE"));
             List<String> paths = refused.issues().stream().map(ValidationIssue::path).toList();
-            assertThat(paths).anyMatch(path -> path.equals("task[OLD-T-a].id") || path.equals("task[OLD-T-A].id"));
-            assertThat(paths).anyMatch(path -> path.equals("release_condition[old-c].id")
-                    || path.equals("release_condition[OLD-C].id"));
+            assertThat(paths).anyMatch(path -> "task[OLD-T-a].id".equals(path) || "task[OLD-T-A].id".equals(path));
+            assertThat(paths).anyMatch(path -> "release_condition[old-c].id".equals(path)
+                    || "release_condition[OLD-C].id".equals(path));
             ValidationIssue task = refused.issues().stream().filter(issue -> issue.path().startsWith("task[")).findFirst()
                     .orElseThrow();
             assertThat(task.reasonArgs()).hasSize(1);
@@ -263,7 +263,7 @@ class RealShapesImportTest {
             assertThat(defect.behavior()).isEmpty();
             assertThat(defect.rootCause()).isEmpty();
             var conditions = ctx.bean(ListService.class).conditions(new ConditionsQuery("ags", null, null, 50, null));
-            assertThat(conditions.items()).filteredOn(item -> item.id().equals(LegacyFixtures.REAL_CONDITION_LOWER))
+            assertThat(conditions.items()).filteredOn(item -> LegacyFixtures.REAL_CONDITION_LOWER.equals(item.id()))
                     .singleElement().satisfies(item -> assertThat(item.conditionText()).isEmpty());
         });
     }

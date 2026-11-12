@@ -160,7 +160,8 @@ public class ListService {
                 .map(position -> ConditionId.of(position.id())).orElse(null);
         var page = conditions.page(project, filter, maxRows, after);
         return cursors.page(page, PageCursor.Kind.CONDITIONS, criteria,
-                c -> new ConditionItem(c.id().value(), c.release(), c.goalLabel(), c.code(), c.conditionText(),
+                c -> new ConditionItem(c.id().value(), c.release(), c.goalLabel(), c.code(),
+                        Texts.orEmpty(c.conditionText()),
                         c.state().name(), c.version()),
                 c -> null, c -> c.id().value());
     }

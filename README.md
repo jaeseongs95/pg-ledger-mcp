@@ -43,7 +43,9 @@ of the write tools, the keys of the results, the `_hostAttestation` key) and cha
   A receipt that was imported from the 1.x ledger answers `REQUEST_ID_LEGACY`: use a new request id.
 - **Optimistic locking.** Edits and transitions carry `expected_version`; a stale version is `VERSION_CONFLICT`.
 - **Projects and ids.** A defect belongs to a project and gets the id `<CODE>-D-0001`, `<CODE>-D-0002`, and so on. A task without
-  an id gets `<CODE>-T-0001`, and so on. The server assigns them.
+  an id gets `<CODE>-T-0001`, and so on. The server assigns them. An id that a caller chooses for a task or a condition is 1 to 120
+  characters without whitespace, in any case (the ids of 1.x are kept); an id that equals an existing one when the case is ignored is
+  refused (`DUPLICATE_KEY`), and an id is always compared exactly.
 - **One defect, one root cause, many observed cases.** Each observation of a defect (symptom, log, user report) is a case under it
   (`ledger_record_case`). A merged defect (`MERGED`, `merged_into`) keeps its cases; `ledger_defect` shows them under the defect it
   was merged into, and a `MERGED` defect takes no new cases.
@@ -518,6 +520,14 @@ import, check. Do the steps in this order; the installer stops nothing of 1.x by
    `migrate` and `setup` made, which is the state after the installer (the installer runs `setup`: the seed codes and the audit rows of
    that are accepted, and a seed code that 1.x also has takes the 1.x values). It refuses when a table of ledger data, a session key or
    an earlier import is already there, and it lists every value of the old data that the new schema cannot hold; it never invents a value.
+   The ids of 1.x are kept as they are: an id of a task or a condition is 1 to 120 characters without whitespace or control
+   characters, in any case and with any characters (`:`, `/`, `#`, `.`, `_`, `-` ...); defect ids keep their form (`<CODE>-D-0001`). Ids of one
+   kind that differ only in case are one id to the new schema (a lookup compares the id exactly, and the key of the id in upper case is
+   unique on every DBMS), so the import refuses such a pair and lists it, and a task or condition cannot be created with an id that
+   equals an existing one when the case is ignored. An empty text of 1.x (`purpose`, `success_condition`, `behavior`, `root_cause`
+   and `condition_text` allowed `''`) is stored as NULL and the tools return an empty string for it, as 1.x did.
+   The `code` of a condition (200 characters) and the `ci_ref` (2000 characters) are longer than in the earlier 2.0 builds, so every
+   value of 1.x fits.
 7. The old grants are copied without a session key. Every author registers a session key with `key-register`; then its grants work.
 8. **Check.** `ledger-cli mcp-check --url=<its public URL>` and `import-legacy --verify-only`; open the admin web and sign in with the
    admin token of 1.x.

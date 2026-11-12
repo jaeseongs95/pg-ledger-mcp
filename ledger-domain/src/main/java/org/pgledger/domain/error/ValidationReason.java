@@ -66,8 +66,10 @@ public enum ValidationReason {
     MUST_BE_LOWER_CASE_HEX,
     DEFECT_ID_FORMAT,
     MUST_BE_POSITIVE,
-    /** {0} = the pattern of the id. */
-    MUST_BE_UPPER_CASE_ID_MATCHING,
+    /** {0} = the longest length in characters: an id of a task or condition has 1 to {0} characters, no whitespace, no control character. */
+    MUST_BE_ID,
+    /** {0} = the id of the same kind that this id equals when the case is ignored (the legacy import reports the later one). */
+    ID_DIFFERS_ONLY_IN_CASE,
     MUST_NOT_BE_BLANK,
     MUST_BE_UUID,
     MUST_BE_ISO_8601_INSTANT,

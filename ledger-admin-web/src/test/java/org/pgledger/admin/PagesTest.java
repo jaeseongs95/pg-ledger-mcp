@@ -61,7 +61,9 @@ class PagesTest {
                     .fromUriString(link.group(1).replace("&amp;", "&")).build().getQueryParams().getFirst("id"),
                     java.nio.charset.StandardCharsets.UTF_8);
             assertThat(id).isEqualTo(row[0]);
-            String detail = browser.perform(browser.get(link.group(1).replace("&amp;", "&"))).andExpect(status().isOk())
+            // the browser sends the id back as the query parameter the link carries (MockMvc would encode a URI text again)
+            assertThat(link.group(1)).startsWith("/tasks/detail?id=");
+            String detail = browser.perform(browser.get("/tasks/detail").param("id", id)).andExpect(status().isOk())
                     .andReturn().getResponse().getContentAsString();
             assertThat(detail).contains(row[1]);
         }

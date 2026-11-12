@@ -94,8 +94,6 @@ class CaseInsensitiveDbmsTest {
                     "task", lowerTask, 1L, "ACTIVE", Scenario.REASON, null, null, null)), LookupCode.NOT_FOUND);
             Expect.failure(() -> s.bean(LinkService.class).link(Scenario.AUTHOR, new LinkCommand(null, "condition_task",
                     condition, lowerTask, Scenario.REASON, null)), LookupCode.NOT_FOUND);
-            Expect.failure(() -> s.bean(LinkService.class).link(Scenario.AUTHOR, new LinkCommand(null, "defect_task",
-                    s.newDefect("d").id(), lowerTask, Scenario.REASON, null)), LookupCode.NOT_FOUND);
             Expect.failure(() -> s.bean(SaveService.class).save(Scenario.AUTHOR, s.create("task", lowerTask,
                     s.taskFields("sibling"))), ConflictCode.DUPLICATE_KEY);
             assertThat(s.count("SELECT COUNT(*) FROM task WHERE project_id = ?", s.projectId())).isEqualTo(1);

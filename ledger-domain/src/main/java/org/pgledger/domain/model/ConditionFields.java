@@ -13,7 +13,7 @@ public record ConditionFields(Patch<ProjectId> projectId, Patch<String> release,
             Patch<String> code, Patch<String> conditionText) {
         return new ConditionFields(projectId.map(ProjectId::of), release.map(TextRule.RELEASE::required),
                 goalLabel.map(TextRule.GOAL_LABEL::optional), code.map(TextRule.CONDITION_CODE::required),
-                conditionText.map(TextRule.CONDITION_TEXT::required));
+                conditionText.map(TextRule.CONDITION_TEXT::givenOrEmpty));
     }
 
     @Override

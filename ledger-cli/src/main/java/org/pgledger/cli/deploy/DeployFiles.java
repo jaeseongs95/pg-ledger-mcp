@@ -14,7 +14,7 @@ import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
@@ -41,23 +41,32 @@ public final class DeployFiles {
     /** What a file of 1.x that is replaced is kept as. */
     public static final String BACKUP_SUFFIX = ".1x-backup";
 
+    /** What happened to the backup of a file of 1.x that is replaced: made now, or found and left as it was. */
+    public enum Backup {
+        /** The previous file was moved to {@code <file>.1x-backup} by this run (the first run). */
+        MOVED,
+        /** The backup was there already with the same bytes as the file (a rollback copied it back): it is left as it is. */
+        KEPT
+    }
+
     /**
      * @param root the directory the absolute paths of the files are put below (a drive letter becomes a directory name:
      *             {@code C:/x} is {@code <root>/C/x}), or null to write each file at its own path, as an installation does
-     * @param kept told the backup file of every foreign file that was moved aside ({@link #BACKUP_SUFFIX})
+     * @param backups told the backup file of every foreign file that is replaced ({@link #BACKUP_SUFFIX}), and whether this
+     *                run moved the file there or the backup was there already
      * @return the files written, in order
      * @throws UsageException INVALID_DEPLOY_VALUE naming {@code platform}, before the first file is written, when there is no
      *         root and a file has no path on this host
      * @throws FailureException DEPLOY_WRITE_FAILED naming the file and the kind of failure (for a backup that holds other bytes
      *         both files)
      */
-    public List<Path> write(Path root, List<RenderedFile> files, Consumer<Path> kept) {
+    public List<Path> write(Path root, List<RenderedFile> files, BiConsumer<Path, Backup> backups) {
         List<Path> targets = targets(root, files);
         List<Path> written = new ArrayList<>();
         for (int index = 0; index < files.size(); index++) {
             Path target = targets.get(index);
             try {
-                writeOne(target, files.get(index).content(), kept);
+                writeOne(target, files.get(index).content(), backups);
             } catch (BackupDiffersException e) {
                 throw new FailureException(ErrorCode.DEPLOY_WRITE_FAILED, e, e.files(), e.getClass().getSimpleName());
             } catch (IOException e) {
@@ -75,10 +84,11 @@ public final class DeployFiles {
      *
      * @throws IOException the file that could not be written, or {@link BackupDiffersException} naming the file and its backup
      */
-    public List<Path> writeIntoHost(Path root, List<RenderedFile> files, Consumer<Path> kept) throws IOException {
+    public List<Path> writeIntoHost(Path root, List<RenderedFile> files, BiConsumer<Path, Backup> backups)
+            throws IOException {
         List<Path> targets = targets(root, files);
         for (int index = 0; index < files.size(); index++) {
-            writeOne(targets.get(index), files.get(index).content(), kept);
+            writeOne(targets.get(index), files.get(index).content(), backups);
         }
         return targets;
     }
@@ -91,8 +101,8 @@ public final class DeployFiles {
         return targets;
     }
 
-    private void writeOne(Path target, String content, Consumer<Path> kept) throws IOException {
-        keepForeign(target, kept);
+    private void writeOne(Path target, String content, BiConsumer<Path, Backup> backups) throws IOException {
+        keepForeign(target, backups);
         replace(target, out -> out.write(content.getBytes(StandardCharsets.UTF_8)));
     }
 
@@ -124,22 +134,25 @@ public final class DeployFiles {
      * either file is changed. A file this command rendered (it says so, {@link Text#MARKER}) is replaced as it is: every run
      * after the first finds its own file.
      */
-    private void keepForeign(Path target, Consumer<Path> kept) throws IOException {
+    private void keepForeign(Path target, BiConsumer<Path, Backup> backups) throws IOException {
         if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)
                 // the marker is ASCII: a one-byte decoding finds it in any text and never fails on a file of another encoding
                 || Files.readString(target, StandardCharsets.ISO_8859_1).contains(Text.MARKER)) {
             return;
         }
         Path backup = target.resolveSibling(target.getFileName() + BACKUP_SUFFIX);
+        Backup how;
         if (Files.exists(backup, LinkOption.NOFOLLOW_LINKS)) {
             if (!Files.isRegularFile(backup, LinkOption.NOFOLLOW_LINKS) || Files.mismatch(target, backup) != -1) {
                 throw new BackupDiffersException(target, backup);
             }
+            how = Backup.KEPT;
         } else {
             // no REPLACE_EXISTING and no ATOMIC_MOVE (which may replace silently): a backup that appeared meanwhile fails the move
             Files.move(target, backup);
+            how = Backup.MOVED;
         }
-        kept.accept(backup);
+        backups.accept(backup, how);
     }
 
     /**

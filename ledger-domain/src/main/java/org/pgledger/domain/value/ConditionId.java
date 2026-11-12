@@ -3,7 +3,7 @@ package org.pgledger.domain.value;
 import java.util.Optional;
 import org.pgledger.domain.error.ValidationException;
 
-/** Id of a release condition: free upper-case text ({@link EntityId#PATTERN}), always given by the caller. */
+/** Id of a release condition: free text ({@link EntityId#PATTERN}, the ids of 1.x in any case), always given by the caller. */
 public record ConditionId(String value) {
 
     public ConditionId {
@@ -22,5 +22,10 @@ public record ConditionId(String value) {
 
     public static ConditionId of(String value) {
         return new ConditionId(value);
+    }
+
+    /** The key under the UNIQUE constraint of the table: the id in upper case ({@link EntityId#key}). */
+    public String key() {
+        return EntityId.key(value);
     }
 }

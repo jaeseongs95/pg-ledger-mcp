@@ -15,6 +15,7 @@ import org.pgledger.domain.value.ActorId;
 import org.pgledger.domain.value.CodeValue;
 import org.pgledger.domain.value.DefectId;
 import org.pgledger.domain.value.ProjectId;
+import org.pgledger.domain.value.TextRule;
 
 /**
  * A defect. {@code caseSeq} is a lock counter bumped by recording a case (it serialises with a merge of the same
@@ -27,7 +28,10 @@ public record Defect(@Id DefectId id, ProjectId projectId, String title, CodeVal
         @ReadOnlyProperty long caseSeq, @Version long version, Instant createdAt, Instant updatedAt,
         @CreatedBy @InsertOnlyProperty ActorId createdBy) {
 
+    /** {@code behavior} and {@code rootCause} may be empty: the row holds NULL then (the 1.x columns allowed {@code ''}). */
     public Defect {
+        behavior = TextRule.emptyToNull(behavior);
+        rootCause = TextRule.emptyToNull(rootCause);
         if ((status == DefectStatus.MERGED) != (mergedInto != null)) {
             throw ValidationException.invalid("merged_into", ValidationReason.SET_EXACTLY_WHEN_STATUS_IS, "MERGED");
         }

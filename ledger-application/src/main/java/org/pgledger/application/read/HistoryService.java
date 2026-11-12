@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import org.pgledger.database.repository.HistoryQueryRepository;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.domain.model.HistoryEntry;
@@ -83,8 +84,11 @@ public class HistoryService {
                 .orElse(0L);
         var ids = queries.page(filter, after, maxRows);
         boolean withBefore = q.includeBefore() != null && q.includeBefore();
+        // the id of an entity is compared exactly: a DBMS that ignores case in = also returns the rows of the id in another case
         List<HistoryView> views = ids.rows().isEmpty() ? List.of() : rows.findByIdIn(ids.rows()).stream()
-                .sorted(Comparator.comparing(HistoryEntry::id)).map(row -> view(row, withBefore)).toList();
+                .sorted(Comparator.comparing(HistoryEntry::id))
+                .filter(row -> q.entityId() == null || Objects.equals(row.entityId(), q.entityId()))
+                .map(row -> view(row, withBefore)).toList();
         String next = ids.truncated() && !ids.rows().isEmpty()
                 ? cursors.encode(PageCursor.Kind.HISTORY, filter, null, Long.toString(ids.rows().getLast())) : null;
         return new Page<>(views, ids.truncated(), next);

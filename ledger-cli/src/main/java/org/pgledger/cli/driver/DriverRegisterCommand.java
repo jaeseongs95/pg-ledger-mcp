@@ -16,6 +16,8 @@ import org.pgledger.cli.database.CliActor;
 import org.pgledger.database.driver.DriverRegistrar;
 import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.database.driver.DriverRegistrationFile;
+import org.pgledger.database.schema.SchemaVerifier;
+import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.domain.rule.OwnerAction;
 import org.pgledger.domain.value.OwnerIdentity;
@@ -40,8 +42,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * class has the one fixed text and the specific reason goes to the log. The running products keep their pool: the new
  * driver is used after their next start.
  *
- * <p>When the ledger database can be reached (a driver was registered before) the registration is also recorded in the
- * owner's audit trail as {@code cli:<process user>}; otherwise it is logged with the actor and the digest. The file is
+ * <p>When the ledger database can be reached and its schema is up to date the registration is also recorded in the
+ * owner's audit trail as {@code cli:<process user>}; otherwise (no database yet, a schema that is not migrated or was dropped,
+ * a pending upgrade) it is logged with the actor and the digest, the command says that the row is still to come, and
+ * {@code migrate} and {@code setup} write it when the schema is ready ({@link PendingDriverAudit}). A database that cannot be
+ * reached is DATABASE_FAILED. The file is
  * never written inside the transaction of the audit row ({@link DriverRegistrationFile#register}): the checks and the new
  * file come first, outside any transaction, the audit row is committed, and the old file is replaced after the commit. A
  * transaction that does not commit leaves the file as it was (DATABASE_FAILED); a replacement that fails after the commit
@@ -62,18 +67,20 @@ public class DriverRegisterCommand implements Command {
     private final CliActor actor;
     private final ObjectProvider<OwnerAuditWriter> audit;
     private final ObjectProvider<PlatformTransactionManager> transactions;
+    private final ObjectProvider<SchemaVerifier> schema;
     private final CliOutput output;
     private final CliMessages messages;
 
     DriverRegisterCommand(DriverRegistrar registrar, DriverRegistrationFile file, Clock clock, CliActor actor,
             ObjectProvider<OwnerAuditWriter> audit, ObjectProvider<PlatformTransactionManager> transactions,
-            CliOutput output, CliMessages messages) {
+            ObjectProvider<SchemaVerifier> schema, CliOutput output, CliMessages messages) {
         this.registrar = registrar;
         this.file = file;
         this.clock = clock;
         this.actor = actor;
         this.audit = audit;
         this.transactions = transactions;
+        this.schema = schema;
         this.output = output;
         this.messages = messages;
     }
@@ -102,8 +109,9 @@ public class DriverRegisterCommand implements Command {
         } catch (InfrastructureException refused) {
             throw new FailureException(ErrorCode.DRIVER_INVALID, refused, refused.args().getFirst());
         }
+        boolean rowWritten;
         try {
-            register(registration, owner);
+            rowWritten = register(registration, owner);
         } catch (InfrastructureException failure) {
             throw new FailureException(ErrorCode.DRIVER_FILE_FAILED, failure, file.path().toString());
         } catch (DataAccessException | TransactionException failure) {
@@ -111,23 +119,56 @@ public class DriverRegisterCommand implements Command {
         }
         output.info(messages.get("driver-register.registered", registration.className(),
                 registration.jar().toString(), registration.sha256(), file.path().toString()));
+        if (!rowWritten) {
+            output.info(messages.get("driver-register.pending"));
+        }
     }
 
     /**
      * The audit row and the file, in the order of {@link DriverRegistrationFile#register}; this runs in no transaction of its
-     * own (the call opens it). Without a database there is no row: a log line stands in for it, and the file is replaced at once.
+     * own (the call opens it). Without a database, or while the schema of the database is not up to date (not migrated, dropped,
+     * an upgrade pending: the audit table is not there or is not the one of this version), there is no row to write yet: a log
+     * line stands in for it, the file is replaced at once, and {@code migrate} and {@code setup} write the row when the schema is
+     * ready ({@link PendingDriverAudit}). A database that cannot be reached is no such case: it is DATABASE_FAILED.
+     *
+     * @return whether the row of the audit trail was written
      */
-    private void register(DriverRegistration registration, OwnerIdentity owner) {
+    private boolean register(DriverRegistration registration, OwnerIdentity owner) {
         OwnerAuditWriter writer = audit.getIfAvailable();
         PlatformTransactionManager manager = transactions.getIfAvailable();
-        String detail = "jar=" + registration.jar() + " sha256=" + registration.sha256();
+        String detail = PendingDriverAudit.detail(registration.jar().toString(), registration.sha256());
         if (writer == null || manager == null) {
             file.register(registration, TransactionOperations.withoutTransaction(), () -> LOG.info(
                     "driver registered by {}: {} {} (no ledger database is configured, so there is no row of the owner's "
-                            + "audit trail)", owner.value(), registration.className(), DriverRegistrar.printable(detail)));
-            return;
+                            + "audit trail; migrate or setup records it)", owner.value(), registration.className(),
+                    DriverRegistrar.printable(detail)));
+            return false;
+        }
+        SchemaVerifier verifier = schema.getIfAvailable();
+        if (verifier != null) {
+            try {
+                verifier.verify();
+            } catch (InfrastructureException notReady) {
+                // only a schema that is not there yet (not migrated, dropped) or that waits for a file is the case that
+                // migrate and setup repair; a database that cannot be reached is a failure, and so is a schema that is
+                // broken (a changed file, a failed attempt): the refusal says which, as every other command does
+                if (notReady.code() == InfrastructureCode.SCHEMA_DATABASE_UNREACHABLE
+                        || notReady.code() == InfrastructureCode.INTERNAL_ERROR) {
+                    throw new FailureException(ErrorCode.DATABASE_FAILED, notReady);
+                }
+                if (notReady.code() != InfrastructureCode.SCHEMA_HISTORY_MISSING
+                        && notReady.code() != InfrastructureCode.SCHEMA_PENDING) {
+                    throw new FailureException(ErrorCode.SCHEMA_NOT_READY, notReady, notReady.getMessage());
+                }
+                file.register(registration, TransactionOperations.withoutTransaction(), () -> LOG.info(
+                        "driver registered by {}: {} {} (the schema of the ledger database is not up to date, {}; migrate or "
+                                + "setup records the row of the owner's audit trail)", owner.value(),
+                        registration.className(), DriverRegistrar.printable(detail), notReady.code()));
+                return false;
+            }
         }
         file.register(registration, new TransactionTemplate(manager),
                 () -> writer.record(owner, OwnerAction.DRIVER_REGISTERED, registration.className(), detail));
+        return true;
     }
 }

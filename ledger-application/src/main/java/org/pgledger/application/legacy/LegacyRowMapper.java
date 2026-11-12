@@ -54,16 +54,21 @@ import org.springframework.stereotype.Component;
  * the rows the new schema holds:
  * <ul>
  * <li>An empty text ({@code ''}) is NULL. The legacy columns allowed {@code ''}; the new schema never holds it
- * (SVC-NORM). Where the new column is nullable the value becomes NULL; where it is NOT NULL the row is reported
- * (MIG-023) and nothing is written, no value is invented.</li>
+ * (SVC-NORM). Where the new column is nullable (the five long texts of 1.x that allowed {@code ''}: purpose, success
+ * condition, behavior, root cause, condition text; REH3-IMP-01) the value becomes NULL and the tools show {@code ""} as 1.x
+ * did; where it is NOT NULL (a text that identifies a row) the row is reported (MIG-023) and nothing is written, no value is
+ * invented.</li>
  * <li>A time value is cut to microseconds, the precision of the columns of the new schema; the instant is kept and is
  * stored as UTC.</li>
  * <li>The tokens that the new schema writes as constant names (the history entity, the grant scope, the CI conclusion, the
  * receipt operation) are the legacy lower-case tokens in upper case; a token that is none of them is reported.</li>
- * <li>An id that does not have the format of its kind (the upper-case id of a task or condition, the defect id) is
- * reported (MIG-028) and never case-folded; ids with {@code |} import unchanged.</li>
+ * <li>An id that does not have the form of its kind (the id of a task or condition: 1 to 120 characters without whitespace
+ * or control character, in any case; the defect id) is reported (MIG-028) and never case-folded; every id of 1.x imports
+ * unchanged. The key of a task and a condition ({@code id_key}) is the id in upper case. That two ids of one kind
+ * differ only in case is not a property of a row: the import service reports it (REH3-IMP-02).</li>
  * <li>A text longer than its new column is reported, never cut.</li>
- * <li>The derived columns are made by the domain's own rules: the link key of a condition link, the active key of a grant,
+ * <li>The derived columns are made by the domain's own rules: the link key of a condition link ({@link ConditionLink#linkKey},
+ * the key of a new link), the id key of a task and a condition, the active key of a grant,
  * the origin of a fix ({@code imported} true is IMPORTED), the state of a common code ({@code active} true is ACTIVE),
  * every receipt is LEGACY, the counters of a project are the highest numbers the legacy ledger used, the version of a
  * project is 1, and {@code before_data} and {@code last_used_at} stay NULL.</li>
@@ -105,6 +110,11 @@ final class LegacyRowMapper {
 
         void add(String column, ValidationReason reason, String... reasonArgs) {
             found.add(new LegacyViolation(table.targetName(), key, column, reason, List.of(reasonArgs)));
+        }
+
+        /** True when the column of this row has been reported already (a value is reported once, for its first reason). */
+        boolean reported(String column) {
+            return found.stream().anyMatch(violation -> Objects.equals(violation.column(), column));
         }
     }
 
@@ -179,7 +189,7 @@ final class LegacyRowMapper {
                 if (!rule.nullable()) {
                     violations.add(column.name(), ValidationReason.REQUIRED);
                 }
-            } else if (value instanceof String text && rule.maxChars() > 0
+            } else if (value instanceof String text && rule.maxChars() > 0 && !violations.reported(column.name())
                     && text.codePointCount(0, text.length()) > rule.maxChars()) {
                 violations.add(column.name(), ValidationReason.MUST_BE_AT_MOST_CHARS, String.valueOf(rule.maxChars()));
             }
@@ -208,7 +218,8 @@ final class LegacyRowMapper {
     private static void task(LegacyRow s, Map<String, Object> t, Violations v) {
         copy(s, t, "id", "project_id", "title", "purpose", "success_condition", "state", "owner_actor_id",
                 "origin_ref", "origin_quote", "version", "created_at", "updated_at", "created_by");
-        matches(v, "id", s.text("id"), EntityId.PATTERN, ValidationReason.MUST_BE_UPPER_CASE_ID_MATCHING);
+        entityId(v, "id", s.text("id"));
+        t.put("id_key", idKey(s.text("id")));
         oneOf(v, "state", s.text("state"), TASK_STATES);
     }
 
@@ -240,8 +251,21 @@ final class LegacyRowMapper {
     private static void releaseCondition(LegacyRow s, Map<String, Object> t, Violations v) {
         copy(s, t, "id", "project_id", "goal_label", "code", "condition_text", "state", "version", "created_by");
         t.put("release_name", s.text("release"));
-        matches(v, "id", s.text("id"), EntityId.PATTERN, ValidationReason.MUST_BE_UPPER_CASE_ID_MATCHING);
+        entityId(v, "id", s.text("id"));
+        t.put("id_key", idKey(s.text("id")));
         oneOf(v, "state", s.text("state"), CONDITION_STATES);
+    }
+
+    /** An id of a task or condition that has the form of 1.x (the id of a defect is {@link DefectId}); it is never case-folded. */
+    private static void entityId(Violations v, String column, String id) {
+        if (id != null && !EntityId.PATTERN.matcher(id).matches()) {
+            v.add(column, ValidationReason.MUST_BE_ID, Integer.toString(EntityId.MAX_LENGTH));
+        }
+    }
+
+    /** The upper-case key of the id (the UNIQUE column that refuses ids which differ only in case), NULL for no id. */
+    private static String idKey(String id) {
+        return id == null ? null : EntityId.key(id);
     }
 
     private static void conditionLink(LegacyRow s, Map<String, Object> t, Violations v) {
@@ -254,7 +278,7 @@ final class LegacyRowMapper {
         }
         Optional<ConditionId> conditionId = ConditionId.parse(condition);
         if (condition != null && conditionId.isEmpty()) {
-            v.add("condition_id", ValidationReason.MUST_BE_UPPER_CASE_ID_MATCHING, EntityId.PATTERN.pattern());
+            v.add("condition_id", ValidationReason.MUST_BE_ID, Integer.toString(EntityId.MAX_LENGTH));
         }
         // a row without a valid link has no link key: the column is NULL (and the row is reported above or below)
         t.put("link_key", conditionId.flatMap(id -> linkKey(id, task, defect, v)).orElse(null));
@@ -265,7 +289,7 @@ final class LegacyRowMapper {
         if (task != null && defect == null) {
             Optional<TaskId> taskId = TaskId.parse(task);
             if (taskId.isEmpty()) {
-                v.add("task_id", ValidationReason.MUST_BE_UPPER_CASE_ID_MATCHING, EntityId.PATTERN.pattern());
+                v.add("task_id", ValidationReason.MUST_BE_ID, Integer.toString(EntityId.MAX_LENGTH));
             }
             return taskId.map(id -> ConditionLink.toTask(condition, id, AuthorId.OWNER).linkKey());
         }

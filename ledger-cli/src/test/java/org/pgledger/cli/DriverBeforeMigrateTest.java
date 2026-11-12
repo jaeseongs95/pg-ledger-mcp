@@ -2,10 +2,14 @@ package org.pgledger.cli;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -20,6 +24,7 @@ import org.pgledger.cli.support.PostgresDriverJar;
 import org.pgledger.cli.support.RecordingOutput;
 import org.pgledger.cli.support.TestLedgerDatabase;
 import org.pgledger.database.driver.DriverRegistrationFile;
+import org.pgledger.database.schema.SchemaVerifier;
 import org.pgledger.testing.OwnerOnlyFiles;
 import org.pgledger.testing.database.TestDatabaseSettings;
 
@@ -162,13 +167,32 @@ class DriverBeforeMigrateTest {
         registeredOnce(cli);
         byte[] written = Files.readAllBytes(file);
 
-        // the registration is read as it is at the next start: the database beans exist and the database is down
-        Outcome again = configured(cli, DOWN).withArguments("--spring.config.import=optional:file:" + slashed(file),
-                "--ledger.jdbc.password=a-password")
+        Outcome again = configured(cli, DOWN).withDatabase(goesDownAtTheSchemaCheck())
                 .run(root.resolve("secrets"), null, new RecordingOutput(), "driver-register", "--jar=" + jar,
                         "--class=" + DRIVER);
 
         assertThat(again.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(again.code()).contains(ErrorCode.DATABASE_FAILED);
         assertThat(Files.readAllBytes(file)).isEqualTo(written);
+    }
+
+    /**
+     * A database that goes down when the command looks at the schema: it serves every connection (the start of the program needs
+     * some) except the ones that the schema check asks for, which are refused as a host that nobody listens at refuses them.
+     */
+    private DataSource goesDownAtTheSchemaCheck() {
+        DataSource real = database.dataSource();
+        return (DataSource) Proxy.newProxyInstance(DataSource.class.getClassLoader(), new Class<?>[] {DataSource.class},
+                (proxy, method, arguments) -> {
+                    if ("getConnection".equals(method.getName()) && StackWalker.getInstance().walk(frames -> frames
+                            .anyMatch(frame -> SchemaVerifier.class.getName().equals(frame.getClassName())))) {
+                        throw new SQLException("connection refused");
+                    }
+                    try {
+                        return method.invoke(real, arguments);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
     }
 }

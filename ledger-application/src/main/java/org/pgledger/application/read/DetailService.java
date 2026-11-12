@@ -109,8 +109,8 @@ public class DetailService {
                 RECENT_CHANGES).stream().map(h -> historyRows.findById(h).orElseThrow()).map(DetailService::summary)
                 .toList();
         return new DefectDetail(rawId, d.projectId().value(), d.title(), d.category().value(), d.severity().value(),
-                d.status().name(), d.mergedInto() == null ? null : d.mergedInto().value(), d.behavior(),
-                d.rootCause(), d.ownerActorId() != null ? d.ownerActorId().value()
+                d.status().name(), d.mergedInto() == null ? null : d.mergedInto().value(), Texts.orEmpty(d.behavior()),
+                Texts.orEmpty(d.rootCause()), d.ownerActorId() != null ? d.ownerActorId().value()
                         : lastFix == null ? null : lastFix.recordedBy().value(),
                 d.version(), d.updatedAt(), d.createdBy().value(), lastFix == null ? null : lastFix.recordedBy()
                         .value(), lastFix == null ? null : lastFix.recordedAt(), last,
@@ -131,7 +131,7 @@ public class DetailService {
             }
             if (!Objects.equals(source, root.id())) {
                 Defect merged = defects.findById(source).orElseThrow();
-                out.add(new CaseView("merged_behavior", source.value(), null, merged.behavior(), null, null, null,
+                out.add(new CaseView("merged_behavior", source.value(), null, Texts.orEmpty(merged.behavior()), null, null, null,
                         null, merged.createdAt()));
             }
         }
@@ -158,7 +158,8 @@ public class DetailService {
         // The detail's component is a nullable JSON string, so the absence of a report ends here as null.
         String completedBy = new TaskHistory(historyRows.findByEntityAndEntityIdOrderById(HistoryEntity.TASK, rawId))
                 .reports().latestReport().map(report -> report.author().value()).orElse(null);
-        return new TaskDetail(rawId, t.projectId().value(), t.title(), t.purpose(), t.successCondition(),
+        return new TaskDetail(rawId, t.projectId().value(), t.title(), Texts.orEmpty(t.purpose()),
+                Texts.orEmpty(t.successCondition()),
                 t.originRef(), t.originQuote(), t.state().name(), t.ownerActorId() == null ? null
                         : t.ownerActorId().value(), t.version(), t.createdAt(), t.updatedAt(), t.createdBy().value(),
                 completedBy, links.defectsOfTask(id), links.conditionsOfTask(id));

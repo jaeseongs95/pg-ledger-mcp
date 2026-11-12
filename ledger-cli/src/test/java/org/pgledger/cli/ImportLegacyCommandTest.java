@@ -125,8 +125,8 @@ class ImportLegacyCommandTest {
 
         assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
         assertThat(result.code()).contains(ErrorCode.IMPORT_DATA_REFUSED);
-        assertThat(output.info()).contains("task[OLD T SPACE].id: MUST_BE_ID [120]")
-                .contains("task[" + LegacyFixtures.TASK_ID_121 + "].id: MUST_BE_ID [120]")
+        assertThat(output.info()).contains("task[OLD T SPACE].id: MUST_BE_ID 120")
+                .contains("task[" + LegacyFixtures.TASK_ID_121 + "].id: MUST_BE_ID 120")
                 .contains("release_condition[OLD-C-NORELEASE].release_name: REQUIRED")
                 .contains("defect_fix[30].repo: REQUIRED")
                 .doesNotContain("OLD-T-UNKNOWN").doesNotContain("old-t-lower").doesNotContain("old-c-lower");
