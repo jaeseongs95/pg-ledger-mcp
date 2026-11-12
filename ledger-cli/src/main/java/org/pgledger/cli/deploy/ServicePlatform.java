@@ -3,6 +3,8 @@ package org.pgledger.cli.deploy;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import org.pgledger.cli.ErrorCode;
+import org.pgledger.cli.UsageException;
 import org.pgledger.cli.deploy.DeployLayout.Platform;
 import org.springframework.boot.ApplicationArguments;
 
@@ -49,6 +51,17 @@ interface ServicePlatform {
      * @param wrappers what {@link #wrappers} found
      */
     void prepare(DeployLayout layout, Path root, Path jars, Path driver, List<Path> wrappers) throws IOException;
+
+    /**
+     * The directories of the automatic certificate ({@code --tls-acme}): the TLS directory (the keys; the service account's
+     * alone) and the web root of the HTTP-01 proof (the service account writes it, the web server reads it). Only a platform
+     * that has the nginx site has them.
+     *
+     * @throws org.pgledger.cli.UsageException INVALID_DEPLOY_VALUE naming {@code tls-acme} on a platform without the site
+     */
+    default void prepareTls(DeployLayout layout, Path root) throws IOException {
+        throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, DeployOptions.TLS_ACME);
+    }
 
     /**
      * The last step of an installation ({@code seal-host}).

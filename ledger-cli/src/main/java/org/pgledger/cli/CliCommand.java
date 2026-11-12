@@ -25,7 +25,9 @@ public enum CliCommand {
     RENDER_DEPLOY("render-deploy"),
     PREPARE_HOST("prepare-host"),
     SEAL_HOST("seal-host"),
-    INSTALL_DEFAULT("install-default");
+    INSTALL_DEFAULT("install-default"),
+    TLS_ISSUE("tls-issue"),
+    TLS_RENEW("tls-renew");
 
     private final String cliName;
 
@@ -45,7 +47,7 @@ public enum CliCommand {
     public boolean usesDatabase() {
         return switch (this) {
             case SECRET_SET, TOKEN_GENERATE, SECRET_IMPORT_1X, MCP_CHECK, RENDER_DEPLOY, PREPARE_HOST, SEAL_HOST,
-                    INSTALL_DEFAULT -> false;
+                    INSTALL_DEFAULT, TLS_ISSUE, TLS_RENEW -> false;
             default -> true;
         };
     }

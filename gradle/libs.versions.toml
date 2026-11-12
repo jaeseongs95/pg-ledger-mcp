@@ -5,6 +5,8 @@ springAi = "2.0.2"
 # MCP Java SDK: the client of the CLI command mcp-check; this is the version that Spring AI 2.0.2 brings to the server (same SDK on both sides)
 mcpSdk = "2.1.0"
 archunit = "1.5.1"
+# acme4j: the ACME (RFC 8555) client of the CLI commands tls-issue and tls-renew (Apache-2.0, compatible with AGPL-3.0-or-later)
+acme4j = "5.1.0"
 
 [libraries]
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
@@ -14,3 +16,6 @@ spring-ai-bom = { module = "org.springframework.ai:spring-ai-bom", version.ref =
 archunit = { module = "com.tngtech.archunit:archunit", version.ref = "archunit" }
 # MCP Java SDK umbrella (mcp-core + the Jackson 3 JSON mapper): the same SDK the server runs on, used by the CLI as a client.
 mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version.ref = "mcpSdk" }
+# acme4j client (Apache-2.0): the ACME protocol (account, order, challenge, finalize, certificate). It brings jose4j (Apache-2.0,
+# the JWS of the requests) and Bouncy Castle (MIT-style license; the certificate request and the PEM of the keys), not managed by the Boot BOM.
+acme4j-client = { module = "org.shredzone.acme4j:acme4j-client", version.ref = "acme4j" }

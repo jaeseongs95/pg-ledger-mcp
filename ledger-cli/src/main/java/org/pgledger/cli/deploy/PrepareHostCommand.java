@@ -67,7 +67,7 @@ public class PrepareHostCommand implements Command {
 
     private static Set<String> optionNames() {
         Set<String> names = new HashSet<>(DeployOptions.ALL);
-        names.addAll(List.of(JARS, DRIVER_JAR, DeployOptions.WINSW));
+        names.addAll(List.of(JARS, DRIVER_JAR, DeployOptions.WINSW, DeployOptions.TLS_ACME));
         return Set.copyOf(names);
     }
 
@@ -104,6 +104,9 @@ public class PrepareHostCommand implements Command {
                 }
             }
             platform.prepare(layout, input.root(), jars, driver, wrappers);
+            if (parameters.nginx() != null && parameters.nginx().acme() != null) {
+                platform.prepareTls(layout, input.root());
+            }
             for (Path file : files.write(input.root(), renderer.render(parameters),
                     backup -> output.info(messages.get("render-deploy.kept", backup.toString())))) {
                 output.info(messages.get("render-deploy.written", file.toString()));

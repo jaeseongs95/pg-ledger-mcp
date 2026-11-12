@@ -39,7 +39,7 @@ import org.pgledger.cli.FailureException;
  *     https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/attribute/AclFileAttributeView.html
  * </ul>
  */
-sealed interface SecretProtection {
+public sealed interface SecretProtection {
 
     /** The attributes a new directory is created with. */
     FileAttribute<?>[] directoryAttributes();

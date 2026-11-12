@@ -96,6 +96,34 @@ public record DeployLayout(Platform platform,
         return name + "-admin";
     }
 
+    /**
+     * Linux: where {@code tls-issue} and {@code tls-renew} keep the account key and the certificate files by default
+     * ({@code account.key}, {@code fullchain.pem}, {@code privkey.pem}): below the settings directory, which is the service
+     * user's, so the keys are the service user's.
+     */
+    public String tlsDirectory() {
+        return etc + "/tls";
+    }
+
+    /** The names of the files in the TLS directory: the account key, the certificate chain and the key of the certificate. */
+    public static final String TLS_ACCOUNT_FILE = "account.key";
+    public static final String TLS_CHAIN_FILE = "fullchain.pem";
+    public static final String TLS_KEY_FILE = "privkey.pem";
+
+    /**
+     * Linux: the web root the port 80 blocks of the nginx site serve {@code /.well-known/acme-challenge/} from, and where
+     * {@code tls-issue} writes the token files. It is outside the settings directory (which the service user alone may enter)
+     * because the account the web server runs as has to read the tokens.
+     */
+    public String acmeWebroot() {
+        return "/var/www/" + name + "-acme";
+    }
+
+    /** Linux: the name of the systemd service and timer that renew the certificate. */
+    public String tlsRenewName() {
+        return name + "-tls-renew";
+    }
+
     /** The one service account on Linux: the system user of the name of the instance (no login, not root). */
     public String serviceUser() {
         return name;

@@ -55,7 +55,13 @@ public record DeployParameters(
         @Pattern(regexp = DeployForms.HOST, message = DeployOptions.ADMIN_HOST) String adminHost,
         @Valid Nginx nginx) {
 
-    /** The nginx site: the file and the TLS certificate and key of the operator (nothing issues or renews them). */
+    /**
+     * The nginx site: the file and the TLS certificate and key. They are the operator's own (nothing issues or renews them),
+     * or, when {@code acme} is given, the PEM files that {@code tls-issue} and {@code tls-renew} write into the TLS directory
+     * of the instance.
+     *
+     * @param acme the automatic certificate, or null for the operator's own
+     */
     public record Nginx(
             @NotNull(message = DeployOptions.NGINX_CONF)
             @Size(max = DeployForms.MAX_PATH, message = DeployOptions.NGINX_CONF)
@@ -65,7 +71,38 @@ public record DeployParameters(
             @Pattern(regexp = DeployForms.POSIX_PATH, message = DeployOptions.TLS_CERTIFICATE) String certificate,
             @NotNull(message = DeployOptions.TLS_KEY)
             @Size(max = DeployForms.MAX_PATH, message = DeployOptions.TLS_KEY)
-            @Pattern(regexp = DeployForms.POSIX_PATH, message = DeployOptions.TLS_KEY) String key) {
+            @Pattern(regexp = DeployForms.POSIX_PATH, message = DeployOptions.TLS_KEY) String key,
+            @Valid Acme acme) {
+
+        /** The nginx site with the operator's own certificate. */
+        public Nginx(String conf, String certificate, String key) {
+            this(conf, certificate, key, null);
+        }
+    }
+
+    /**
+     * The automatic certificate (ACME, HTTP-01).
+     *
+     * @param directory         the ACME directory URL of the certificate authority when the operator chose one, or null for the
+     *                          default of {@code tls-issue} (the renewal unit then does not name it)
+     * @param certificateIssued whether the certificate files exist already: nginx cannot load a {@code listen 443 ssl} block
+     *                          before they do, so until then the site holds the port 80 blocks only ({@code render-deploy} looks
+     *                          at the files and says so in its usage)
+     */
+    public record Acme(
+            @Size(max = DeployForms.MAX_URL, message = DeployOptions.ACME_DIRECTORY)
+            @Pattern(regexp = DeployForms.ACME_URL, message = DeployOptions.ACME_DIRECTORY) String directory,
+            boolean certificateIssued) {
+    }
+
+    /** The same parameters, told whether the certificate files of an automatic certificate exist. */
+    DeployParameters withCertificateIssued(boolean issued) {
+        if (nginx == null || nginx.acme() == null) {
+            return this;
+        }
+        Nginx site = new Nginx(nginx.conf(), nginx.certificate(), nginx.key(), new Acme(nginx.acme().directory(), issued));
+        return new DeployParameters(layout, java, jdbcUrl, appAccount, schema, longTextType, mcpPort, adminPort, mcpHost,
+                adminHost, site);
     }
 
     /** The Java runtime is a plain path of the form of the platform. */

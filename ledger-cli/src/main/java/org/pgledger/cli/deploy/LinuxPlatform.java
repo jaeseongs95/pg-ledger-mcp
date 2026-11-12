@@ -5,6 +5,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.nio.file.attribute.GroupPrincipal;
 import java.nio.file.attribute.UserPrincipal;
+import java.util.ArrayList;
 import java.util.List;
 import org.pgledger.cli.CliOptions;
 import org.pgledger.cli.ErrorCode;
@@ -52,11 +53,19 @@ final class LinuxPlatform implements ServicePlatform {
         DeployLayout layout = p.layout();
         Service mcp = Service.mcp(layout);
         Service admin = Service.admin(layout);
-        return List.of(
+        List<RenderedFile> files = new ArrayList<>(List.of(
                 new RenderedFile(DeployLayout.UNIT_DIRECTORY + "/" + mcp.name() + ".service",
                         SystemdUnits.unit(p, mcp, "network-online.target", null)),
                 new RenderedFile(DeployLayout.UNIT_DIRECTORY + "/" + admin.name() + ".service",
-                        SystemdUnits.unit(p, admin, "network-online.target " + mcp.name() + ".service", layout.etc())));
+                        SystemdUnits.unit(p, admin, "network-online.target " + mcp.name() + ".service", layout.etc()))));
+        if (p.nginx() != null && p.nginx().acme() != null) {
+            // the renewal of the automatic certificate: a oneshot service and the timer that starts it
+            files.add(new RenderedFile(DeployLayout.UNIT_DIRECTORY + "/" + layout.tlsRenewName() + ".service",
+                    SystemdUnits.renewService(p)));
+            files.add(new RenderedFile(DeployLayout.UNIT_DIRECTORY + "/" + layout.tlsRenewName() + ".timer",
+                    SystemdUnits.renewTimer(p)));
+        }
+        return List.copyOf(files);
     }
 
     @Override
@@ -82,6 +91,19 @@ final class LinuxPlatform implements ServicePlatform {
         host.directory(etc.resolve("drivers"), "rwxr-xr-x", null, null);
         host.directory(etc.resolve("secrets"), "rwx------", user, group);
         host.copyProduct(jars, driver, lib, etc.resolve("drivers"));
+    }
+
+    @Override
+    public void prepareTls(DeployLayout layout, Path root) throws IOException {
+        Path tls = files.resolve(root, layout.tlsDirectory());
+        Path webroot = files.resolve(root, layout.acmeWebroot());
+        FileSystem fileSystem = tls.getFileSystem();
+        host.requireView(fileSystem, "posix");
+        UserPrincipal user = accounts.user(fileSystem, layout.serviceUser());
+        GroupPrincipal group = accounts.group(fileSystem, layout.serviceUser());
+        // the keys are the service user's alone; the web root is read by the web server, which runs as another account
+        host.directory(tls, "rwx------", user, group);
+        host.directory(webroot, "rwxr-xr-x", user, group);
     }
 
     @Override
