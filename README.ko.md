@@ -401,6 +401,16 @@ JDK 25와 Gradle 래퍼만 있으면 되며, 래퍼가 Gradle을 직접 내려�
 런타임 클래스패스에 없는지 확인합니다. `ledger-cli`의 문서 시험(DOC-001부터 DOC-029까지, [docs/testing/TEST_CASES.md](docs/testing/TEST_CASES.md))은 이 README, 영문 README,
 릴리스 노트를 코드와 대조합니다.
 
+### 자원이 작은 기계에서 시험 JVM을 제한하는 선택 속성
+
+시험 JVM은 기본적으로 제한하지 않습니다. 자원이 작은 기계에서는 다음 Gradle 선택 속성으로 동시에 실행하는 시험 JVM의 수, JVM별 최대 힙 크기,
+JVM이 인식하는 프로세서 수를 제한할 수 있습니다. 속성은 명령줄로만 넘기며 저장소에는 설정하지 않으므로, 이 저장소를 쓰는 다른 사용자에게 영향이 없습니다.
+숫자가 아니거나 1보다 작은 값을 주면 빌드가 설정 단계에서 실패합니다.
+
+```sh
+./gradlew test -Pledger.test.forks=1 -Pledger.test.maxHeapSize=1g -Pledger.test.activeProcessorCount=1
+```
+
 ## 구성
 
 - `ledger-domain`, `ledger-attestation`, `ledger-database`, `ledger-application`, `ledger-mcp-server`, `ledger-admin-web`,

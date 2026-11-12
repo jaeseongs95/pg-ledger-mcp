@@ -2,6 +2,15 @@ plugins {
     base
 }
 
+// Reads an optional Gradle project property (-P or gradle.properties); a malformed value fails the configuration with a clear message.
+fun ledgerTestProperty(name: String): String? = providers.gradleProperty(name).orNull
+
+fun positiveInt(name: String, value: String): Int {
+    val number = value.toIntOrNull()
+    require(number != null && number >= 1) { "$name must be an integer of at least 1, but is '$value'" }
+    return number
+}
+
 subprojects {
     apply(plugin = "java-library")
 
@@ -32,9 +41,20 @@ subprojects {
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
         // All time is UTC: the JVM default zone is pinned for the tests as well.
-        jvmArgs("-Duser.timezone=UTC", "-Dfile.encoding=UTF-8", "-XX:ActiveProcessorCount=1")
-        // one test JVM at a time on this machine (the user runs one build at a time on this PC)
-        maxParallelForks = 1
+        jvmArgs("-Duser.timezone=UTC", "-Dfile.encoding=UTF-8")
+        // Optional limits of the test JVMs for machines with few resources. Without a property nothing is limited
+        // (Gradle defaults). Pass them on the command line, e.g.
+        // -Pledger.test.forks=1 -Pledger.test.maxHeapSize=1g -Pledger.test.activeProcessorCount=1
+        ledgerTestProperty("ledger.test.forks")?.let { maxParallelForks = positiveInt("ledger.test.forks", it) }
+        ledgerTestProperty("ledger.test.maxHeapSize")?.let {
+            require(Regex("[1-9][0-9]*[kKmMgG]?").matches(it)) {
+                "ledger.test.maxHeapSize must be a size such as 512m or 1g, but is '$it'"
+            }
+            maxHeapSize = it
+        }
+        ledgerTestProperty("ledger.test.activeProcessorCount")?.let {
+            jvmArgs("-XX:ActiveProcessorCount=${positiveInt("ledger.test.activeProcessorCount", it)}")
+        }
         testLogging {
             events("passed", "failed", "skipped")
             showStandardStreams = false

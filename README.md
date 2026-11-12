@@ -444,6 +444,17 @@ is needed) and checks that no JDBC driver, JPA, migration tool or Lombok is on a
 `ledger-cli` (DOC-001 to DOC-029 in [docs/testing/TEST_CASES.md](docs/testing/TEST_CASES.md)) check this README, the Korean one and the
 release notes against the code.
 
+### Optional properties for machines with few resources
+
+The test JVMs are not limited by default. On a machine with few resources, the following optional Gradle properties limit them:
+the number of test JVMs run at the same time, the maximum heap size of each, and the number of processors each reports. They are
+passed on the command line and are not set in the repository, so they do not affect other users of it. A value that is not a
+number, or is smaller than 1, fails the build at configuration time.
+
+```sh
+./gradlew test -Pledger.test.forks=1 -Pledger.test.maxHeapSize=1g -Pledger.test.activeProcessorCount=1
+```
+
 ## Layout
 
 - `ledger-domain`, `ledger-attestation`, `ledger-database`, `ledger-application`, `ledger-mcp-server`, `ledger-admin-web`,
