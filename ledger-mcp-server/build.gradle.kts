@@ -34,8 +34,8 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: not in the Boot BOM, see gradle/libs.versions.toml
     testImplementation(libs.archunit)
-    // The test database is the embedded H2 in its default mode (a driver on the test classpath only; the product ships none).
-    testImplementation("com.h2database:h2")
+    // The test database support (the PostgreSQL of the test PC: settings, pools, schema per test, PostgreSQL driver).
+    testImplementation(testFixtures(project(":ledger-database")))
 }
 
 tasks.test {

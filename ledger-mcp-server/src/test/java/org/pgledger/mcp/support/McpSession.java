@@ -142,6 +142,22 @@ public final class McpSession implements AutoCloseable {
         }
     }
 
+    /**
+     * Takes (and drops) the notifications that are still on their way to this new session, until none arrives for the
+     * time: the code change of an earlier test of the same server is announced by the next poll, which can fall into the
+     * first moments of the next test. A server that keeps announcing is a failure, not something to wait out.
+     */
+    public void drainListChanges(Duration quiet) {
+        try {
+            for (int announcements = 0; listChanges.poll(quiet.toNanos(), TimeUnit.NANOSECONDS) != null; announcements++) {
+                assertThat(announcements).as("list_changed notifications that keep coming without a change").isLessThan(10);
+            }
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while waiting for silence", failure);
+        }
+    }
+
     /** Waits the time and fails when a list_changed notification arrives in it. */
     public void awaitNoListChange(Duration within) {
         try {

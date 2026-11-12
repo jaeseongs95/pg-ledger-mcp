@@ -31,6 +31,16 @@ public final class RecordingDataSource extends DelegatingDataSource {
         super(target);
     }
 
+    /**
+     * Closes what the target closes when its context ends (a pool that a context opened for itself, see
+     * {@code TestDataSourceConfiguration}): the context sees this wrapper, not the target, when it looks for a close method.
+     */
+    public void close() throws Exception {
+        if (getTargetDataSource() instanceof AutoCloseable closeable) {
+            closeable.close();
+        }
+    }
+
     public List<String> statements() {
         return List.copyOf(statements);
     }

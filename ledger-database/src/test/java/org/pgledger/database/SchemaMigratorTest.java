@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,7 @@ import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.database.support.Parallel;
 import org.pgledger.database.support.TestClock;
 import org.pgledger.domain.value.Sha256;
+import org.pgledger.testing.database.TestSchema;
 import org.springframework.beans.factory.BeanCreationException;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -51,7 +53,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/** SCH-001 .. SCH-011, SCH-015, SCH-020, SCH-021: the schema runner on H2. */
+/** SCH-001 .. SCH-011, SCH-015, SCH-020, SCH-021, SCH-034: the schema runner on the PostgreSQL of the test PC, one schema per test. */
 @ExtendWith(LedgerDatabaseExtension.class)
 class SchemaMigratorTest {
 
@@ -69,7 +71,9 @@ class SchemaMigratorTest {
     @TempDir
     Path temp;
 
-    private HikariDataSource pool;
+    /** The data source of the schema of this test (every connection uses it); the schema is dropped with {@link Databases}. */
+    private DataSource pool;
+    private String schema;
     private Databases databases;
     private final TestClock clock = new TestClock(T0);
     private int directories;
@@ -77,12 +81,9 @@ class SchemaMigratorTest {
     @BeforeEach
     void setUp(Databases fresh) {
         databases = fresh;
-        pool = databases.newDataSource();
-    }
-
-    @AfterEach
-    void tearDown() {
-        pool.close();
+        TestSchema created = databases.newSchema();
+        schema = created.name();
+        pool = created.dataSource();
     }
 
     /** A directory of schema files, written as UTF-8 exactly as given. */
@@ -116,8 +117,9 @@ class SchemaMigratorTest {
     }
 
     private boolean tableExists(String name) {
-        return JdbcClient.create(pool).sql("SELECT COUNT(*) FROM information_schema.tables WHERE LOWER(table_name) "
-                + "= :name").param("name", name).query(Integer.class).single() > 0;
+        return JdbcClient.create(pool).sql("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = "
+                + ":schema AND table_name = :name").param("schema", schema).param("name", name)
+                .query(Integer.class).single() > 0;
     }
 
     private static Sha256 digest(String text) {
@@ -205,9 +207,8 @@ class SchemaMigratorTest {
         assertThat(history()).isEqualTo(List.of(success(1, "V1__one.sql", ONE, T0), success(2, "V2__two.sql", TWO, T0),
                 failed(3, "V3__three.sql", BROKEN_THREE, T0)));
         assertThat(tableExists("t_four")).as("V4 waits for V3").isFalse();
-        // H2 commits every DDL statement at once, so the statement that ran before the failure stays (a DBMS with
-        // transactional DDL rolls the whole file back: checked at the test server stage)
-        assertThat(tableExists("t_half")).isTrue();
+        // PostgreSQL has transactional DDL: the whole file is rolled back, the statement that ran before the failure is gone
+        assertThat(tableExists("t_half")).as("no partial V3 objects (transactional DDL)").isFalse();
         refusedWith(() -> verifier(broken).verify(), InfrastructureCode.SCHEMA_RECORDED_FAILED);
         // a second try without a fix appends a second failed row, one microsecond later
         refusedWith(() -> migrator(broken).migrate(), InfrastructureCode.SCHEMA_MIGRATION_FAILED);
@@ -228,11 +229,13 @@ class SchemaMigratorTest {
     /** SCH-034: a failure while the failure is recorded does not hide the failure of the file. */
     @Test
     void sch034_theCauseSurvivesAFailureToRecordTheFailure() {
-        // the first statement makes the database refuse the FAILED row of this file; the second statement is what fails
-        String refusesFailedRows = "ALTER TABLE schema_history ADD CONSTRAINT ck_no_failed CHECK (outcome <> 'FAILED');\n"
-                + "INSERT INTO no_such_table (id) VALUES (1);\n";
+        // the database refuses the FAILED row of the next file (a constraint added here, before the file runs: DDL of a failed
+        // file is rolled back on PostgreSQL, so the file itself cannot add it); the statement of the file is what fails
+        String failing = "INSERT INTO no_such_table (id) VALUES (1);\n";
         migrator(files(Map.of("V1__one.sql", ONE))).migrate();
-        Path dir = files(Map.of("V1__one.sql", ONE, "V2__two.sql", refusesFailedRows));
+        JdbcClient.create(pool).sql("ALTER TABLE schema_history ADD CONSTRAINT ck_no_failed CHECK (outcome <> 'FAILED')")
+                .update();
+        Path dir = files(Map.of("V1__one.sql", ONE, "V2__two.sql", failing));
 
         InfrastructureException failure = refusedWith(() -> migrator(dir).migrate(),
                 InfrastructureCode.SCHEMA_MIGRATION_FAILED);
@@ -372,10 +375,9 @@ class SchemaMigratorTest {
     @Test
     void sch010_aDatabaseThatWasNeverMigratedIsRefused() {
         Path two = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO));
-        try (HikariDataSource empty = databases.newDataSource()) {
-            refusedWith(() -> new SchemaVerifier(empty, new PathMatchingResourcePatternResolver(), props(two, null))
-                    .verify(), InfrastructureCode.SCHEMA_HISTORY_MISSING);
-        }
+        DataSource empty = databases.newDataSource();
+        refusedWith(() -> new SchemaVerifier(empty, new PathMatchingResourcePatternResolver(), props(two, null))
+                .verify(), InfrastructureCode.SCHEMA_HISTORY_MISSING);
     }
 
     @Test
@@ -388,23 +390,24 @@ class SchemaMigratorTest {
     }
 
     @Test
-    void sch015_aLegacySchemaIsLeftUntouched() throws SQLException {
-        try (Connection c = pool.getConnection(); Statement s = c.createStatement()) {
-            s.execute("CREATE SCHEMA ledger");
-            s.execute("CREATE TABLE ledger.defect (id VARCHAR(20) NOT NULL, title VARCHAR(50), "
-                    + "CONSTRAINT pk_legacy_defect PRIMARY KEY (id))");
-            s.execute("INSERT INTO ledger.defect (id, title) VALUES ('OLD-D-1', 'old')");
-        }
-        SchemaProperties named = new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true,
-                "pgledger", Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT));
-        new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(), named, clock).migrate();
-        new SchemaVerifier(pool, new PathMatchingResourcePatternResolver(), named).verify();
-        JdbcClient jdbc = JdbcClient.create(pool);
-        assertThat(jdbc.sql("SELECT COUNT(*) FROM information_schema.tables WHERE LOWER(table_schema) = 'ledger'")
-                .query(Integer.class).single()).isEqualTo(1);
-        assertThat(jdbc.sql("SELECT title FROM ledger.defect WHERE id = 'OLD-D-1'").query(String.class).single())
+    void sch015_aLegacySchemaIsLeftUntouched() {
+        // the legacy schema plays the old schema `ledger`; the schema of the product is the one the migrator creates
+        DataSource database = databases.database().pool();
+        String legacy = databases.newSchema().name();
+        String named = databases.reserveSchemaName();
+        JdbcClient jdbc = JdbcClient.create(database);
+        jdbc.sql("CREATE TABLE " + legacy + ".defect (id VARCHAR(20) NOT NULL, title VARCHAR(50), "
+                + "CONSTRAINT pk_legacy_defect PRIMARY KEY (id))").update();
+        jdbc.sql("INSERT INTO " + legacy + ".defect (id, title) VALUES ('OLD-D-1', 'old')").update();
+        SchemaProperties properties = new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true,
+                named, Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT));
+        new SchemaMigrator(database, new PathMatchingResourcePatternResolver(), properties, clock).migrate();
+        new SchemaVerifier(database, new PathMatchingResourcePatternResolver(), properties).verify();
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = :schema")
+                .param("schema", legacy).query(Integer.class).single()).isEqualTo(1);
+        assertThat(jdbc.sql("SELECT title FROM " + legacy + ".defect WHERE id = 'OLD-D-1'").query(String.class).single())
                 .isEqualTo("old");
-        assertThat(jdbc.sql("SELECT COUNT(*) FROM information_schema.tables WHERE LOWER(table_schema) = "
-                + "'pgledger'").query(Integer.class).single()).isEqualTo(18);
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = :schema")
+                .param("schema", named).query(Integer.class).single()).isEqualTo(18);
     }
 }

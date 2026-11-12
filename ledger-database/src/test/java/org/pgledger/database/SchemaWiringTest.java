@@ -21,7 +21,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
  * SCH-031: the schema services are components found by the scan of their configuration (not {@code @Bean} methods), and
  * the startup guard exists only for an application that imports it: the command line tool imports the services and checks
  * on demand, the web applications import the guard and refuse to start on a schema that is not up to date. Tested with the
- * Spring Boot {@code ApplicationContextRunner} on the embedded H2.
+ * Spring Boot {@code ApplicationContextRunner} on the PostgreSQL of the test PC (a schema of its own per test).
  */
 class SchemaWiringTest {
 
@@ -37,7 +37,8 @@ class SchemaWiringTest {
     @Test
     @DisplayName("SCH-031 the schema configuration makes the four services and no guard")
     void theServicesAreComponentsAndThereIsNoGuard() {
-        try (HikariDataSource pool = new Databases().newDataSource()) {
+        try (Databases databases = new Databases()) {
+            DataSource pool = databases.newDataSource();
             runner(pool, LedgerSchemaConfiguration.class).run(context -> {
                 assertThat(context).hasNotFailed().hasSingleBean(SchemaMigrator.class)
                         .hasSingleBean(GrantApplier.class).hasSingleBean(SchemaVerifier.class)
@@ -49,7 +50,8 @@ class SchemaWiringTest {
     @Test
     @DisplayName("SCH-031 the guard configuration adds the guard: it stops the start on a database that was never migrated (SCHEMA_HISTORY_MISSING) and lets an up-to-date schema start")
     void theGuardStopsOrLetsTheApplicationStart() {
-        try (HikariDataSource pool = new Databases().newDataSource()) {
+        try (Databases databases = new Databases()) {
+            DataSource pool = databases.newDataSource();
             runner(pool, LedgerSchemaGuardConfiguration.class).run(context -> assertThat(context).hasFailed()
                     .getFailure().hasStackTraceContaining("SCHEMA_HISTORY_MISSING"));
 

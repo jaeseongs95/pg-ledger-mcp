@@ -439,10 +439,37 @@ JDK 25 and the Gradle wrapper are all that is needed; the wrapper downloads Grad
 ./gradlew build
 ```
 
-The build compiles with warnings as errors, runs every module test against an embedded database (no external database
-is needed) and checks that no JDBC driver, JPA, migration tool or Lombok is on a runtime classpath. The documentation tests of
+The build compiles with warnings as errors, runs every module test against the PostgreSQL that is installed on the machine
+(see the test database below; there is no embedded database and the build does not start one) and checks that no JDBC driver, JPA,
+migration tool or Lombok is on a runtime classpath. The documentation tests of
 `ledger-cli` (DOC-001 to DOC-029 in [docs/testing/TEST_CASES.md](docs/testing/TEST_CASES.md)) check this README, the Korean one and the
 release notes against the code.
+
+### The test database
+
+The module tests need a PostgreSQL 18 or later that is already installed and running. By default they connect to
+`127.0.0.1:55432`, database `ledger_test`, as the owner of that database; a second login, the least-privilege application account,
+is used by the tests of the account rights. Each test works in a schema of its own that it creates and drops, so nothing remains
+except inside that database, and one test JVM holds at most 10 connections. A test that cannot reach the database fails with a
+connection error; it is not skipped and does not fall back to another database.
+
+The connection is set with Gradle properties, on the command line or in `gradle.properties`. The values below are the defaults,
+except the two password file properties, whose defaults are the files of the test machine that are named in the root
+`build.gradle.kts`:
+
+```sh
+./gradlew test \
+  -Pledger.test.jdbc-url=jdbc:postgresql://127.0.0.1:55432/ledger_test \
+  -Pledger.test.jdbc-user=ledger_test \
+  -Pledger.test.app-user=ledger_test_app \
+  -Pledger.test.jdbc-password-file=<owner-password-file> \
+  -Pledger.test.app-password-file=<app-password-file>
+```
+
+A password is never a property value: the two password file properties name a file whose first line is the password, and only the
+test JVM reads it. When a property is not set, no password is given to the driver and the PostgreSQL JDBC driver reads the pass
+file of the user (`pgpass.conf` on Windows, `.pgpass` on Linux). A password is never written to code, configuration, logs or
+commit messages.
 
 ### Optional properties for machines with few resources
 

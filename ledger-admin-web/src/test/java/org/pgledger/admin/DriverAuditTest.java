@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -15,7 +14,10 @@ import org.pgledger.admin.support.AdminTestInfrastructure;
 import org.pgledger.admin.support.AdminTestSettings;
 import org.pgledger.admin.support.Browser;
 import org.pgledger.admin.support.Browser.Form;
+import org.pgledger.admin.support.TestDriverJar;
 import org.pgledger.testing.OwnerOnlyFiles;
+import org.pgledger.testing.database.TestSchemaInitializer;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -31,10 +33,12 @@ import org.springframework.test.web.servlet.MockMvc;
  * profile of the tests) is recorded in the owner audit trail with the signed-in owner, in the transaction of the file
  * replacement. In setup mode there is no database and the registration is logged instead (SetupModeTest).
  */
-@SpringBootTest(classes = LedgerAdminApplication.class, properties = {AdminTestSettings.TOKEN_PROPERTY,
+@ContextConfiguration(initializers = TestSchemaInitializer.class)
+@SpringBootTest(classes = LedgerAdminApplication.class,
+    properties = {AdminTestSettings.TOKEN_PROPERTY,
     AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.NO_GLOBAL_CAP, AdminTestSettings.INSECURE_COOKIE,
     AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG, AdminTestSettings.NO_JMX,
-    "ledger.jdbc.url=jdbc:h2:mem:driver-audit"})
+    TestDriverJar.URL_PROPERTY})
 @AutoConfigureMockMvc
 @ActiveProfiles("embedded")
 @Import(AdminTestInfrastructure.class)
@@ -65,13 +69,12 @@ class DriverAuditTest {
         }
     }
 
-    private static Path h2Jar() {
+    private static Path driverJar() {
         try {
-            Path source = Path.of(org.h2.Driver.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            return OwnerOnlyFiles.restrict(Files.copy(source, DRIVERS.resolve("h2.jar"),
+            return OwnerOnlyFiles.restrict(Files.copy(TestDriverJar.jar(), DRIVERS.resolve("postgresql.jar"),
                     StandardCopyOption.REPLACE_EXISTING)).toRealPath();
-        } catch (URISyntaxException | IOException e) {
-            throw new IllegalStateException("cannot copy the H2 jar", e);
+        } catch (IOException e) {
+            throw new IllegalStateException("cannot copy the PostgreSQL driver jar", e);
         }
     }
 
@@ -95,18 +98,18 @@ class DriverAuditTest {
     @DisplayName("ADM-072: registering a driver is an owner_audit row DRIVER_REGISTERED with token:owner, the class as subject, the jar and its digest in the detail; a refused registration leaves no row")
     void adm072_aRegistrationIsAudited() throws Exception {
         Browser owner = Browser.signedIn(mvc);
-        Path jar = h2Jar();
+        Path jar = driverJar();
 
         owner.perform(owner.form("/driver", Form.of("jar", DRIVERS.resolve("missing.jar").toString(), "className",
-                "org.h2.Driver"), owner.csrfOf("/driver"))).andExpect(status().isBadRequest());
+                TestDriverJar.DRIVER_CLASS), owner.csrfOf("/driver"))).andExpect(status().isBadRequest());
         assertThat(jdbc.sql("SELECT COUNT(*) FROM owner_audit WHERE operation = 'DRIVER_REGISTERED'").query(Long.class)
                 .single()).isZero();
 
-        owner.perform(owner.form("/driver", Form.of("jar", jar.toString(), "className", "org.h2.Driver"),
+        owner.perform(owner.form("/driver", Form.of("jar", jar.toString(), "className", TestDriverJar.DRIVER_CLASS),
                 owner.csrfOf("/driver"))).andExpect(status().is3xxRedirection());
 
         assertThat(jdbc.sql("SELECT actor || ' ' || subject FROM owner_audit WHERE operation = 'DRIVER_REGISTERED'")
-                .query(String.class).list()).containsExactly("token:owner org.h2.Driver");
+                .query(String.class).list()).containsExactly("token:owner " + TestDriverJar.DRIVER_CLASS);
         assertThat(jdbc.sql("SELECT detail FROM owner_audit WHERE operation = 'DRIVER_REGISTERED'").query(String.class)
                 .single()).contains(jar.toString()).containsPattern("sha256=[0-9a-f]{64}");
     }

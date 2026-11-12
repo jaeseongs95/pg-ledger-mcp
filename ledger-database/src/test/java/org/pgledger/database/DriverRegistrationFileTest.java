@@ -37,7 +37,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * DRV-040 .. DRV-045 (F3, principle 4.4): the registration file is replaced after the audit row has committed, never
- * inside its transaction. The audit row is a real row of {@code owner_audit} in the H2 of the test, the transaction a real
+ * inside its transaction. The audit row is a real row of {@code owner_audit} in the PostgreSQL of the test, the transaction a real
  * Spring transaction on it; only the commit can be made to fail.
  */
 @DatabaseTest
@@ -52,7 +52,7 @@ class DriverRegistrationFileTest {
     @TempDir
     Path directory;
 
-    /** A transaction manager on the H2 of the test whose commit can be refused (the work is rolled back then). */
+    /** A transaction manager on the PostgreSQL of the test whose commit can be refused (the work is rolled back then). */
     private static final class CommitCanFail extends DataSourceTransactionManager {
         private static final long serialVersionUID = 1L;
         private final boolean refuse;

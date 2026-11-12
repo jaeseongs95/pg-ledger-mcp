@@ -2,7 +2,6 @@ package org.pgledger.cli;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +13,7 @@ import org.pgledger.cli.support.CliExtension;
 import org.pgledger.cli.support.CliExtension.Cli;
 import org.pgledger.cli.support.CliExtension.Outcome;
 import org.pgledger.cli.support.EnglishMessages;
+import org.pgledger.cli.support.PostgresDriverJar;
 import org.pgledger.cli.support.RecordingOutput;
 import org.pgledger.cli.support.RequiresOwnerOnlyStorage;
 import org.pgledger.cli.support.ScriptedSecretInput;
@@ -28,8 +28,8 @@ import org.pgledger.testing.OwnerOnlyFiles;
 @ExtendWith({ CliExtension.class, EnglishMessages.class })
 class InterruptedInstallTest {
 
-    /** A database that nobody listens at: any connection of a command that makes the database beans fails. */
-    private static final String DOWN = "jdbc:h2:tcp://localhost:1/none";
+    /** A PostgreSQL that nobody listens at (port 1): any connection of a command that makes the database beans fails. */
+    private static final String DOWN = "jdbc:postgresql://127.0.0.1:1/none";
 
     @TempDir
     Path directory;
@@ -43,14 +43,10 @@ class InterruptedInstallTest {
         root = directory.toRealPath();
         drivers = OwnerOnlyFiles.restrict(Files.createDirectories(root.resolve("drivers"))).toRealPath();
         file = root.resolve("config").resolve("jdbc-driver.yaml");
-        Path jar = OwnerOnlyFiles.copy(h2Jar(), drivers.resolve("h2.jar")).toRealPath();
+        Path jar = OwnerOnlyFiles.copy(PostgresDriverJar.path(), drivers.resolve("postgresql.jar")).toRealPath();
         Outcome registered = configured(cli).asProcessUser("alice").run(root.resolve("secrets"), null, new RecordingOutput(),
-                "driver-register", "--jar=" + jar, "--class=org.h2.Driver");
+                "driver-register", "--jar=" + jar, "--class=" + PostgresDriverJar.DRIVER_CLASS);
         assertThat(registered.exitCode()).as("the driver is registered").isZero();
-    }
-
-    private static Path h2Jar() throws URISyntaxException {
-        return Path.of(org.h2.Driver.class.getProtectionDomain().getCodeSource().getLocation().toURI());
     }
 
     private static String slashed(Path path) {

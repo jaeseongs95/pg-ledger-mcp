@@ -16,6 +16,8 @@ import org.pgledger.database.repository.SearchQueryRepository.Kind;
 import org.pgledger.database.schema.LedgerSchemaConfiguration;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.domain.value.MaxRows;
+import org.pgledger.testing.database.TestDataSourceConfiguration;
+import org.pgledger.testing.database.TestSchemaInitializer;
 import org.pgledger.domain.value.ProjectId;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,26 +30,21 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
- * REPO-060 (F7), as a {@code @JdbcTest} slice (principle 7.2: a repository is tested with the JDBC slice, on the embedded
- * H2 that Boot makes, with no other bean than the repository and the schema): the names of the SQL parameters of the
- * search never come from a value. The schema is built by the real {@code db/V*.sql} files when the context starts; every
- * test runs in a transaction that Spring rolls back.
+ * REPO-060 (F7), as a {@code @JdbcTest} slice (principle 7.2: a repository is tested with the JDBC slice, on the PostgreSQL
+ * of the test PC, with no other bean than the repository and the schema): the names of the SQL parameters of the
+ * search never come from a value. The schema (named by {@code ledger.schema.name}, one of its own) is built by the real
+ * {@code db/V*.sql} files when the context starts; every test runs in a transaction that Spring rolls back.
  */
-// The test database is a named in-memory H2 behind Boot's pooled (Hikari) DataSource, and Boot's own embedded replacement is
-// switched off (Replace.NONE). Why: in H2 2.4.240 a CHECK ... IN (<constants>) constraint keeps the session that created
-// it (ConditionInConstantSet compares through that session), so once that session is closed every later insert into the
-// table fails with "The database has been closed" (stack: SessionLocal.getDatabase from ConditionInConstantSet). Boot's
-// embedded replacement opens and closes a connection for every call, so the session that ran the schema files is gone
-// before the first insert; a pool keeps its connections open, so this test database is pooled.
-@JdbcTest(properties = {"ledger.schema.long-text-type=CLOB",
-        "spring.datasource.url=jdbc:h2:mem:w2searchslice;DB_CLOSE_DELAY=-1"})
+// The DataSource is the one of the test database support (the shared pool, every connection in the schema of this context), so
+// Boot's own replacement of the database is switched off (Replace.NONE).
+@JdbcTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@ContextConfiguration(classes = SearchQueryRepositoryJdbcTest.Slice.class)
+@ContextConfiguration(classes = SearchQueryRepositoryJdbcTest.Slice.class, initializers = TestSchemaInitializer.class)
 class SearchQueryRepositoryJdbcTest {
 
     /** The slice: the schema services, the repository under test, the clock and the client they need. */
     @Configuration(proxyBeanMethods = false)
-    @Import({LedgerSchemaConfiguration.class, SearchQueryRepository.class})
+    @Import({LedgerSchemaConfiguration.class, SearchQueryRepository.class, TestDataSourceConfiguration.class})
     static class Slice {
 
         @Bean

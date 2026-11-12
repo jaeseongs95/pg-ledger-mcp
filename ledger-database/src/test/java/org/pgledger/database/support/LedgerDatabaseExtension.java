@@ -6,8 +6,10 @@ import org.junit.jupiter.api.extension.ParameterResolver;
 
 /**
  * JUnit extension for the database tests. It hands {@link Databases} and the shared, migrated ledger database
- * ({@link LedgerTestContext}) to a test or lifecycle method as parameters. Both live in the root store, are created
- * on first use and are closed by JUnit when the run ends (the context closes its pool and Spring context).
+ * ({@link LedgerTestContext}) to a test or lifecycle method as parameters. {@link Databases} is made for the test that
+ * asks (the store of that test, so its schemas are dropped when that test ends, also after a failure). The shared
+ * context lives in the root store, is created on first use and is closed by JUnit when the run ends (the context closes
+ * its Spring context and drops its schema).
  */
 public final class LedgerDatabaseExtension implements ParameterResolver {
 
@@ -22,12 +24,11 @@ public final class LedgerDatabaseExtension implements ParameterResolver {
 
     @Override
     public Object resolveParameter(ParameterContext parameter, ExtensionContext context) {
-        Databases databases = context.getRoot().getStore(NAMESPACE).computeIfAbsent(Databases.class,
-                type -> new Databases(), Databases.class);
         if (parameter.getParameter().getType() == Databases.class) {
-            return databases;
+            return context.getStore(NAMESPACE).computeIfAbsent(Databases.class, type -> new Databases(),
+                    Databases.class);
         }
         return context.getRoot().getStore(NAMESPACE).computeIfAbsent(LedgerTestContext.class,
-                type -> LedgerTestContext.create(databases), LedgerTestContext.class);
+                type -> LedgerTestContext.create(new Databases()), LedgerTestContext.class);
     }
 }

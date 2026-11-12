@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.pgledger.database.driver.DriverRegisteredCondition;
 import org.pgledger.domain.value.Sha256;
 import org.pgledger.testing.OwnerOnlyFiles;
+import org.pgledger.testing.database.PostgresDriver;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ConditionContext;
@@ -52,7 +53,7 @@ class DriverRegisteredConditionTest {
         }
     }
 
-    private static final Path H2_JAR = OwnerOnlyFiles.copyToNewDirectory(locationOf(org.h2.Driver.class));
+    private static final Path DRIVER_JAR = OwnerOnlyFiles.copyToNewDirectory(PostgresDriver.jar());
 
     private static Path locationOf(Class<?> type) {
         try {
@@ -64,7 +65,7 @@ class DriverRegisteredConditionTest {
 
     private static String sha() {
         try {
-            return Sha256.ofBytes(Files.readAllBytes(H2_JAR)).hex();
+            return Sha256.ofBytes(Files.readAllBytes(DRIVER_JAR)).hex();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -92,21 +93,21 @@ class DriverRegisteredConditionTest {
     @Test
     @DisplayName("DRV-052 a registered driver that the loader accepts: the database is made")
     void aUsableRegistration() {
-        runner.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(H2_JAR),
-                "ledger.jdbc.driver.class-name=org.h2.Driver", "ledger.jdbc.driver.sha256=" + sha())
+        runner.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(DRIVER_JAR),
+                "ledger.jdbc.driver.class-name=" + PostgresDriver.CLASS_NAME, "ledger.jdbc.driver.sha256=" + sha())
                 .run(context -> assertThat(context).hasNotFailed().hasBean("database"));
     }
 
     @Test
     @DisplayName("DRV-053 a registration the loader refuses (the jar is not the one registered, or is missing, or the class is not in it): the database is not made, and the context still starts")
     void anUnusableRegistration() {
-        runner.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(H2_JAR),
-                "ledger.jdbc.driver.class-name=org.h2.Driver", "ledger.jdbc.driver.sha256=" + "0".repeat(64))
+        runner.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(DRIVER_JAR),
+                "ledger.jdbc.driver.class-name=" + PostgresDriver.CLASS_NAME, "ledger.jdbc.driver.sha256=" + "0".repeat(64))
                 .run(context -> assertThat(context).hasNotFailed().doesNotHaveBean("database"));
-        runner.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(H2_JAR.resolveSibling("missing.jar")),
-                "ledger.jdbc.driver.class-name=org.h2.Driver", "ledger.jdbc.driver.sha256=" + sha())
+        runner.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(DRIVER_JAR.resolveSibling("missing.jar")),
+                "ledger.jdbc.driver.class-name=" + PostgresDriver.CLASS_NAME, "ledger.jdbc.driver.sha256=" + sha())
                 .run(context -> assertThat(context).hasNotFailed().doesNotHaveBean("database"));
-        runner.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(H2_JAR),
+        runner.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(DRIVER_JAR),
                 "ledger.jdbc.driver.class-name=org.NoSuch", "ledger.jdbc.driver.sha256=" + sha())
                 .run(context -> assertThat(context).hasNotFailed().doesNotHaveBean("database"));
     }
@@ -116,8 +117,8 @@ class DriverRegisteredConditionTest {
     void theProgramMayNotNeedTheDatabase() {
         ApplicationContextRunner program = new ApplicationContextRunner()
                 .withUserConfiguration(GuardedByAProgramThatDoesNotNeedIt.class);
-        program.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(H2_JAR),
-                "ledger.jdbc.driver.class-name=org.h2.Driver", "ledger.jdbc.driver.sha256=" + sha())
+        program.withPropertyValues("ledger.jdbc.driver.jar=" + slashed(DRIVER_JAR),
+                "ledger.jdbc.driver.class-name=" + PostgresDriver.CLASS_NAME, "ledger.jdbc.driver.sha256=" + sha())
                 .run(context -> assertThat(context).hasNotFailed().doesNotHaveBean("database"));
         program.withInitializer(context -> context.getEnvironment().setActiveProfiles("embedded"))
                 .run(context -> assertThat(context).hasNotFailed().hasBean("database"));

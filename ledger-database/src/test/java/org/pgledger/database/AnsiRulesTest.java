@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.support.DdlModel;
 import org.pgledger.database.support.SqlText;
 import org.pgledger.database.support.SqlText.Banned;
@@ -35,7 +36,7 @@ class AnsiRulesTest {
     private static final Path SCHEMA = Path.of("src", "main", "resources", "db");
     private static final Path TEMPLATES = Path.of("src", "main", "resources", "db-templates");
 
-    /** Reserved words of SQL:2003, H2 and PostgreSQL that an identifier must not be (AT and SCOPE too: F10, no allow-list). */
+    /** Reserved words of SQL:2003 and PostgreSQL that an identifier must not be (AT and SCOPE too: F10, no allow-list). */
     private static final Set<String> RESERVED = Set.of("condition", "release", "user", "type", "value", "key", "order",
             "group", "table", "column", "select", "from", "where", "check", "default", "primary", "references",
             "unique", "index", "constraint", "all", "any", "as", "case", "end", "in", "is", "not", "null", "or", "and",
@@ -46,7 +47,7 @@ class AnsiRulesTest {
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private static final Pattern ADJOINING_LITERALS = Pattern.compile("\"\\s*\\+\\s*\"");
     private static final Pattern PLAIN_COLUMN_TYPE = Pattern.compile(
-            "VARCHAR\\(\\d+\\)|CLOB|INTEGER|BIGINT|TIMESTAMP|DECIMAL(\\(\\d+,\\d+\\))?");
+            "VARCHAR\\(\\d+\\)|TEXT|INTEGER|BIGINT|TIMESTAMP|DECIMAL(\\(\\d+,\\d+\\))?");
     private static final Pattern MIGRATION_FILE_NAME = Pattern.compile("V[1-9][0-9]*__[a-z0-9_]+\\.sql");
     private static final Pattern FUNCTION_CALL = Pattern.compile(
             "(?i)\\b(?!AND\\b|OR\\b|NOT\\b|IN\\b|CHECK\\b)\\w+\\s*\\(");
@@ -70,7 +71,7 @@ class AnsiRulesTest {
     }
 
     private static SqlText schemaFile(Path file) {
-        return new SqlText(file.getFileName().toString(), read(file).replace("${longtext}", "CLOB"));
+        return new SqlText(file.getFileName().toString(), read(file).replace("${longtext}", SchemaProperties.DEFAULT_LONG_TEXT_TYPE));
     }
 
     /** All string literals of a Java source file, adjacent literals joined (the way the SQL text is built). */
@@ -155,7 +156,7 @@ class AnsiRulesTest {
 
     @ParameterizedTest
     @MethodSource("schemaFiles")
-    @DisplayName("ANSI-006: only VARCHAR, CLOB, INTEGER, BIGINT, TIMESTAMP and DECIMAL columns")
+    @DisplayName("ANSI-006: only VARCHAR, the long text type (the placeholder), INTEGER, BIGINT, TIMESTAMP and DECIMAL columns")
     void columnTypes(SqlText sql) {
         assertThat(DdlModel.parse(sql.stripped()).tables().stream().flatMap(t -> t.columns().stream())
                 .map(DdlModel.Column::type)).allMatch(type -> PLAIN_COLUMN_TYPE.matcher(type).matches());

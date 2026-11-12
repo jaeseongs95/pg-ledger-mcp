@@ -33,31 +33,31 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.pgledger.testing.database.TestDataSourceConfiguration;
+import org.pgledger.testing.database.TestSchemaInitializer;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.ContextConfiguration;
 
 /**
  * REPO-061 (F10), as a {@code @DataJdbcTest} slice (principle 7.2: a Spring Data JDBC repository is tested with the Data
- * JDBC slice on the embedded H2): the three records whose column names are not the names of their components
+ * JDBC slice on the PostgreSQL of the test PC): the three records whose column names are not the names of their components
  * ({@code at} is stored in {@code occurred_at}, {@code scope} in {@code grant_scope}, because AT and SCOPE are reserved
  * words of SQL:2003) are written and read through their repositories, and the text of the columns is what the schema files
- * say. The schema is built by the real {@code db/V*.sql} files when the context starts.
+ * say. The schema (one of its own, {@code ledger.schema.name}) is built by the real {@code db/V*.sql} files when the
+ * context starts.
  */
-// A named in-memory H2 behind Boot's pooled (Hikari) DataSource, Boot's embedded replacement switched off (Replace.NONE).
-// Why: in H2 2.4.240 a CHECK ... IN (<constants>) constraint keeps the session that created it, so after that session is
-// closed every later insert into the table fails with "The database has been closed" (ConditionInConstantSet,
-// SessionLocal.getDatabase). Boot's embedded replacement closes a connection after every call, a pool keeps them open.
-@DataJdbcTest(properties = {"ledger.schema.long-text-type=CLOB",
-        "spring.datasource.url=jdbc:h2:mem:w2mappingslice;DB_CLOSE_DELAY=-1"})
+// The DataSource is the one of the test database support (the shared pool, every connection in the schema of this context), so
+// Boot's own replacement of the database is switched off (Replace.NONE).
+@DataJdbcTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@ContextConfiguration(classes = ReservedWordColumnsDataJdbcTest.Slice.class)
+@ContextConfiguration(classes = ReservedWordColumnsDataJdbcTest.Slice.class, initializers = TestSchemaInitializer.class)
 class ReservedWordColumnsDataJdbcTest {
 
     private static final Instant WHEN = Instant.parse("2026-11-05T10:00:00.123456Z");
 
     /** The slice: the ledger's Spring Data JDBC configuration, the schema services, and the clock and client they need. */
     @Configuration(proxyBeanMethods = false)
-    @Import({LedgerJdbcConfiguration.class, LedgerSchemaConfiguration.class})
+    @Import({LedgerJdbcConfiguration.class, LedgerSchemaConfiguration.class, TestDataSourceConfiguration.class})
     static class Slice {
 
         @Bean

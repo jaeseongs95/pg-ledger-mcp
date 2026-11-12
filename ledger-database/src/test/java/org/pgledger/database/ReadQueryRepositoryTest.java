@@ -60,7 +60,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The query repositories behind the read tools (REPO-025 .. REPO-028 for the new lists): lookups, filters, keyset
- * pages in the OR form, search, history filters, counts, attention and the row lock, on the embedded H2.
+ * pages in the OR form, search, history filters, counts, attention and the row lock, on the PostgreSQL of the test PC.
  */
 @DatabaseTest
 class ReadQueryRepositoryTest {
