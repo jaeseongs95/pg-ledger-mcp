@@ -7,7 +7,7 @@ import java.lang.annotation.Target;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
- * A test class that takes the migrated H2 database as a {@link LedgerTestContext} parameter of its methods (and
+ * A test class that takes the migrated test database (a schema of its own in the PostgreSQL of the test PC) as a {@link LedgerTestContext} parameter of its methods (and
  * {@link Databases} for databases of its own); see {@link LedgerDatabaseExtension}.
  */
 @Target(ElementType.TYPE)

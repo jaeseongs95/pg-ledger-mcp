@@ -57,6 +57,8 @@ import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.schema.SchemaVerifier;
 import org.pgledger.database.support.Databases;
+import org.pgledger.testing.database.PostgresDriver;
+import org.pgledger.testing.database.TestDatabaseSettings;
 import org.pgledger.database.support.LedgerDatabaseExtension;
 import org.pgledger.domain.error.ErrorCode;
 import org.pgledger.domain.error.InfrastructureCode;
@@ -118,14 +120,14 @@ class DriverBoundaryTest {
     }
 
     /**
-     * The H2 jar for the tests: a copy of the one on the class path in a directory of its own that only its owner can use
-     * (the loader refuses a jar, or a directory, that other accounts can write, and the Gradle cache is not that on every
-     * file system).
+     * The sample driver jar of the tests: a copy of the PostgreSQL driver jar of the build (its path is the system property
+     * {@code ledger.test.postgres-jar}) in a directory of its own that only its owner can use (the loader refuses a jar, or
+     * a directory, that other accounts can write, and the Gradle cache is not that on every file system).
      */
-    private static final Path H2_JAR = OwnerOnlyFiles.copyToNewDirectory(locationOf(org.h2.Driver.class));
+    private static final Path DRIVER_JAR = OwnerOnlyFiles.copyToNewDirectory(PostgresDriver.jar());
 
-    private static Path h2Jar() {
-        return H2_JAR;
+    private static Path driverJar() {
+        return DRIVER_JAR;
     }
 
     private static String sha(Path file) {
@@ -154,7 +156,7 @@ class DriverBoundaryTest {
     @ParameterizedTest
     @MethodSource("unusableJarPaths")
     void drv002_aPathThatIsNotAUsableJarIsRefused(Path path) {
-        assertThat(codeOf(describing(path, "org.h2.Driver", "jdbc:h2:mem:x"))).isEqualTo(
+        assertThat(codeOf(describing(path, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/x"))).isEqualTo(
                 InfrastructureCode.DRIVER_INVALID);
     }
 
@@ -167,7 +169,7 @@ class DriverBoundaryTest {
     }
 
     static Stream<Broken> brokenArchives() throws IOException {
-        byte[] real = Files.readAllBytes(h2Jar());
+        byte[] real = Files.readAllBytes(driverJar());
         return Stream.of(new Broken("text file", "this is not an archive".getBytes(StandardCharsets.UTF_8)),
                 new Broken("empty file", new byte[0]),
                 new Broken("truncated jar", java.util.Arrays.copyOf(real, 100)));
@@ -177,7 +179,7 @@ class DriverBoundaryTest {
     @MethodSource("brokenArchives")
     void drv003_aFileThatIsNotAJarIsRefused(Broken broken) throws IOException {
         Path file = OwnerOnlyFiles.write(temp.resolve("broken.jar"), broken.content());
-        assertThat(codeOf(describing(file, "org.h2.Driver", "jdbc:h2:mem:x"))).isEqualTo(
+        assertThat(codeOf(describing(file, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/x"))).isEqualTo(
                 InfrastructureCode.DRIVER_INVALID);
     }
 
@@ -201,8 +203,8 @@ class DriverBoundaryTest {
 
     @Test
     void drv005_aDriverThatDoesNotAcceptTheUrlIsRefusedAndThePasswordIsNotShown() {
-        InfrastructureException thrown = describing(h2Jar(), "org.h2.Driver",
-                "jdbc:postgresql://localhost/db?user=a&password=top-secret");
+        InfrastructureException thrown = describing(driverJar(), PostgresDriver.CLASS_NAME,
+                "jdbc:other://localhost/db?user=a&password=top-secret");
         assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
         assertThat(thrown.args().getFirst()).doesNotContain("top-secret").contains("***");
     }
@@ -215,14 +217,18 @@ class DriverBoundaryTest {
     @Test
     void drv006_007_011_theChainIsClassLoaderDriverSimpleDataSourceHikariAndTheDriverManagerIsNotUsed(
             Databases databases) throws SQLException {
-        String url = databases.newUrl();
-        Path jar = h2Jar();
+        // the real chain on the PostgreSQL of the test PC, in a schema of its own (the product's ledger.schema.name)
+        TestDatabaseSettings settings = databases.database().settings();
+        String url = settings.url();
+        String schema = databases.reserveSchemaName();
+        Path jar = driverJar();
         Set<String> before = registeredDrivers();
-        DriverRegistration registration = LOADER.describe(jar, "org.h2.Driver", url, NOW);
-        assertThat(registration).isEqualTo(new DriverRegistration(jar, "org.h2.Driver", sha(jar), NOW));
-        LedgerJdbcProperties properties = new LedgerJdbcProperties(url, null, null, 2, registration);
+        DriverRegistration registration = LOADER.describe(jar, PostgresDriver.CLASS_NAME, url, NOW);
+        assertThat(registration).isEqualTo(new DriverRegistration(jar, PostgresDriver.CLASS_NAME, sha(jar), NOW));
+        LedgerJdbcProperties properties = new LedgerJdbcProperties(url, settings.user(),
+                settings.ownerPassword().orElse(null), 2, registration);
         try (RegisteredDriver registered = LOADER.load(registration);
-                HikariDataSource pool = DriverDataSources.create(registered, properties, null)) {
+                HikariDataSource pool = DriverDataSources.create(registered, properties, schema)) {
             Driver driver = registered.driver();
             assertThat(registeredDrivers()).as("the DriverManager is not involved while the pool runs").isEqualTo(before);
             assertThat(driver.getClass().getClassLoader()).isInstanceOf(URLClassLoader.class);
@@ -230,32 +236,29 @@ class DriverBoundaryTest {
             try (Connection c = pool.getConnection(); var s = c.createStatement(); var rs = s.executeQuery("SELECT 1")) {
                 assertThat(rs.next()).isTrue();
             }
-            new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
-                            java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)),
-                    java.time.Clock.systemUTC())
+            SchemaProperties named = new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true,
+                    schema, java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT));
+            new SchemaMigrator(pool, new PathMatchingResourcePatternResolver(), named, java.time.Clock.systemUTC())
                     .migrate();
-            new SchemaVerifier(pool, new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
-                            java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT))).verify();
+            new SchemaVerifier(pool, new PathMatchingResourcePatternResolver(), named).verify();
         }
         assertThat(registeredDrivers()).isEqualTo(before);
     }
 
     @Test
     void drv008_aJarThatChangedSinceRegistrationIsRefusedBeforeAnyConnection() {
-        DriverRegistration registration = new DriverRegistration(h2Jar(), "org.h2.Driver",
+        DriverRegistration registration = new DriverRegistration(driverJar(), PostgresDriver.CLASS_NAME,
                 "0".repeat(64), NOW);
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
                 () -> LOADER.load(registration));
         assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
-        assertThat(thrown.args().getFirst()).contains("digest mismatch").contains(h2Jar().toString());
+        assertThat(thrown.args().getFirst()).contains("digest mismatch").contains(driverJar().toString());
     }
 
     @Test
     void drv009_aJarThatIsGoneIsRefusedWithItsPath() throws IOException {
-        Path copy = OwnerOnlyFiles.copy(h2Jar(), temp.resolve("gone.jar"));
-        DriverRegistration registration = LOADER.describe(copy, "org.h2.Driver", "jdbc:h2:mem:g", NOW);
+        Path copy = OwnerOnlyFiles.copy(driverJar(), temp.resolve("gone.jar"));
+        DriverRegistration registration = LOADER.describe(copy, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/g", NOW);
         Files.delete(copy);
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
                 () -> LOADER.load(registration));
@@ -280,7 +283,7 @@ class DriverBoundaryTest {
     @Test
     void drv012_aHalfFilledRegistrationNamesTheMissingKey() {
         InfrastructureException thrown = catchThrowableOfType(InfrastructureException.class,
-                () -> LOADER.load(new DriverRegistration(h2Jar(), null, null, null)));
+                () -> LOADER.load(new DriverRegistration(driverJar(), null, null, null)));
         assertThat(thrown.code()).isEqualTo(InfrastructureCode.DRIVER_INVALID);
         assertThat(thrown.args().getFirst()).contains("ledger.jdbc.driver.class-name");
     }
@@ -288,9 +291,9 @@ class DriverBoundaryTest {
     @Test
     void drv017_aJarThatOthersCanWriteIsRefused() throws IOException {
         assumeTrue(temp.getFileSystem().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
-        Path copy = OwnerOnlyFiles.copy(h2Jar(), temp.resolve("writable.jar"));
+        Path copy = OwnerOnlyFiles.copy(driverJar(), temp.resolve("writable.jar"));
         Files.setPosixFilePermissions(copy, PosixFilePermissions.fromString("rw-rw-r--"));
-        assertThat(codeOf(describing(copy, "org.h2.Driver", "jdbc:h2:mem:w"))).isEqualTo(
+        assertThat(codeOf(describing(copy, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/w"))).isEqualTo(
                 InfrastructureCode.DRIVER_INVALID);
     }
 
@@ -308,17 +311,17 @@ class DriverBoundaryTest {
     void drv030_aDirectoryThatOthersCanWriteIsRefused() throws IOException {
         assumeTrue(hasPosix(temp), "needs POSIX permissions");
         Path directory = OwnerOnlyFiles.restrict(Files.createDirectory(temp.resolve("drivers-open")));
-        Path jar = OwnerOnlyFiles.copy(h2Jar(), directory.resolve("h2.jar"));
-        LOADER.describe(jar, "org.h2.Driver", "jdbc:h2:mem:dir-ok", NOW);
+        Path jar = OwnerOnlyFiles.copy(driverJar(), directory.resolve("postgresql.jar"));
+        LOADER.describe(jar, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/dir-ok", NOW);
 
         for (String mode : List.of("rwxrwx---", "rwx---rwx", "rwx-w----", "rwx----w-")) {
             Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString(mode));
-            InfrastructureException refused = describing(jar, "org.h2.Driver", "jdbc:h2:mem:dir");
+            InfrastructureException refused = describing(jar, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/dir");
             assertThat(codeOf(refused)).as(mode).isEqualTo(InfrastructureCode.DRIVER_INVALID);
             assertThat(refused.args().getFirst()).as(mode).contains("directory").contains("writable");
         }
         Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("rwx------"));
-        LOADER.describe(jar, "org.h2.Driver", "jdbc:h2:mem:dir-again", NOW);
+        LOADER.describe(jar, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/dir-again", NOW);
     }
 
     /**
@@ -331,25 +334,25 @@ class DriverBoundaryTest {
         UserPrincipal everyone = temp.getFileSystem().getUserPrincipalLookupService().lookupPrincipalByName("Everyone");
         for (boolean onDirectory : new boolean[] {true, false}) {
             Path directory = OwnerOnlyFiles.restrict(Files.createDirectory(temp.resolve("acl-" + onDirectory)));
-            Path jar = OwnerOnlyFiles.copy(h2Jar(), directory.resolve("h2.jar"));
+            Path jar = OwnerOnlyFiles.copy(driverJar(), directory.resolve("postgresql.jar"));
             Path target = onDirectory ? directory : jar;
             AclFileAttributeView view = Files.getFileAttributeView(target, AclFileAttributeView.class);
             List<AclEntry> original = view.getAcl();
 
             view.setAcl(withEntry(original, everyone, AclEntryPermission.READ_DATA, AclEntryPermission.READ_ATTRIBUTES,
                     AclEntryPermission.READ_ACL, AclEntryPermission.SYNCHRONIZE));
-            LOADER.describe(jar, "org.h2.Driver", "jdbc:h2:mem:acl-read-" + onDirectory, NOW);
+            LOADER.describe(jar, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/acl-read-" + onDirectory, NOW);
 
             for (AclEntryPermission change : List.of(AclEntryPermission.WRITE_DATA, AclEntryPermission.APPEND_DATA,
                     AclEntryPermission.DELETE, AclEntryPermission.WRITE_ACL, AclEntryPermission.WRITE_OWNER)) {
                 view.setAcl(withEntry(original, everyone, AclEntryPermission.READ_DATA, change));
-                InfrastructureException refused = describing(jar, "org.h2.Driver", "jdbc:h2:mem:acl");
+                InfrastructureException refused = describing(jar, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/acl");
                 assertThat(codeOf(refused)).as("%s on the %s", change, onDirectory ? "directory" : "jar")
                         .isEqualTo(InfrastructureCode.DRIVER_INVALID);
                 assertThat(refused.args().getFirst()).contains(onDirectory ? "directory" : "jar").contains("can be changed");
             }
             view.setAcl(original);
-            LOADER.describe(jar, "org.h2.Driver", "jdbc:h2:mem:acl-again-" + onDirectory, NOW);
+            LOADER.describe(jar, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/acl-again-" + onDirectory, NOW);
         }
     }
 
@@ -365,12 +368,12 @@ class DriverBoundaryTest {
     void drv032_aDirectoryWithAnEmptyAclIsRefused() throws IOException {
         assumeTrue(hasAcl(temp) && !hasPosix(temp), "needs ACLs");
         Path directory = OwnerOnlyFiles.restrict(Files.createDirectory(temp.resolve("acl-empty")));
-        Path jar = OwnerOnlyFiles.copy(h2Jar(), directory.resolve("h2.jar"));
+        Path jar = OwnerOnlyFiles.copy(driverJar(), directory.resolve("postgresql.jar"));
         AclFileAttributeView view = Files.getFileAttributeView(directory, AclFileAttributeView.class);
         List<AclEntry> original = view.getAcl();
         view.setAcl(List.of());
         try {
-            InfrastructureException refused = describing(jar, "org.h2.Driver", "jdbc:h2:mem:acl-empty");
+            InfrastructureException refused = describing(jar, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/acl-empty");
             assertThat(codeOf(refused)).isEqualTo(InfrastructureCode.DRIVER_INVALID);
             assertThat(refused.args().getFirst()).contains("without any entry");
         } finally {
@@ -383,11 +386,11 @@ class DriverBoundaryTest {
     void drv033_aSymbolicLinkToAJarIsRefused() throws IOException {
         Path link = temp.resolve("link.jar");
         try {
-            Files.createSymbolicLink(link, h2Jar());
+            Files.createSymbolicLink(link, driverJar());
         } catch (UnsupportedOperationException | IOException cannot) {
             throw new TestAbortedException("this file system cannot make symbolic links here: " + cannot, cannot);
         }
-        assertThat(codeOf(describing(link, "org.h2.Driver", "jdbc:h2:mem:link"))).isEqualTo(InfrastructureCode.DRIVER_INVALID);
+        assertThat(codeOf(describing(link, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/link"))).isEqualTo(InfrastructureCode.DRIVER_INVALID);
     }
 
     @Test
@@ -401,12 +404,14 @@ class DriverBoundaryTest {
 
     @Test
     void drv019_closingReleasesTheJarSoItCanBeDeleted(Databases databases) throws IOException, SQLException {
-        Path copy = OwnerOnlyFiles.copy(h2Jar(), temp.resolve("release.jar"));
-        String url = databases.newUrl();
-        DriverRegistration registration = LOADER.describe(copy, "org.h2.Driver", url, NOW);
+        Path copy = OwnerOnlyFiles.copy(driverJar(), temp.resolve("release.jar"));
+        TestDatabaseSettings settings = databases.database().settings();
+        String url = settings.url();
+        DriverRegistration registration = LOADER.describe(copy, PostgresDriver.CLASS_NAME, url, NOW);
         try (RegisteredDriver registered = LOADER.load(registration);
                 HikariDataSource pool = DriverDataSources.create(registered,
-                        new LedgerJdbcProperties(url, null, null, 1, registration), null);
+                        new LedgerJdbcProperties(url, settings.user(), settings.ownerPassword().orElse(null), 1,
+                                registration), null);
                 Connection c = pool.getConnection()) {
             assertThat(c.isValid(2)).isTrue();
         }
@@ -433,7 +438,7 @@ class DriverBoundaryTest {
                     .toURI());
             assertThat(Files.isSameFile(source, registered)).as("the classes are not read from the registered file")
                     .isFalse();
-            Files.write(registered, Files.readAllBytes(h2Jar()));
+            Files.write(registered, Files.readAllBytes(driverJar()));
             Class<?> notLoadedYet = driver.driver().getClass().getClassLoader().loadClass(FakeDriverB.class.getName());
             assertThat(notLoadedYet.getName()).as("still the old bytes after the file was overwritten")
                     .isEqualTo(FakeDriverB.class.getName());
@@ -499,11 +504,11 @@ class DriverBoundaryTest {
     @Test
     void drv029_aJarPathWithAPlaceholderIsRefusedByTheLoader() throws IOException {
         Path directory = Files.createDirectory(temp.resolve("${x}"));
-        Path jar = OwnerOnlyFiles.copy(h2Jar(), directory.resolve("h2.jar"));
+        Path jar = OwnerOnlyFiles.copy(driverJar(), directory.resolve("postgresql.jar"));
 
-        InfrastructureException described = describing(jar, "org.h2.Driver", "jdbc:h2:mem:p");
+        InfrastructureException described = describing(jar, PostgresDriver.CLASS_NAME, "jdbc:postgresql://127.0.0.1:1/p");
         InfrastructureException loaded = catchThrowableOfType(InfrastructureException.class,
-                () -> LOADER.load(new DriverRegistration(jar, "org.h2.Driver", sha(jar), NOW)));
+                () -> LOADER.load(new DriverRegistration(jar, PostgresDriver.CLASS_NAME, sha(jar), NOW)));
 
         assertThat(described).as("describe refuses a path with ${").isNotNull();
         assertThat(codeOf(described)).isEqualTo(InfrastructureCode.DRIVER_INVALID);
@@ -522,21 +527,21 @@ class DriverBoundaryTest {
     }
 
     static Stream<RegistrationFile> registrationFiles() {
-        String jar = h2Jar().toString();
-        String sha = sha(h2Jar());
+        String jar = driverJar().toString();
+        String sha = sha(driverJar());
         // A YAML single-quoted scalar keeps the path exactly as the file system writes it.
-        String head = "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n    driver:\n      jar: '" + jar + "'\n";
+        String head = "ledger:\n  jdbc:\n    url: jdbc:postgresql://127.0.0.1:1/cfg\n    driver:\n      jar: '" + jar + "'\n";
         return Stream.of(
-                new RegistrationFile("complete", head + "      class-name: org.h2.Driver\n      sha256: " + sha
+                new RegistrationFile("complete", head + "      class-name: org.postgresql.Driver\n      sha256: " + sha
                         + "\n      registered-at: 2026-11-05T10:00:00Z\n", null),
-                new RegistrationFile("without digest", head + "      class-name: org.h2.Driver\n",
+                new RegistrationFile("without digest", head + "      class-name: org.postgresql.Driver\n",
                         InfrastructureCode.DRIVER_INVALID),
                 new RegistrationFile("without class", head + "      sha256: " + sha + "\n",
                         InfrastructureCode.DRIVER_INVALID),
-                new RegistrationFile("relative jar path", "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n    driver:\n"
-                        + "      jar: relative/driver.jar\n      class-name: org.h2.Driver\n      sha256: " + sha + "\n",
+                new RegistrationFile("relative jar path", "ledger:\n  jdbc:\n    url: jdbc:postgresql://127.0.0.1:1/cfg\n    driver:\n"
+                        + "      jar: relative/driver.jar\n      class-name: org.postgresql.Driver\n      sha256: " + sha + "\n",
                         InfrastructureCode.DRIVER_INVALID),
-                new RegistrationFile("nothing registered", "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n",
+                new RegistrationFile("nothing registered", "ledger:\n  jdbc:\n    url: jdbc:postgresql://127.0.0.1:1/cfg\n",
                         InfrastructureCode.DRIVER_NOT_CONFIGURED));
     }
 
@@ -563,8 +568,8 @@ class DriverBoundaryTest {
     @Test
     void drv024_aJarValueThatIsNotAPathStopsTheStartWithTheBindingFailureNamingTheKey() throws IOException {
         Path yaml = Files.writeString(temp.resolve("jdbc-driver-bad-path.yaml"),
-                "ledger:\n  jdbc:\n    url: jdbc:h2:mem:cfg\n    driver:\n      jar: \"bad\\0path.jar\"\n"
-                        + "      class-name: org.h2.Driver\n");
+                "ledger:\n  jdbc:\n    url: jdbc:postgresql://127.0.0.1:1/cfg\n    driver:\n      jar: \"bad\\0path.jar\"\n"
+                        + "      class-name: org.postgresql.Driver\n");
         Throwable failure = catchThrowableOfType(Throwable.class, () -> {
             try (ConfigurableApplicationContext context = new SpringApplicationBuilder(
                     LedgerDataSourceConfiguration.class).web(WebApplicationType.NONE)

@@ -34,7 +34,11 @@ import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.pgledger.database.support.Databases;
+import org.pgledger.database.support.LedgerDatabaseExtension;
+import org.pgledger.testing.database.TestDatabase;
+import org.pgledger.testing.database.TestSchema;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -42,9 +46,11 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 /**
  * INS-007 .. INS-010: the grant template of the application account read as text (ANSI GRANT statements and nothing else,
  * every table of the schema files, never a write on the history), the account name (the one value that enters the SQL) and
- * the application of the template through {@link GrantApplier} on an H2 account (an H2 {@code CREATE USER} is a test fixture
- * only). That the account runs every path of the applications and cannot change the history is {@code DmlAccountTest}.
+ * the application of the template through {@link GrantApplier} on the application account of the tests
+ * ({@code ledger.test.app-user}) in a schema of its own. That the account runs every path of the applications and cannot
+ * change the history is {@code DmlAccountTest}.
  */
+@ExtendWith(LedgerDatabaseExtension.class)
 class GrantTemplateTest {
 
     private static final Pattern STATEMENT = Pattern.compile(
@@ -157,37 +163,30 @@ class GrantTemplateTest {
 
     @Test
     @DisplayName("INS-010 applying the template a second time changes nothing; an account that does not exist is an InfrastructureException SCHEMA_GRANT_FAILED with its cause and no SQL in it")
-    void ins010_theGrantsCanBeAppliedAgain() throws SQLException {
-        String url = new Databases().newUrl();
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(url);
-        config.setMaximumPoolSize(2);
-        config.setConnectionInitSql("SET TIME ZONE 'UTC'");
-        try (HikariDataSource owner = new HikariDataSource(config)) {
-            new SchemaMigrator(owner, new PathMatchingResourcePatternResolver(), properties(), Clock.systemUTC()).migrate();
-            String account = "APP_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(Locale.ROOT);
-            try (Connection c = owner.getConnection(); Statement s = c.createStatement()) {
-                s.execute("CREATE USER " + account + " PASSWORD 'pw-for-the-test'");
-            }
-            GrantApplier applier = new GrantApplier(owner, properties());
+    void ins010_theGrantsCanBeAppliedAgain(Databases databases) throws SQLException {
+        // the owner account cannot create a login: the account is the application account of the tests, and everything it
+        // may do exists only in the schema of this test (it goes with the drop of the schema)
+        TestDatabase database = databases.database();
+        TestSchema schema = databases.newSchema();
+        SchemaProperties named = new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true,
+                schema.name(), Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT));
+        new SchemaMigrator(database.pool(), new PathMatchingResourcePatternResolver(), named, Clock.systemUTC())
+                .migrate();
+        String account = database.settings().appUser();
+        schema.allowUsage(account);
+        GrantApplier applier = new GrantApplier(database.pool(), named);
 
-            applier.apply(account);
-            applier.apply(account);
+        applier.apply(account);
+        applier.apply(account);
 
-            HikariConfig accountConfig = new HikariConfig();
-            accountConfig.setJdbcUrl(url.substring(0, url.indexOf(';')));
-            accountConfig.setUsername(account);
-            accountConfig.setPassword("pw-for-the-test");
-            accountConfig.setMaximumPoolSize(1);
-            try (HikariDataSource app = new HikariDataSource(accountConfig); Connection c = app.getConnection();
-                    Statement s = c.createStatement()) {
-                s.execute("SELECT COUNT(*) FROM defect");
-            }
-            assertThatThrownBy(() -> applier.apply("NO_SUCH_ACCOUNT"))
-                    .isInstanceOfSatisfying(InfrastructureException.class, e -> {
-                        assertThat(e.code()).isEqualTo(InfrastructureCode.SCHEMA_GRANT_FAILED);
-                        assertThat(e.args()).as("no SQL and no account in the failure").isEmpty();
-                    }).hasCauseInstanceOf(org.springframework.dao.DataAccessException.class);
+        DataSource app = TestDatabase.scoped(database.appPool(), schema.name());
+        try (Connection c = app.getConnection(); Statement s = c.createStatement()) {
+            s.execute("SELECT COUNT(*) FROM defect");
         }
+        assertThatThrownBy(() -> applier.apply("NO_SUCH_ACCOUNT"))
+                .isInstanceOfSatisfying(InfrastructureException.class, e -> {
+                    assertThat(e.code()).isEqualTo(InfrastructureCode.SCHEMA_GRANT_FAILED);
+                    assertThat(e.args()).as("no SQL and no account in the failure").isEmpty();
+                }).hasCauseInstanceOf(org.springframework.dao.DataAccessException.class);
     }
 }

@@ -3,8 +3,9 @@ package org.pgledger.database;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
+import javax.sql.DataSource;
+import org.pgledger.testing.database.TestDatabase;
+import org.pgledger.testing.database.TestSchema;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -75,76 +76,58 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 @ExtendWith(LedgerDatabaseExtension.class)
 class DmlAccountTest {
 
-    private static final String PASSWORD = "pw-for-the-test";
-    private static final String PERMISSION_DENIED = "90096";
-    /** H2 refuses to truncate a table that a foreign key refers to (history refers to itself) before it asks for rights. */
-    private static final String H2_CANNOT_TRUNCATE = "90106";
+    /** PostgreSQL SQLState 42501: insufficient privilege. */
+    private static final String PERMISSION_DENIED = "42501";
 
-    private String account;
     private Env shared;
-    private Databases databases;
 
-    @BeforeEach
-    void setUp(Databases fresh) {
-        databases = fresh;
-    }
+    /**
+     * A schema of its own in the test database, owned by the owner account, with the application account of the tests
+     * ({@code ledger.test.app-user}) as the restricted account. The owner account cannot create roles, so the account is the
+     * login that the tests are configured with; what it may do exists only in this schema and goes with the drop of it.
+     * The schema name is the product's {@code ledger.schema.name}.
+     */
+    private record Env(TestSchema schema, DataSource app) implements AutoCloseable {
+        String name() {
+            return schema.name();
+        }
 
-    private record Env(String url, HikariDataSource owner, HikariDataSource app) implements AutoCloseable {
         @Override
         public void close() {
-            app.close();
-            owner.close();
+            schema.close();
         }
     }
 
-    private HikariDataSource pool(String url, String user, String password) {
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(url);
-        if (user != null) {
-            config.setUsername(user);
-            config.setPassword(password);
-        }
-        config.setMaximumPoolSize(4);
-        config.setConnectionInitSql("SET TIME ZONE 'UTC'");
-        return new HikariDataSource(config);
-    }
-
-    /** A new database, owned by the owner account, with a restricted account; the schema is applied when asked. */
-    private Env environment(boolean migrate, boolean grant) throws SQLException, IOException {
-        String ownerUrl = databases.newUrl();
-        // the database options of the URL (after the first ';') are the owner's
-        String appUrl = ownerUrl.substring(0, ownerUrl.indexOf(';'));
-        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-        account = "APP_" + suffix.toUpperCase(Locale.ROOT);
-        HikariDataSource owner = pool(ownerUrl, null, null);
+    /** A new schema with the application account allowed to see it; the schema is applied and granted when asked. */
+    private Env environment(boolean migrate, boolean grant) {
+        TestDatabase database = TestDatabase.shared();
+        TestSchema schema = database.newSchema();
+        String account = database.settings().appUser();
+        schema.allowUsage(account);
+        SchemaProperties properties = new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true,
+                schema.name(), java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT));
         if (migrate) {
-            new SchemaMigrator(owner, new PathMatchingResourcePatternResolver(),
-                    new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
-                            java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)), Clock.systemUTC())
-                    .migrate();
-        }
-        try (Connection c = owner.getConnection(); Statement s = c.createStatement()) {
-            s.execute("CREATE USER " + account + " PASSWORD '" + PASSWORD + "'");
+            new SchemaMigrator(database.pool(), new PathMatchingResourcePatternResolver(), properties,
+                    Clock.systemUTC()).migrate();
         }
         if (grant) {
             // the real path of the installer: the grant template applied by GrantApplier through the owner (DDL) account
-            new GrantApplier(owner, new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, Databases.LONG_TEXT, true, null,
-                    java.time.Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT))).apply(account);
+            new GrantApplier(database.pool(), properties).apply(account);
         }
-        return new Env(ownerUrl, owner, pool(appUrl, account, PASSWORD));
+        return new Env(schema, TestDatabase.scoped(database.appPool(), schema.name()));
     }
 
-    private static void refused(HikariDataSource app, String sql) {
+    private static void refused(DataSource app, String sql) {
         assertThatThrownBy(() -> {
             try (Connection c = app.getConnection(); Statement s = c.createStatement()) {
                 s.execute(sql);
             }
         }).as(sql).isInstanceOfSatisfying(SQLException.class,
                 e -> assertThat(e.getSQLState()).as("a refusal for a missing right, not a mistake in the statement")
-                        .isIn(PERMISSION_DENIED, H2_CANNOT_TRUNCATE));
+                        .isEqualTo(PERMISSION_DENIED));
     }
 
-    private static void allowed(HikariDataSource app, String sql) throws SQLException {
+    private static void allowed(DataSource app, String sql) throws SQLException {
         try (Connection c = app.getConnection(); Statement s = c.createStatement()) {
             s.execute(sql);
         }
@@ -187,7 +170,7 @@ class DmlAccountTest {
     void repo023_024_038_theApplicationAccountCannotChangeHistoryOrTheSchema(String sql) throws Exception {
         refused(shared().app(), sql);
         // the owner can run the DDL, which shows the refusal is about the right and not about the statement
-        assertThat(shared().owner()).isNotNull();
+        assertThat(shared().schema()).isNotNull();
     }
 
     /** One environment for the statement tests of the class, built on first use. */
@@ -207,7 +190,7 @@ class DmlAccountTest {
 
     @Test
     void theWholeWorkflowRunsOnTheRestrictedAccount() throws Exception {
-        try (Env env = environment(true, true); LedgerTestContext ctx = LedgerTestContext.onMigrated(env.app())) {
+        try (Env env = environment(true, true); LedgerTestContext ctx = LedgerTestContext.onMigrated(env.app(), env.name())) {
             Seed seed = new Seed(ctx);
             Project project = seed.project();
             Defect defect = seed.defect(project, 1, "as the application account", LedgerTestContext.START);

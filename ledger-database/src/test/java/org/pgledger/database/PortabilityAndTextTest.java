@@ -45,7 +45,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 /**
  * REPO-031, REPO-032 and REPO-033. REPO-037 (the statements are understood by a second DBMS) needs a second
- * database and moved to the test server stage with the decision of 2026-11-11 (H2 only), see TEST_CASES.md.
+ * database and stays a test server stage case, see TEST_CASES.md 1.4a.
  */
 @DatabaseTest
 class PortabilityAndTextTest {
@@ -137,8 +137,7 @@ class PortabilityAndTextTest {
         JdbcClient jdbc = JdbcClient.create(ctx.pool());
         Set<String> textColumns = jdbc.sql("SELECT LOWER(table_name) || '.' || LOWER(column_name) FROM "
                 + "information_schema.columns WHERE LOWER(data_type) IN ('character varying', 'text', "
-                + "'character large object', 'clob', 'varchar') AND LOWER(table_schema) IN "
-                + "(SELECT LOWER(table_schema) FROM information_schema.tables WHERE LOWER(table_name) = 'defect')")
+                + "'character large object', 'clob', 'varchar') AND table_schema = CURRENT_SCHEMA")
                 .query(String.class).set();
         assertThat(textColumns).contains("defect.title", "defect.behavior", "history.reason");
         Set<String> emptyOnes = textColumns.stream().filter(column -> jdbc.sql("SELECT COUNT(*) FROM "

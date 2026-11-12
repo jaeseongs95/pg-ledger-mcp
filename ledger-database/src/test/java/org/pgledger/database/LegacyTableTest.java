@@ -58,10 +58,10 @@ class LegacyTableTest {
         try (LegacyLedger legacy = LegacyLedger.create()) {
             for (LegacyTable table : LegacyTable.values()) {
                 List<String> columns = legacy.rows("SELECT column_name FROM information_schema.columns "
-                        + "WHERE table_schema = 'LEDGER' AND table_name = '" + table.sourceName().toUpperCase(Locale.ROOT) + "'")
-                        .stream().map(row -> String.valueOf(row.get("COLUMN_NAME")).toLowerCase(Locale.ROOT)).toList();
+                        + "WHERE table_schema = ? AND table_name = ?", legacy.schema(), table.sourceName())
+                        .stream().map(row -> String.valueOf(row.get("column_name")).toLowerCase(Locale.ROOT)).toList();
                 assertThat(columns).as(table.name()).containsExactlyInAnyOrderElementsOf(names(table.sourceColumns()));
-                assertThat(legacy.rows(table.sourceSelect(LegacyLedger.SCHEMA))).isEmpty();
+                assertThat(legacy.rows(table.sourceSelect(legacy.schema()))).isEmpty();
             }
         }
     }

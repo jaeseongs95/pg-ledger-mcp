@@ -201,6 +201,11 @@ public final class TestDatabase {
         return create(reserveSchemaName());
     }
 
+    /** As {@link #newSchema()} with the creation time {@code at} in the name (the test of the sweep makes an old one). */
+    public TestSchema newSchema(Instant at) {
+        return create(reserveSchemaName(at));
+    }
+
     /** Creates the schema {@code name} (reserved before) and returns its handle. */
     TestSchema create(String name) {
         execute("CREATE SCHEMA " + requireSchemaName(name));
