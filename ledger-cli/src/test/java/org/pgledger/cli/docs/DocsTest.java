@@ -444,7 +444,7 @@ class DocsTest {
         String section = language.readme().part(heading).text();
 
         assertThat(section).contains("`AGPL-3.0-or-later`").contains("Copyright (C) 2026 Jaeseong Song").contains("](LICENSE)")
-                .contains("MIT").contains("1.x");
+                .contains("MIT").contains("v1.0.0").contains("v1.1.0").doesNotContain("up to 1.x").doesNotContain("1.x까지");
         assertThat(section.lines().filter(line -> !line.isBlank()).toList()).hasSizeGreaterThan(3);
     }
 

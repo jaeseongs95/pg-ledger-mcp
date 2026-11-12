@@ -454,6 +454,6 @@ pg-ledger-mcp는 2.0 버전부터 GNU Affero General Public License v3.0 또는 
 
 Copyright (C) 2026 Jaeseong Song
 
-1.x까지의 릴리스는 계속 MIT License에 따릅니다.
+`AGPL-3.0-or-later`는 2.0.0과 그 이후에 공개하는 모든 릴리스에 적용하며, 이후에 공개하는 1.x 계열의 유지보수 릴리스도 포함합니다. MIT License는 이미 그 라이선스로 공개한 사본, 곧 v1.0.0과 v1.1.0에만 계속 적용합니다.
 
 라이선스 제13조에 따라, 수정한 버전을 네트워크 서비스로 운영하는 자는 그 서비스의 이용자에게 해당 소스 코드를 제공해야 합니다.

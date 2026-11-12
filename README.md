@@ -504,6 +504,6 @@ From version 2.0, pg-ledger-mcp is licensed under the GNU Affero General Public 
 
 Copyright (C) 2026 Jaeseong Song
 
-Releases up to 1.x remain under the MIT License.
+`AGPL-3.0-or-later` applies to 2.0.0 and to every release published after it, including any later maintenance release of the 1.x line. The MIT License continues to apply only to the copies already published under it, that is v1.0.0 and v1.1.0.
 
 Under section 13 of the license, whoever runs a modified version as a network service must offer the users of that service the corresponding source code.
