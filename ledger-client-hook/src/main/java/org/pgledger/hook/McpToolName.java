@@ -1,98 +1,38 @@
 package org.pgledger.hook;
 
 import java.util.Optional;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * The MCP server (as the host names it) and the ledger write tool that a host tool name stands for. The hook signs only
- * for a name of exactly these shapes, and the server name is the audience of the signature: the key of an author is
- * kept per server, so a signature made for one server is of no use on another.
+ * for a name that its host dialect recognises, and the server name is the audience of the signature: the key of an
+ * author is kept per server, so a signature made for one server is of no use on another.
  *
- * <ul>
- * <li>Claude Code and Codex: {@code mcp__<server>__ledger_<op>}, or {@code mcp__<server>__<server>_ledger_<op>} when the
- *     tool reaches the host through a gateway that prefixes the tool names with the name of its upstream (the portal of
- *     the deployment names the upstream like the server, {@code mcp__ledger__ledger_ledger_save}). The prefix before
- *     {@code ledger_} must be exactly the server segment: a look-alike server that names its tool
- *     {@code other_ledger_save} is not signed for.
- * <li>Antigravity, direct: {@code mcp:<server><sep>ledger_<op>} or {@code mcp:<server><sep><server>_ledger_<op>} with a
- *     separator of {@code :}, {@code /} or {@code _}; a name without a server ({@code mcp:ledger_save}) names no
- *     audience and is not signed.
- * <li>Antigravity, {@code call_mcp_tool}: the {@code ServerName} of the envelope, and a {@code ToolName} of
- *     {@code ledger_<op>} or {@code <ServerName>_ledger_<op>}.
- * <li>Codex only, the Codex Apps namespace {@code mcp__codex_apps__app_<app>_ledger_<op>} (a real path: the tool of the
- *     app {@code <app>} reaches Codex as {@code app_<app>_ledger_<op>} in the pseudo server {@code codex_apps}, for
- *     example {@code mcp__codex_apps__app_ledger_ledger_save} for the app {@code ledger}). The audience here is the app,
- *     not the pseudo server that every app shares, so the server identity is {@code codex_apps.<app>} and the key is
- *     kept per (that identity, author): the owner registers the key printed by
- *     {@code session-key codex_apps.<app> <author>}. An app with another name gets another identity and another key,
- *     so a look-alike app never gets a signature that verifies for the real one.
- * </ul>
- * The operation is one of the ten known ones, exactly.
+ * <p>This is the value and the check of the server name only. How a host spells a tool name (which shapes, which
+ * separators, which pseudo servers) is the business of that host and lives in its dialect, so that a new host or a
+ * changed spelling is one class and no shared code changes (see {@link HostDialect}). The operation is one of the ten
+ * known ones, exactly ({@link WriteTool}).
  *
- * @param server the server name, 1 to 100 characters of {@code A-Za-z0-9._-} (for the {@code mcp__} names of Claude
- *               Code and Codex, whose server names are made of {@code A-Za-z0-9_-}, without the dot)
+ * @param server the server name, 1 to 100 characters of {@code A-Za-z0-9._-} (a dialect may allow fewer characters in its
+ *               own spelling)
  * @param tool   the write tool; the attestation is issued for its canonical name {@code ledger_<operation>}
  */
 record McpToolName(String server, WriteTool tool) {
 
-    private static final String OPERATIONS = WriteTool.alternation();
-    private static final String SERVER_CHARACTERS = "A-Za-z0-9._-";
-    private static final int MAX_SERVER_LENGTH = 100;
+    /** The characters of a server name, as the body of a regular expression character class. */
+    static final String SERVER_CHARACTERS = "A-Za-z0-9._-";
+    /** The longest server name. */
+    static final int MAX_SERVER_LENGTH = 100;
     /** A server name as the owner may give it to {@code session-key} and as the hook accepts it from a host. */
     private static final Pattern SERVER = Pattern.compile("[" + SERVER_CHARACTERS + "]{1," + MAX_SERVER_LENGTH + "}");
-    private static final Pattern DOUBLE_UNDERSCORE = Pattern.compile(
-            "^mcp__([A-Za-z0-9_-]{1," + MAX_SERVER_LENGTH + "}?)__(?:\\1_)?ledger_" + OPERATIONS + "$");
-    private static final String CODEX_APPS = "codex_apps";
-    private static final int MAX_APP_LENGTH = MAX_SERVER_LENGTH - CODEX_APPS.length() - 1;
-    private static final Pattern CODEX_APP = Pattern.compile(
-            "^mcp__" + CODEX_APPS + "__app_([A-Za-z0-9][A-Za-z0-9_-]{0," + (MAX_APP_LENGTH - 1) + "}?)_ledger_" + OPERATIONS + "$");
-    private static final Pattern ANTIGRAVITY_DIRECT = Pattern.compile(
-            "^mcp:([" + SERVER_CHARACTERS + "]{1," + MAX_SERVER_LENGTH + "}?)[:/_](?:\\1_)?ledger_" + OPERATIONS + "$");
 
     /** Whether the text is a server name: the same rule for a name from a host and one given to {@code session-key}. */
     static boolean isServerName(String text) {
         return text != null && SERVER.matcher(text).matches();
     }
 
-    /** Claude Code and Codex: {@code mcp__<server>__[<server>_]ledger_<op>}. */
-    static Optional<McpToolName> ofDoubleUnderscore(String hostToolName) {
-        return of(DOUBLE_UNDERSCORE.matcher(hostToolName));
-    }
-
-    /** Codex: the shapes of {@link #ofDoubleUnderscore}, or the Codex Apps namespace with the app as the audience. */
-    static Optional<McpToolName> ofCodex(String hostToolName) {
-        Optional<McpToolName> plain = ofDoubleUnderscore(hostToolName);
-        if (plain.isPresent()) {
-            return plain;
-        }
-        Matcher app = CODEX_APP.matcher(hostToolName);
-        if (!app.matches()) {
-            return Optional.empty();
-        }
-        return WriteTool.ofOperation(app.group(2)).map(op -> new McpToolName(CODEX_APPS + "." + app.group(1), op));
-    }
-
-    /** Antigravity, a direct MCP call: {@code mcp:<server><sep>[<server>_]ledger_<op>}. */
-    static Optional<McpToolName> ofAntigravityDirect(String hostToolName) {
-        return of(ANTIGRAVITY_DIRECT.matcher(hostToolName));
-    }
-
-    /** Antigravity, {@code call_mcp_tool}: the {@code ServerName} and the {@code ToolName} of the envelope. */
-    static Optional<McpToolName> ofEnvelope(String serverName, String toolName) {
-        if (!isServerName(serverName) || toolName == null) {
-            return Optional.empty();
-        }
-        Pattern tool = Pattern.compile("^(?:" + Pattern.quote(serverName) + "_)?ledger_" + OPERATIONS + "$");
-        Matcher matcher = tool.matcher(toolName);
-        return matcher.matches() ? WriteTool.ofOperation(matcher.group(1)).map(op -> new McpToolName(serverName, op))
-                : Optional.empty();
-    }
-
-    private static Optional<McpToolName> of(Matcher matcher) {
-        if (!matcher.matches()) {
-            return Optional.empty();
-        }
-        return WriteTool.ofOperation(matcher.group(2)).map(op -> new McpToolName(matcher.group(1), op));
+    /** The tool of the server for an operation name that a dialect read from a host name; empty unless it is one of the ten. */
+    static Optional<McpToolName> ofOperation(String server, String operation) {
+        return WriteTool.ofOperation(operation).map(tool -> new McpToolName(server, tool));
     }
 }

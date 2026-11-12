@@ -18,6 +18,9 @@ dependencies {
     // The shared architecture and source rules (ARC-033: no operating system detection) live in the domain test fixtures.
     // Test classpath only: the hook jar is built from the runtime classpath and stays free of the domain module.
     testImplementation(testFixtures(project(":ledger-domain")))
+    // The contract vectors (author format, tool names) that the server tests against as well: the hook and the server are
+    // two programs that each define those, so one set of files keeps them equal. Test classpath only.
+    testImplementation(testFixtures(project(":ledger-attestation")))
 }
 
 tasks.jar {

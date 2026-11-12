@@ -1,6 +1,7 @@
 package org.pgledger.hook;
 
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -37,7 +38,7 @@ public enum WriteTool {
     }
 
     /**
-     * Regex alternation of all operations as ONE capturing group, for the tool name patterns of {@link McpToolName}:
+     * Regex alternation of all operations as ONE capturing group, for the tool name patterns of the host dialects:
      * the operation is read from that group and checked again with {@link #ofOperation}.
      */
     static String alternation() {
@@ -46,6 +47,6 @@ public enum WriteTool {
 
     /** The write tool of the operation name (exactly one of the ten), if it is one. */
     static Optional<WriteTool> ofOperation(String found) {
-        return Arrays.stream(values()).filter(tool -> tool.operation.equals(found)).findFirst();
+        return Arrays.stream(values()).filter(tool -> Objects.equals(tool.operation, found)).findFirst();
     }
 }

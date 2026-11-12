@@ -6,7 +6,6 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.List;
-import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.pgledger.hook.keys.KeyInfo;
@@ -32,6 +31,12 @@ public final class HookCli {
     /** The first argument of the key command. */
     static final String SESSION_KEY_COMMAND = "session-key";
 
+    /**
+     * The hook logs with {@code java.util.logging}, the logger of the JDK, because the hook jar carries no Spring Boot, no
+     * SLF4J and no Logback (HK-018: the jar holds the JDK-only attestation classes and Jackson, nothing else). Every
+     * record is at FINE or SEVERE; the host contract allows no extra line on stderr, so nothing is printed for FINE.
+     * The other classes of the hook use the same logger.
+     */
     private static final Logger LOG = Logger.getLogger(HookCli.class.getName());
     private static final int EXIT_OK = 0;
     private static final int EXIT_BLOCK_OR_USAGE = 2;
@@ -70,11 +75,14 @@ public final class HookCli {
         if (args.length == 3 && SESSION_KEY_COMMAND.equals(args[0])) {
             return sessionKey(args[1], args[2]);
         }
-        Optional<Client> client = args.length == 1 ? Client.fromArgument(args[0]) : Optional.empty();
-        if (client.isEmpty()) {
-            return new Response.Failure(USAGE);
-        }
-        LedgerHook hook = new LedgerHook(client.get().dialect(codec), codec, clock, keys);
+        return Client.fromArgument(args.length == 1 ? args[0] : null)
+                .map(client -> handle(client, in))
+                .orElseGet(() -> new Response.Failure(USAGE));
+    }
+
+    /** The attestation of the host event on {@code in} for the client that the command line named. */
+    private Response handle(Client client, InputStream in) {
+        LedgerHook hook = new LedgerHook(client.dialect(codec), client.vendor(), codec, clock, keys);
         try {
             return hook.handle(in.readAllBytes());
         } catch (IOException e) {
@@ -83,15 +91,17 @@ public final class HookCli {
     }
 
     /** The public half of the key of the author for the server: four lines, nothing of the private key. */
-    private Response sessionKey(String server, String author) {
+    private Response sessionKey(String server, String authorText) {
         if (!McpToolName.isServerName(server)) {
             return new Response.Failure(SERVER_INVALID);
         }
-        if (!AuthorName.isValid(author)) {
-            return new Response.Failure(AUTHOR_INVALID);
-        }
+        return Author.parse(authorText).map(author -> publicKeyOf(server, author))
+                .orElseGet(() -> new Response.Failure(AUTHOR_INVALID));
+    }
+
+    private Response publicKeyOf(String server, Author author) {
         try {
-            KeyInfo info = keys.load(server, author).info();
+            KeyInfo info = keys.load(server, author.value()).info();
             return new Response.Lines(List.of("server: " + info.server(), "author: " + info.author(),
                     "public-key: " + info.publicKey(), "fingerprint: " + info.fingerprint()));
         } catch (SessionKeyException unusable) {

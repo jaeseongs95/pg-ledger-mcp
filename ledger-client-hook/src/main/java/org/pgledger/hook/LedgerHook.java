@@ -2,7 +2,6 @@ package org.pgledger.hook;
 
 import java.time.Clock;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -30,8 +29,9 @@ import tools.jackson.databind.node.ObjectNode;
  * <p>The key pair of an author for a server is created in the key folder by the first call of that author for that
  * server.
  */
-record LedgerHook(HostDialect dialect, JsonCodec codec, Clock clock, SessionKeyStore keys) {
+record LedgerHook(HostDialect dialect, Vendor vendor, JsonCodec codec, Clock clock, SessionKeyStore keys) {
 
+    // java.util.logging, like the rest of the hook: see HookCli for why.
     private static final Logger LOG = Logger.getLogger(LedgerHook.class.getName());
     private static final String RESERVED_KEY = Intake.RESERVED_KEY;
     private static final String REQUEST_ID_KEY = "request_id";
@@ -67,8 +67,7 @@ record LedgerHook(HostDialect dialect, JsonCodec codec, Clock clock, SessionKeyS
         if (arguments.has(RESERVED_KEY)) {
             return new Verdict.Denied(Refusal.RESERVED_FIELD);
         }
-        Optional<HostId> id = HostId.of(call.hostId());
-        if (id.isEmpty()) {
+        if (!(call.host() instanceof HostId id)) {
             return new Verdict.Denied(Refusal.HOST_ID_INVALID);
         }
         String requestId;
@@ -99,7 +98,7 @@ record LedgerHook(HostDialect dialect, JsonCodec codec, Clock clock, SessionKeyS
             LOG.log(Level.FINE, "the tool arguments cannot be put into the canonical form", notSignable);
             return new Verdict.Denied(Refusal.ARGUMENTS_NOT_SIGNABLE);
         }
-        String author = dialect.vendor().attest(id.get());
+        String author = Author.of(vendor, id).value();
         SessionKey key;
         try {
             key = keys.load(call.server(), author);

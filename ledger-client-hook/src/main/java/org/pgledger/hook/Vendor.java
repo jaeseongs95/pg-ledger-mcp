@@ -1,6 +1,6 @@
 package org.pgledger.hook;
 
-/** The vendor part of the author that the attestation is signed for: {@code <vendor>:<host id>}. */
+/** The vendor part of the author that the attestation is signed for: {@code <vendor>:<host id>} (see {@link Author}). */
 public enum Vendor {
     CLAUDE("claude"),
     CODEX("codex"),
@@ -12,8 +12,8 @@ public enum Vendor {
         this.prefix = prefix;
     }
 
-    /** The author {@code <vendor>:<host id>} for a validated host id. */
-    String attest(HostId id) {
-        return prefix + ":" + id.value();
+    /** The text before the colon of the author. */
+    String prefix() {
+        return prefix;
     }
 }
