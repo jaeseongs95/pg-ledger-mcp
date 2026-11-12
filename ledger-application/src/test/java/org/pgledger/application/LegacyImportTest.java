@@ -943,6 +943,21 @@ class LegacyImportTest {
     }
 
     @Test
+    @DisplayName("SVC-PRN-05 a legacy task whose id has a number of 20 digits has no number: the import and the verification are not stopped by a NumberFormatException, the counter ignores it and still continues after the 4 digit id")
+    void prn05_taskIdWithAHugeNumber() {
+        LegacyLedger legacy = LegacyFixtures.rich();
+        String huge = "E2E-T-" + "9".repeat(20);
+        legacy.update("UPDATE " + legacy.schema() + ".task SET id = ? WHERE id = 'E2E-T-1'", huge);
+        withRig(legacy, rig -> {
+            rig.importAll();
+
+            assertThat(rig.count("SELECT COUNT(*) FROM task WHERE id = ?", huge)).isEqualTo(1);
+            assertThat(rig.count("SELECT next_task_no FROM project WHERE id = 'e2e'")).isEqualTo(3);
+            rig.service().verify();
+        });
+    }
+
+    @Test
     @DisplayName("MIG-032 a text longer than its column in the new schema is reported (never cut): table, key, column and the limit")
     void mig032_tooLong() {
         LegacyLedger legacy = LegacyFixtures.rich();

@@ -3,6 +3,7 @@ package org.pgledger.application.read;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import org.pgledger.database.repository.CommonCodeRepository;
@@ -49,7 +50,7 @@ public class CatalogService {
     public Page<ProjectView> projects(ProjectsQuery q) {
         MaxRows maxRows = cursors.maxRows(q.maxRows());
         Object criteria = "projects";
-        Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.PROJECTS, criteria);
+        Optional<Cursors.Position> position = cursors.decode(q.cursor(), PageCursor.Kind.PROJECTS, criteria);
         List<Project> all = projects.findAllByOrderByCode();
         return slice(all, maxRows, position, PageCursor.Kind.PROJECTS, criteria, p -> p.code().value(),
                 p -> new ProjectView(p.id().value(), p.code().value(), p.title()));
@@ -61,7 +62,7 @@ public class CatalogService {
         boolean inactive = q.includeInactive() != null && q.includeInactive();
         MaxRows maxRows = cursors.maxRows(q.maxRows());
         Object criteria = List.of(String.valueOf(group), inactive);
-        Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.CODES, criteria);
+        Optional<Cursors.Position> position = cursors.decode(q.cursor(), PageCursor.Kind.CODES, criteria);
         List<CommonCode> all = new ArrayList<>();
         for (CodeGroup g : CodeGroup.values()) {
             if (group == null || group == g) {
@@ -76,15 +77,16 @@ public class CatalogService {
     }
 
     /** The items after the position (by key, in list order), at most max rows, with the cursor when more follow. */
-    private <T, R> Page<R> slice(List<T> ordered, MaxRows maxRows, Cursors.Position position, PageCursor.Kind kind,
-            Object criteria, Function<T, String> key, Function<T, R> view) {
-        int start = 0;
-        if (position != null) {
-            while (start < ordered.size() && !Objects.equals(key.apply(ordered.get(start)), position.id())) {
-                start++;
+    private <T, R> Page<R> slice(List<T> ordered, MaxRows maxRows, Optional<Cursors.Position> position,
+            PageCursor.Kind kind, Object criteria, Function<T, String> key, Function<T, R> view) {
+        // the index after the row the cursor names (the end of the list when it names none), or the first row
+        int start = position.map(after -> {
+            int at = 0;
+            while (at < ordered.size() && !Objects.equals(key.apply(ordered.get(at)), after.id())) {
+                at++;
             }
-            start = Math.min(start + 1, ordered.size());
-        }
+            return Math.min(at + 1, ordered.size());
+        }).orElse(0);
         int end = Math.min(start + maxRows.value(), ordered.size());
         List<R> items = ordered.subList(start, end).stream().map(view).toList();
         boolean more = end < ordered.size();

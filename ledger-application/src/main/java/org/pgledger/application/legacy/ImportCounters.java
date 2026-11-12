@@ -3,10 +3,12 @@ package org.pgledger.application.legacy;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.pgledger.database.repository.Counter;
+import org.pgledger.database.repository.LegacyRow;
+import org.pgledger.database.repository.LegacyTable;
 import org.pgledger.domain.value.DefectId;
 
 /**
@@ -17,28 +19,49 @@ import org.pgledger.domain.value.DefectId;
  */
 final class ImportCounters {
 
+    /**
+     * The most digits of the number of a task id that counts: 18 digits always fit a {@code long}, as for the ids the
+     * server issues. A task id with a longer number is a free id like any other and counts for nothing.
+     */
+    private static final int MAX_DIGITS = 18;
+
     private final Map<String, String> codeByProject = new HashMap<>();
     private final Map<String, Pattern> taskIdByProject = new HashMap<>();
     private final Map<String, Long> defectNumbers = new HashMap<>();
     private final Map<String, Long> taskNumbers = new HashMap<>();
     private final Map<Counter, Long> surrogate = new EnumMap<>(Counter.class);
 
-    void project(String projectId, String code) {
+    /** Takes in one legacy row: the tables whose rows fix a counter say what they used, the others change nothing. */
+    void collect(LegacyTable table, LegacyRow row) {
+        switch (table) {
+            case PROJECT -> project(row.text("id"), row.text("code"));
+            case TASK -> task(row.text("project_id"), row.text("id"));
+            case DEFECT -> defect(row.text("project_id"), row.text("id"));
+            case DEFECT_FIX -> surrogate(Counter.DEFECT_FIX, row.number("id"));
+            case DEFECT_CASE -> surrogate(Counter.DEFECT_CASE, row.number("id"));
+            case SESSION_GRANT -> surrogate(Counter.SESSION_GRANT, row.number("id"));
+            case HISTORY -> surrogate(Counter.HISTORY, row.number("id"));
+            case COMMON_CODE, DEFECT_TASK, DEFECT_RELATION, RELEASE_CONDITION, CONDITION_LINK, REQUEST_RECEIPT -> {
+                // no counter depends on these tables
+            }
+        }
+    }
+
+    private void project(String projectId, String code) {
         if (projectId != null && code != null) {
             codeByProject.put(projectId, code);
-            taskIdByProject.put(projectId, Pattern.compile(Pattern.quote(code) + "-T-([0-9]{4,})"));
+            taskIdByProject.put(projectId,
+                    Pattern.compile(Pattern.quote(code) + "-T-([0-9]{4," + MAX_DIGITS + "})"));
         }
     }
 
-    void defect(String projectId, String defectId) {
+    private void defect(String projectId, String defectId) {
         String code = codeByProject.get(projectId);
-        Optional<DefectId> id = DefectId.parse(defectId);
-        if (code != null && id.isPresent() && code.equals(id.get().projectCode().value())) {
-            defectNumbers.merge(projectId, id.get().number(), Math::max);
-        }
+        DefectId.parse(defectId).filter(id -> Objects.equals(code, id.projectCode().value()))
+                .ifPresent(id -> defectNumbers.merge(projectId, id.number(), Math::max));
     }
 
-    void task(String projectId, String taskId) {
+    private void task(String projectId, String taskId) {
         Pattern pattern = taskIdByProject.get(projectId);
         if (pattern != null && taskId != null) {
             Matcher matcher = pattern.matcher(taskId);
@@ -48,7 +71,7 @@ final class ImportCounters {
         }
     }
 
-    void surrogate(Counter counter, Long id) {
+    private void surrogate(Counter counter, Long id) {
         if (id != null) {
             surrogate.merge(counter, id, Math::max);
         }

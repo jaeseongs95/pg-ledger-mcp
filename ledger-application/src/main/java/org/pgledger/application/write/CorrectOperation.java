@@ -4,6 +4,7 @@ import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Resolution;
 import org.pgledger.application.gate.WriteGate;
 import org.pgledger.application.history.ChangeSet;
+import org.pgledger.application.history.HistoryKey;
 import org.pgledger.application.history.HistoryWriter;
 import org.pgledger.application.receipt.ReceiptService;
 import org.pgledger.application.write.WriteResult.CorrectResult;
@@ -12,9 +13,7 @@ import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.HistoryEntry;
 import org.pgledger.domain.model.ReceiptOperation;
-import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
-import org.pgledger.domain.rule.LifecycleState;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.value.CanonicalPayload;
 import org.pgledger.domain.value.ConditionId;
@@ -42,13 +41,6 @@ public class CorrectOperation extends WriteOperation<CorrectCommand, CorrectResu
         this.history = history;
     }
 
-    private static long historyId(CorrectCommand c) {
-        if (c.historyId() == null) {
-            throw ValidationException.invalid("history_id", ValidationReason.REQUIRED);
-        }
-        return c.historyId();
-    }
-
     @Override
     protected Lookup resolve(CorrectCommand c) {
         return Lookup.verifiable(() -> {
@@ -62,46 +54,20 @@ public class CorrectOperation extends WriteOperation<CorrectCommand, CorrectResu
 
     /** The project of the corrected entity and the scope that writes it (verify for a verification). */
     private Resolution target(HistoryEntry row) {
-        Scope scope = verification(row) ? Scope.VERIFY : switch (row.entity()) {
-            case TASK, CONDITION, CONDITION_LINK -> Scope.TASK;
-            case DEFECT_FIX -> Scope.FIX;
-            case DEFECT, DEFECT_TASK, DEFECT_RELATION, DEFECT_CASE -> Scope.DEFECT;
-        };
+        // a verification (a transition into or out of VERIFIED, MET or NOT_MET) needs the verify scope on top
+        Scope scope = row.involvesVerification() ? Scope.VERIFY : row.entity().writeScope();
+        String ownerId = new HistoryKey(row.entity(), row.entityId()).ownerId();
         return switch (row.entity()) {
-            case TASK -> rows.taskTarget(TaskId.of(row.entityId()), scope);
-            case CONDITION -> rows.conditionTarget(ConditionId.of(row.entityId()), scope);
-            case CONDITION_LINK -> rows.conditionTarget(ConditionId.of(before(row.entityId(), '|')), scope);
-            case DEFECT -> rows.defectTarget(DefectId.of(row.entityId()), scope);
-            case DEFECT_FIX -> rows.defectTarget(DefectId.of(before(row.entityId(), '@')), scope);
-            case DEFECT_TASK, DEFECT_RELATION, DEFECT_CASE ->
-                rows.defectTarget(DefectId.of(before(row.entityId(), '|')), scope);
+            case TASK -> rows.taskTarget(TaskId.of(ownerId), scope);
+            case CONDITION, CONDITION_LINK -> rows.conditionTarget(ConditionId.of(ownerId), scope);
+            case DEFECT, DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, DEFECT_CASE ->
+                rows.defectTarget(DefectId.of(ownerId), scope);
         };
-    }
-
-    /**
-     * Whether the corrected row is a verification: a transition into or out of VERIFIED, MET or NOT_MET. A history
-     * row keeps its states as text (an imported row may hold one that is none of ours, which is no verification);
-     * they become the state constants of the entity here, at the boundary, and are compared as constants.
-     */
-    private static boolean verification(HistoryEntry row) {
-        if (row.op() != HistoryOp.TRANSITION) {
-            return false;
-        }
-        return isVerification(row.entity(), row.toState()) || isVerification(row.entity(), row.fromState());
-    }
-
-    private static boolean isVerification(HistoryEntity entity, String stored) {
-        return LifecycleState.of(entity, stored).filter(LifecycleState::verification).isPresent();
-    }
-
-    private static String before(String id, char separator) {
-        int at = id.indexOf(separator);
-        return at < 0 ? id : id.substring(0, at);
     }
 
     @Override
     protected Prepared<CorrectResult> prepare(CorrectCommand c) {
-        long id = historyId(c);
+        long id = c.requireHistoryId();
         CanonicalPayload.Fields payload = CanonicalPayload.Fields.empty().text("history_id", Long.toString(id));
         return new Prepared<>(payload, ctx -> {
             HistoryEntry row = historyRows.findById(id)

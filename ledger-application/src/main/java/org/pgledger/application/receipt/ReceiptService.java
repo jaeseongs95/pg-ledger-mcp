@@ -9,6 +9,8 @@ import org.pgledger.database.repository.ReceiptCompletionRepository;
 import org.pgledger.database.repository.ReceiptRepository;
 import org.pgledger.domain.error.ConflictCode;
 import org.pgledger.domain.error.ConflictException;
+import org.pgledger.domain.error.InfrastructureCode;
+import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.domain.model.Receipt;
 import org.pgledger.domain.model.ReceiptOperation;
 import org.pgledger.domain.rule.Channel;
@@ -74,8 +76,8 @@ public class ReceiptService {
     /** The response stored for a request id that was reserved before; it must be the same request. */
     private <R> R storedResponse(RequestId id, ReceiptOperation operation, Sha256 digest, AuthorId author,
             Channel channel, Class<R> responseType) {
-        Receipt stored = receipts.findById(id).orElseThrow(
-                () -> new IllegalStateException("receipt vanished after a duplicate key: " + id));
+        Receipt stored = receipts.findById(id).orElseThrow(() -> new InfrastructureException(
+                InfrastructureCode.INTEGRITY_VIOLATION, List.of("receipt vanished after a duplicate key: " + id)));
         if (stored.origin() == ReceiptOrigin.LEGACY) {
             throw new ConflictException(ConflictCode.REQUEST_ID_LEGACY, List.of(id.toString()));
         }
@@ -86,7 +88,8 @@ public class ReceiptService {
             throw new ConflictException(ConflictCode.REQUEST_CONFLICT, List.of(id.toString()));
         }
         if (stored.response() == null) {
-            throw new IllegalStateException("committed receipt without a response: " + id);
+            throw new InfrastructureException(InfrastructureCode.INTEGRITY_VIOLATION,
+                    List.of("committed receipt without a response: " + id));
         }
         return json.read(stored.response(), responseType);
     }
@@ -94,7 +97,8 @@ public class ReceiptService {
     /** Stores the response of the first call, once, before the transaction commits. */
     public void finish(RequestId id, Object response) {
         if (!completion.finish(id, json.write(response))) {
-            throw new IllegalStateException("receipt missing or already finished: " + id);
+            throw new InfrastructureException(InfrastructureCode.INTEGRITY_VIOLATION,
+                    List.of("receipt missing or already finished: " + id));
         }
     }
 }

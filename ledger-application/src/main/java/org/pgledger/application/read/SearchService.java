@@ -60,6 +60,13 @@ public class SearchService {
                     @Size(max = MAX_KEYWORD, message = KEYWORD_LENGTH) String> keywords,
             String match, List<String> excludeStatus, String createdFrom, String createdTo, Number maxRows,
             String cursor) {
+
+        /** A blank criterion is a criterion that is not given. */
+        public SearchQuery {
+            project = Texts.nullIfBlank(project);
+            createdFrom = Texts.nullIfBlank(createdFrom);
+            createdTo = Texts.nullIfBlank(createdTo);
+        }
     }
 
     /** One found item; {@code createdAt} is null for a condition. */
@@ -116,30 +123,32 @@ public class SearchService {
         if (q.excludeStatus() != null) {
             q.excludeStatus().forEach(raw -> excluded.add(status(raw).name()));
         }
-        ProjectId project = q.project() == null || q.project().isBlank() ? null : ProjectId.of(q.project());
+        ProjectId project = q.project() == null ? null : ProjectId.of(q.project());
         SearchQueryRepository.Filter filter = new SearchQueryRepository.Filter(project, kinds, keywords, match,
                 excluded, time("created_from", q.createdFrom()), time("created_to", q.createdTo()));
         MaxRows maxRows = cursors.maxRows(q.maxRows());
         Object criteria = List.of(String.valueOf(project), kinds.stream().sorted().toList(), keywords, match,
                 excluded.stream().sorted().toList(), String.valueOf(filter.createdFrom()),
                 String.valueOf(filter.createdTo()));
-        Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.SEARCH, criteria);
-        SearchQueryRepository.Position after = null;
-        if (position != null) {
-            int colon = position.id().indexOf(':');
-            if (colon < 0) {
-                throw ValidationException.invalid("cursor", ValidationReason.CURSOR_DAMAGED);
-            }
-            after = new SearchQueryRepository.Position(position.sortKey() == null ? Instant.EPOCH
-                    : UtcInstant.parse("cursor", position.sortKey()).value(), Tokens.parseName("cursor",
-                    position.id().substring(0, colon), Kind.values()), position.id().substring(colon + 1));
-        }
+        SearchQueryRepository.Position after = cursors.decode(q.cursor(), PageCursor.Kind.SEARCH, criteria)
+                .map(SearchService::position).orElse(null);
         var page = search.page(filter, maxRows, after);
         return cursors.page(page, PageCursor.Kind.SEARCH, criteria,
                 h -> new Hit(KindToken.of(h.kind()).token(), h.id(), h.projectId(), h.title(), h.state(),
                         h.createdAt()),
                 h -> h.createdAt() == null ? null : new UtcInstant(h.createdAt()).toString(),
                 h -> h.kind().name() + ":" + h.id());
+    }
+
+    /** The position a cursor holds: the creation time of the last hit, its kind and its id ({@code KIND:id}). */
+    private static SearchQueryRepository.Position position(Cursors.Position position) {
+        int colon = position.id().indexOf(':');
+        if (colon < 0) {
+            throw ValidationException.invalid("cursor", ValidationReason.CURSOR_DAMAGED);
+        }
+        return new SearchQueryRepository.Position(position.sortKey() == null ? Instant.EPOCH
+                : UtcInstant.parse("cursor", position.sortKey()).value(), Tokens.parseName("cursor",
+                position.id().substring(0, colon), Kind.values()), position.id().substring(colon + 1));
     }
 
     /** The state constant of a name in the exclusion list; the name is that of a state of any of the three kinds. */
@@ -150,6 +159,6 @@ public class SearchService {
     }
 
     private static Instant time(String path, String raw) {
-        return raw == null || raw.isBlank() ? null : UtcInstant.parse(path, raw).value();
+        return raw == null ? null : UtcInstant.parse(path, raw).value();
     }
 }

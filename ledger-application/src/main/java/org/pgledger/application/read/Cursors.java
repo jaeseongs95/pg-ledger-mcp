@@ -1,7 +1,9 @@
 package org.pgledger.application.read;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import org.pgledger.database.repository.KeysetPage;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
@@ -18,8 +20,25 @@ import org.springframework.stereotype.Component;
 @Component
 public class Cursors {
 
+    /** The digits of a number id: at most 18, so that every one fits a {@code long}. */
+    private static final Pattern NUMBER = Pattern.compile("[0-9]{1,18}");
+
     /** A position read from a cursor. */
     public record Position(String sortKey, String id) {
+
+        /**
+         * The id as a number (the position in a list that is ordered by a number id, such as the history). A cursor is
+         * checked for damage but not signed, so its id is whatever the caller made it: anything that is not a number
+         * of at most 18 digits is a damaged cursor, never a {@code NumberFormatException}.
+         *
+         * @throws ValidationException VALIDATION_FAILED on {@code cursor} (CURSOR_DAMAGED)
+         */
+        public long number() {
+            if (!NUMBER.matcher(id).matches()) {
+                throw ValidationException.invalid("cursor", ValidationReason.CURSOR_DAMAGED);
+            }
+            return Long.parseLong(id);
+        }
     }
 
     /** The row limit of a call; absent means the default of 50. */
@@ -31,10 +50,10 @@ public class Cursors {
         return new PageCursor(kind, digest(filter) + ":" + (sortKey == null ? "" : sortKey), id).encode();
     }
 
-    /** The position of {@code cursor}, or null for the first page. */
-    public Position decode(String cursor, PageCursor.Kind kind, Object filter) {
+    /** The position of {@code cursor}, or none for the first page (no cursor). */
+    public Optional<Position> decode(String cursor, PageCursor.Kind kind, Object filter) {
         if (cursor == null || cursor.isBlank()) {
-            return null;
+            return Optional.empty();
         }
         PageCursor decoded = PageCursor.decode(cursor, kind);
         String expected = digest(filter) + ":";
@@ -43,7 +62,7 @@ public class Cursors {
             throw ValidationException.invalid("cursor", ValidationReason.CURSOR_OTHER_FILTERS);
         }
         String rest = sortKey.substring(expected.length());
-        return new Position(rest.isEmpty() ? null : rest, decoded.id());
+        return Optional.of(new Position(rest.isEmpty() ? null : rest, decoded.id()));
     }
 
     /** Builds the page from a keyset page: the next cursor is made from the last row when more rows follow. */

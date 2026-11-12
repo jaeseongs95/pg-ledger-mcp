@@ -96,55 +96,68 @@ public class SessionKeyService {
     }
 
     private Registered bind(RegisterCommand command, OwnerIdentity actor, String replacedFingerprint) {
-        AuthorId author = author(command.author());
+        AuthorId author = Authors.of(command.author());
         if (AuthorId.OWNER.equals(author)) {
             // the owner role is not a session: nothing signs as user:owner, and a key under that name would be a key
             // that the grants and the audit of the owner could be mistaken for
             throw ValidationException.invalid("author", ValidationReason.MUST_BE_A_SESSION_AUTHOR);
         }
         PublicKey key = key(command.publicKey());
-        String text = PublicKeys.encode(key);
         String fingerprint = PublicKeys.fingerprint(key);
-        Optional<SessionPublicKey> holder = state.findLiveByFingerprint(fingerprint);
-        if (holder.isPresent()) {
-            if (holder.get().authorId().equals(author)) {
-                return registered(holder.get());
-            }
-            throw new ConflictException(ConflictCode.DUPLICATE_KEY, List.of("public key " + fingerprint));
+        return state.findLiveByFingerprint(fingerprint)
+                .map(holder -> sameAuthor(holder, author, fingerprint))
+                .orElseGet(() -> bindNew(command, actor, author, PublicKeys.encode(key), fingerprint,
+                        replacedFingerprint));
+    }
+
+    /** The key is live already: for this author it is the answer of a repeated registration, for another one it is refused. */
+    private static Registered sameAuthor(SessionPublicKey holder, AuthorId author, String fingerprint) {
+        if (holder.authorId().equals(author)) {
+            return registered(holder);
         }
+        throw new ConflictException(ConflictCode.DUPLICATE_KEY, List.of("public key " + fingerprint));
+    }
+
+    /** The key is live for nobody: it becomes the key of the author, closing the one the author has when that is confirmed. */
+    private Registered bindNew(RegisterCommand command, OwnerIdentity actor, AuthorId author, String text,
+            String fingerprint, String replacedFingerprint) {
         Instant now = clock.instant();
         Optional<SessionPublicKey> current = state.findLive(author);
-        if (current.isPresent()) {
-            SessionPublicKey open = current.get();
-            if (Objects.equals(open.fingerprint(), fingerprint)) {
-                // another registration of this very key for this author became live after the lookup by fingerprint
-                // above found nothing: the same answer as for any repeated registration (no row, no audit, nothing closed)
-                return registered(open);
-            }
-            if (!Objects.equals(open.fingerprint(), replacedFingerprint)) {
-                throw new ConflictException(ConflictCode.KEY_REPLACEMENT_NOT_CONFIRMED,
-                        List.of(author.value(), open.fingerprint(), open.registeredAt().toString()));
-            }
-            state.close(open.id(), now);
+        // another registration of this very key for this author became live after the lookup by fingerprint found
+        // nothing: the same answer as for any repeated registration (no row, no audit, nothing closed)
+        return current.filter(open -> Objects.equals(open.fingerprint(), fingerprint))
+                .map(SessionKeyService::registered)
+                .orElseGet(() -> {
+                    current.ifPresent(open -> replace(open, author, replacedFingerprint, now));
+                    long id = ids.next(Counter.SESSION_KEY);
+                    SessionPublicKey row = keys.insert(SessionPublicKey.register(id, author, text, fingerprint,
+                            AuthorId.OWNER, now, command.note()));
+                    audit.record(actor, current.isPresent() ? OwnerAction.KEY_REPLACED : OwnerAction.KEY_REGISTERED,
+                            author.value(), "key=" + fingerprint
+                                    + current.map(open -> " replaced=" + open.fingerprint()).orElse(""));
+                    return registered(row);
+                });
+    }
+
+    /** Closes the key that the author has, when the owner confirmed that very key; otherwise it is refused. */
+    private void replace(SessionPublicKey open, AuthorId author, String replacedFingerprint, Instant now) {
+        if (!Objects.equals(open.fingerprint(), replacedFingerprint)) {
+            throw new ConflictException(ConflictCode.KEY_REPLACEMENT_NOT_CONFIRMED,
+                    List.of(author.value(), open.fingerprint(), open.registeredAt().toString()));
         }
-        long id = ids.next(Counter.SESSION_KEY);
-        SessionPublicKey row = keys.insert(SessionPublicKey.register(id, author, text, fingerprint, AuthorId.OWNER,
-                now, command.note()));
-        audit.record(actor, current.isPresent() ? OwnerAction.KEY_REPLACED : OwnerAction.KEY_REGISTERED,
-                author.value(), "key=" + fingerprint
-                        + current.map(open -> " replaced=" + open.fingerprint()).orElse(""));
-        return registered(row);
+        state.close(open.id(), now);
     }
 
     /** Closes the live key of the author and records who did it; true when there was one. */
     public boolean revoke(String author, OwnerIdentity actor) {
-        AuthorId id = author(author);
-        Optional<SessionPublicKey> open = state.findLive(id);
-        boolean closed = open.map(row -> state.close(row.id(), clock.instant())).orElse(false);
-        if (closed) {
-            audit.record(actor, OwnerAction.KEY_REVOKED, id.value(), "key=" + open.get().fingerprint());
-        }
-        return closed;
+        AuthorId id = Authors.of(author);
+        return state.findLive(id).map(row -> {
+            boolean closed = state.close(row.id(), clock.instant());
+            if (closed) {
+                audit.record(actor, OwnerAction.KEY_REVOKED, id.value(), "key=" + row.fingerprint());
+            }
+            return closed;
+        }).orElse(false);
     }
 
     /**
@@ -162,7 +175,7 @@ public class SessionKeyService {
         if (fingerprint == null || fingerprint.isBlank()) {
             throw ValidationException.invalid("fingerprint", ValidationReason.REQUIRED);
         }
-        AuthorId id = author(author);
+        AuthorId id = Authors.of(author);
         SessionPublicKey open = state.findLive(id)
                 .orElseThrow(() -> new LookupException(LookupCode.NOT_FOUND, List.of("session key", id.value())));
         if (!Objects.equals(open.fingerprint(), fingerprint.strip().toLowerCase(Locale.ROOT))) {
@@ -194,7 +207,7 @@ public class SessionKeyService {
      */
     @Transactional(readOnly = true)
     public PresentedKey present(String author, String text) {
-        AuthorId id = author(author);
+        AuthorId id = Authors.of(author);
         if (text == null) {
             throw ValidationException.invalid("public_key", ValidationReason.REQUIRED);
         }
@@ -209,7 +222,9 @@ public class SessionKeyService {
             ValidationReason reason = switch (failure.reason()) {
                 case KEY_BLOCK_FINGERPRINT -> ValidationReason.KEY_BLOCK_FINGERPRINT_DIFFERS;
                 case KEY_INVALID -> ValidationReason.MUST_BE_ED25519_PUBLIC_KEY;
-                default -> ValidationReason.MUST_BE_SESSION_KEY_BLOCK;
+                // a block that is not one: every other reason of the parser (no token or signature is read here)
+                case MALFORMED, VERSION_UNSUPPORTED, SIGNATURE_INVALID, KEY_BLOCK_INVALID ->
+                    ValidationReason.MUST_BE_SESSION_KEY_BLOCK;
             };
             throw ValidationException.invalid("public_key", reason, failure);
         }
@@ -228,7 +243,7 @@ public class SessionKeyService {
     /** The live key of the author now. */
     @Transactional(readOnly = true)
     public Optional<SessionPublicKey> live(String author) {
-        return state.findLive(author(author));
+        return state.findLive(Authors.of(author));
     }
 
     /** Every live key of every author, by author (the keys screen). */
@@ -240,7 +255,7 @@ public class SessionKeyService {
     /** Every key row of the author, the live one and the closed ones, oldest first. */
     @Transactional(readOnly = true)
     public List<SessionPublicKey> history(String author) {
-        return state.findHistory(author(author));
+        return state.findHistory(Authors.of(author));
     }
 
     private static Registered registered(SessionPublicKey row) {
@@ -253,12 +268,5 @@ public class SessionKeyService {
         } catch (AttestationException failure) {
             throw ValidationException.invalid("public_key", ValidationReason.MUST_BE_ED25519_PUBLIC_KEY, failure);
         }
-    }
-
-    private static AuthorId author(String raw) {
-        if (raw == null) {
-            throw ValidationException.invalid("author", ValidationReason.REQUIRED);
-        }
-        return AuthorId.of(raw);
     }
 }

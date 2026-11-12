@@ -17,6 +17,12 @@ public class AttentionService {
 
     /** Optional filters. */
     public record AttentionQuery(String project, String kind, Number maxRows, String cursor) {
+
+        /** A blank filter is a filter that is not given. */
+        public AttentionQuery {
+            project = Texts.nullIfBlank(project);
+            kind = Texts.nullIfBlank(kind);
+        }
     }
 
     /** One item; {@code entity} is defect or task. */
@@ -32,24 +38,18 @@ public class AttentionService {
     }
 
     public Page<Item> attention(AttentionQuery q) {
-        ProjectId project = q.project() == null || q.project().isBlank() ? null : ProjectId.of(q.project());
-        AttentionKind kind = q.kind() == null || q.kind().isBlank() ? null
-                : Tokens.parseName("kind", q.kind(), AttentionKind.values());
+        ProjectId project = q.project() == null ? null : ProjectId.of(q.project());
+        AttentionKind kind = q.kind() == null ? null : Tokens.parseName("kind", q.kind(), AttentionKind.values());
         MaxRows maxRows = cursors.maxRows(q.maxRows());
         Object criteria = List.of(String.valueOf(project), String.valueOf(kind));
-        Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.ATTENTION, criteria);
-        AttentionQueryRepository.Position after = position == null ? null : new AttentionQueryRepository.Position(
-                Tokens.parseName("cursor", position.sortKey(), AttentionKind.values()), position.id());
+        AttentionQueryRepository.Position after = cursors.decode(q.cursor(), PageCursor.Kind.ATTENTION, criteria)
+                .map(position -> new AttentionQueryRepository.Position(
+                        Tokens.parseName("cursor", position.sortKey(), AttentionKind.values()), position.id()))
+                .orElse(null);
         var page = attention.page(project, kind, maxRows, after);
+        // the kind of item says which kind of row it is about; its token is the name of that kind in the responses
         return cursors.page(page, PageCursor.Kind.ATTENTION, criteria,
-                i -> new Item(i.kind().name(), entity(i.kind()), i.id(), i.projectId()),
+                i -> new Item(i.kind().name(), i.kind().entity().token(), i.id(), i.projectId()),
                 i -> i.kind().name(), AttentionQueryRepository.Item::id);
-    }
-
-    private static String entity(AttentionKind kind) {
-        return switch (kind) {
-            case OPEN_WITH_FIX, FIXED_WITHOUT_COMMIT, OPEN_NO_OWNER -> "defect";
-            case TASK_UNKNOWN, DONE_NOT_VERIFIED -> "task";
-        };
     }
 }

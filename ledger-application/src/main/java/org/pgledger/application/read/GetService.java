@@ -10,6 +10,7 @@ import org.pgledger.database.repository.EntityLookupRepository;
 import org.pgledger.database.repository.EntityLookupRepository.Found;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
+import org.pgledger.domain.rule.HistoryEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,9 +56,9 @@ public class GetService {
         List<String> missing = new ArrayList<>();
         for (String id : distinct) {
             int before = items.size();
-            add(items, "defect", defects.get(id));
-            add(items, "task", tasks.get(id));
-            add(items, "condition", conditions.get(id));
+            add(items, HistoryEntity.DEFECT, defects.get(id));
+            add(items, HistoryEntity.TASK, tasks.get(id));
+            add(items, HistoryEntity.CONDITION, conditions.get(id));
             if (items.size() == before) {
                 missing.add(id);
             }
@@ -69,9 +70,9 @@ public class GetService {
         return found.stream().collect(Collectors.toMap(Found::id, Function.identity()));
     }
 
-    private static void add(List<Item> items, String entity, Found found) {
+    private static void add(List<Item> items, HistoryEntity entity, Found found) {
         if (found != null) {
-            items.add(new Item(entity, found.id(), found.state(), found.version(), found.projectId(),
+            items.add(new Item(entity.token(), found.id(), found.state(), found.version(), found.projectId(),
                     found.mergedInto()));
         }
     }

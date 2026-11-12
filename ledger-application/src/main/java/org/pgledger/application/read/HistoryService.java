@@ -5,8 +5,6 @@ import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.pgledger.database.repository.HistoryQueryRepository;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.domain.model.HistoryEntry;
@@ -16,7 +14,6 @@ import org.pgledger.domain.value.JsonDocument;
 import org.pgledger.domain.value.MaxRows;
 import org.pgledger.domain.value.PageCursor;
 import org.pgledger.domain.value.ProjectId;
-import org.pgledger.domain.value.SessionKey;
 import org.pgledger.domain.value.Tokens;
 import org.pgledger.domain.value.UtcInstant;
 import org.springframework.stereotype.Service;
@@ -35,10 +32,20 @@ public class HistoryService {
     /** The most ids one history call may carry (they become the {@code IN} list of the SQL). */
     public static final int MAX_IDS = 200;
 
-    /** The criteria, all optional and combined with AND. */
+    /** The criteria, all optional and combined with AND; a blank text is a criterion that is not given. */
     public record HistoryQuery(@Size(max = MAX_IDS, message = "{reason.MUST_HOLD_ITEMS}") List<Long> ids, Long idFrom, Long idTo, String entity, String entityId,
             String project, String op, String authorId, String atFrom, String atTo, Boolean includeBefore,
             Number maxRows, String cursor) {
+
+        public HistoryQuery {
+            entity = Texts.nullIfBlank(entity);
+            entityId = Texts.nullIfBlank(entityId);
+            project = Texts.nullIfBlank(project);
+            op = Texts.nullIfBlank(op);
+            authorId = Texts.nullIfBlank(authorId);
+            atFrom = Texts.nullIfBlank(atFrom);
+            atTo = Texts.nullIfBlank(atTo);
+        }
     }
 
     /**
@@ -52,8 +59,6 @@ public class HistoryService {
             String requestId, String legacyRef) {
     }
 
-    private static final Pattern VENDOR = Pattern.compile("^([A-Za-z0-9_-]+):.*");
-
     private final HistoryQueryRepository queries;
     private final HistoryRepository rows;
     private final Cursors cursors;
@@ -66,16 +71,16 @@ public class HistoryService {
 
     public Page<HistoryView> history(@Valid HistoryQuery q) {
         HistoryQueryRepository.Filter filter = new HistoryQueryRepository.Filter(q.ids(), q.idFrom(), q.idTo(),
-                blank(q.entity()) ? null : Tokens.parse("entity", q.entity(), HistoryEntity.values()),
-                blank(q.entityId()) ? null : q.entityId(),
-                blank(q.project()) ? null : ProjectId.of(q.project()),
-                blank(q.op()) ? null : Tokens.parse("op", q.op(), HistoryOp.values()),
-                blank(q.authorId()) ? null : q.authorId(),
-                blank(q.atFrom()) ? null : UtcInstant.parse("at_from", q.atFrom()).value(),
-                blank(q.atTo()) ? null : UtcInstant.parse("at_to", q.atTo()).value());
+                q.entity() == null ? null : Tokens.parse("entity", q.entity(), HistoryEntity.values()),
+                q.entityId(),
+                q.project() == null ? null : ProjectId.of(q.project()),
+                q.op() == null ? null : Tokens.parse("op", q.op(), HistoryOp.values()),
+                q.authorId(),
+                q.atFrom() == null ? null : UtcInstant.parse("at_from", q.atFrom()).value(),
+                q.atTo() == null ? null : UtcInstant.parse("at_to", q.atTo()).value());
         MaxRows maxRows = cursors.maxRows(q.maxRows());
-        Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.HISTORY, filter);
-        long after = position == null ? 0 : Long.parseLong(position.id());
+        long after = cursors.decode(q.cursor(), PageCursor.Kind.HISTORY, filter).map(Cursors.Position::number)
+                .orElse(0L);
         var ids = queries.page(filter, after, maxRows);
         boolean withBefore = q.includeBefore() != null && q.includeBefore();
         List<HistoryView> views = ids.rows().isEmpty() ? List.of() : rows.findByIdIn(ids.rows()).stream()
@@ -88,14 +93,11 @@ public class HistoryService {
     /** One row as a view, optionally with its {@code before_data}. */
     public HistoryView view(HistoryEntry row, boolean withBefore) {
         JsonDocument before = withBefore ? row.beforeData() : null;
-        Matcher vendor = VENDOR.matcher(new SessionKey(row.authorId().value()).value());
-        return new HistoryView(row.id(), row.at(), row.authorId().value(), vendor.matches() ? vendor.group(1) : null,
+        // the vendor is the one the session key of the author names; a row of an imported actor may have none
+        return new HistoryView(row.id(), row.at(), row.authorId().value(),
+                row.authorId().sessionKey().vendor().orElse(null),
                 row.login(), row.actorAssurance().name(), row.entity().token(), row.entityId(), row.op().name(),
                 row.fromState(), row.toState(), row.changes(), before, row.reason(),
                 row.evidenceUri(), row.correctsId(), row.requestId().toString(), row.legacyRef());
-    }
-
-    private static boolean blank(String value) {
-        return value == null || value.isBlank();
     }
 }

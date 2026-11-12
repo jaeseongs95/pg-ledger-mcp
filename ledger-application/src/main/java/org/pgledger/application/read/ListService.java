@@ -12,6 +12,7 @@ import org.pgledger.database.repository.TaskQueryRepository;
 import org.pgledger.domain.rule.AttentionKind;
 import org.pgledger.domain.rule.ConditionState;
 import org.pgledger.domain.rule.DefectStatus;
+import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.TaskState;
 import org.pgledger.domain.value.CodeValue;
 import org.pgledger.domain.value.ConditionId;
@@ -40,17 +41,37 @@ public class ListService {
     public record DefectsQuery(@NotBlank(message = REQUIRED) String project, String status, String severity,
             String category, String attention, @Size(max = MAX_OWNER, message = OWNER_LENGTH) String owner,
             Number maxRows, String cursor) {
+
+        /** A blank filter is a filter that is not given. */
+        public DefectsQuery {
+            status = Texts.nullIfBlank(status);
+            severity = Texts.nullIfBlank(severity);
+            category = Texts.nullIfBlank(category);
+            attention = Texts.nullIfBlank(attention);
+        }
     }
 
     /** Filters of the task list. */
     public record TasksQuery(@NotBlank(message = REQUIRED) String project, String state,
             @Size(max = MAX_OWNER, message = OWNER_LENGTH) String owner, String attention, Number maxRows,
             String cursor) {
+
+        /** A blank filter is a filter that is not given. */
+        public TasksQuery {
+            state = Texts.nullIfBlank(state);
+            attention = Texts.nullIfBlank(attention);
+        }
     }
 
     /** Filters of the condition list. */
     public record ConditionsQuery(@NotBlank(message = REQUIRED) String project, String state, String release,
             Number maxRows, String cursor) {
+
+        /** A blank filter is a filter that is not given. */
+        public ConditionsQuery {
+            state = Texts.nullIfBlank(state);
+            release = Texts.nullIfBlank(release);
+        }
     }
 
     public record DefectItem(String id, String title, String category, String severity, String status,
@@ -65,9 +86,11 @@ public class ListService {
             String state, long version) {
     }
 
-    private static final AttentionKind[] DEFECT_KINDS = {AttentionKind.OPEN_WITH_FIX,
-        AttentionKind.FIXED_WITHOUT_COMMIT, AttentionKind.OPEN_NO_OWNER};
-    private static final AttentionKind[] TASK_KINDS = {AttentionKind.TASK_UNKNOWN, AttentionKind.DONE_NOT_VERIFIED};
+    /** The attention kinds of defects and of tasks: each kind says which of the two it is about. */
+    private static final AttentionKind[] DEFECT_KINDS = AttentionKind.of(HistoryEntity.DEFECT)
+            .toArray(AttentionKind[]::new);
+    private static final AttentionKind[] TASK_KINDS = AttentionKind.of(HistoryEntity.TASK)
+            .toArray(AttentionKind[]::new);
 
     private final DefectQueryRepository defects;
     private final TaskQueryRepository tasks;
@@ -82,23 +105,20 @@ public class ListService {
         this.cursors = cursors;
     }
 
-    /** The owner filter; a blank one filters nothing. Its length is a constraint of the query record. */
-    private static String owner(String raw) {
-        return raw == null || raw.isBlank() ? null : raw;
-    }
-
     public Page<DefectItem> defects(@Valid DefectsQuery q) {
         ProjectId project = ProjectId.of(q.project());
         DefectQueryRepository.Filter filter = new DefectQueryRepository.Filter(
-                blank(q.status()) ? null : Tokens.parse("status", q.status(), DefectStatus.values()),
-                blank(q.severity()) ? null : CodeValue.of(q.severity()),
-                blank(q.category()) ? null : CodeValue.of(q.category()), null, null, owner(q.owner()),
-                blank(q.attention()) ? null : Tokens.parseName("attention", q.attention(), DEFECT_KINDS));
+                q.status() == null ? null : Tokens.parse("status", q.status(), DefectStatus.values()),
+                q.severity() == null ? null : CodeValue.of(q.severity()),
+                q.category() == null ? null : CodeValue.of(q.category()), null, null, Texts.nullIfBlank(q.owner()),
+                q.attention() == null ? null : Tokens.parseName("attention", q.attention(), DEFECT_KINDS));
         MaxRows maxRows = cursors.maxRows(q.maxRows());
         Object criteria = List.of(project, filter);
-        Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.DEFECTS, criteria);
-        DefectQueryRepository.Position after = position == null ? null : new DefectQueryRepository.Position(
-                UtcInstant.parse("cursor", position.sortKey()).value(), DefectId.of(position.id()));
+        // the cursor holds the position of the last row: its creation time and its id
+        DefectQueryRepository.Position after = cursors.decode(q.cursor(), PageCursor.Kind.DEFECTS, criteria)
+                .map(position -> new DefectQueryRepository.Position(
+                        UtcInstant.parse("cursor", position.sortKey()).value(), DefectId.of(position.id())))
+                .orElse(null);
         var page = defects.page(project, filter, maxRows, DefectQueryRepository.Order.NEWEST_FIRST, after);
         return cursors.page(page, PageCursor.Kind.DEFECTS, criteria, ListService::item,
                 s -> new UtcInstant(s.createdAt()).toString(), s -> s.id().value());
@@ -113,13 +133,15 @@ public class ListService {
     public Page<TaskItem> tasks(@Valid TasksQuery q) {
         ProjectId project = ProjectId.of(q.project());
         TaskQueryRepository.Filter filter = new TaskQueryRepository.Filter(
-                blank(q.state()) ? null : Tokens.parse("state", q.state(), TaskState.values()), owner(q.owner()),
-                blank(q.attention()) ? null : Tokens.parseName("attention", q.attention(), TASK_KINDS));
+                q.state() == null ? null : Tokens.parse("state", q.state(), TaskState.values()),
+                Texts.nullIfBlank(q.owner()),
+                q.attention() == null ? null : Tokens.parseName("attention", q.attention(), TASK_KINDS));
         MaxRows maxRows = cursors.maxRows(q.maxRows());
         Object criteria = List.of(project, filter);
-        Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.TASKS, criteria);
-        TaskQueryRepository.Position after = position == null ? null : new TaskQueryRepository.Position(
-                UtcInstant.parse("cursor", position.sortKey()).value(), TaskId.of(position.id()));
+        TaskQueryRepository.Position after = cursors.decode(q.cursor(), PageCursor.Kind.TASKS, criteria)
+                .map(position -> new TaskQueryRepository.Position(
+                        UtcInstant.parse("cursor", position.sortKey()).value(), TaskId.of(position.id())))
+                .orElse(null);
         var page = tasks.page(project, filter, maxRows, after);
         return cursors.page(page, PageCursor.Kind.TASKS, criteria,
                 t -> new TaskItem(t.id().value(), t.title(), t.state().name(), t.ownerActorId(), t.version(),
@@ -130,20 +152,16 @@ public class ListService {
     public Page<ConditionItem> conditions(@Valid ConditionsQuery q) {
         ProjectId project = ProjectId.of(q.project());
         ConditionQueryRepository.Filter filter = new ConditionQueryRepository.Filter(
-                blank(q.state()) ? null : Tokens.parse("state", q.state(), ConditionState.values()),
-                blank(q.release()) ? null : q.release());
+                q.state() == null ? null : Tokens.parse("state", q.state(), ConditionState.values()),
+                q.release());
         MaxRows maxRows = cursors.maxRows(q.maxRows());
         Object criteria = List.of(project, filter);
-        Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.CONDITIONS, criteria);
-        var page = conditions.page(project, filter, maxRows,
-                position == null ? null : ConditionId.of(position.id()));
+        ConditionId after = cursors.decode(q.cursor(), PageCursor.Kind.CONDITIONS, criteria)
+                .map(position -> ConditionId.of(position.id())).orElse(null);
+        var page = conditions.page(project, filter, maxRows, after);
         return cursors.page(page, PageCursor.Kind.CONDITIONS, criteria,
                 c -> new ConditionItem(c.id().value(), c.release(), c.goalLabel(), c.code(), c.conditionText(),
                         c.state().name(), c.version()),
                 c -> null, c -> c.id().value());
-    }
-
-    private static boolean blank(String value) {
-        return value == null || value.isBlank();
     }
 }
