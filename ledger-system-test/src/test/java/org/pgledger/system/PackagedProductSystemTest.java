@@ -19,7 +19,14 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.AclEntry;
+import java.nio.file.attribute.AclEntryFlag;
+import java.nio.file.attribute.AclEntryPermission;
+import java.nio.file.attribute.AclEntryType;
+import java.nio.file.attribute.AclFileAttributeView;
 import java.security.MessageDigest;
+import java.util.EnumSet;
+import java.util.Set;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -178,9 +185,15 @@ class PackagedProductSystemTest {
     @DisplayName("SYS-003: driver-register registers the PostgreSQL driver jar from the driver directory")
     void driverRegister() throws Exception {
         Path source = Path.of(System.getProperty("ledger.test.postgres-jar"));
+        // prepare-host puts the driver jar into this directory on a host (it needs an elevated prompt for the ACLs). The
+        // product refuses a driver jar that an account other than the process user, the owner or an administrative account
+        // can change (FileTrust), and the temporary directory of a Windows user lets other accounts write: so the directory
+        // and the jar are made writable by their owner alone, as prepare-host would leave them.
         Path drivers = Files.createDirectories(etc.resolve("drivers"));
-        // prepare-host copies the driver jar into this directory on a host (it needs an elevated prompt for the ACLs)
-        Path copy = Files.copy(source, drivers.resolve(source.getFileName()));
+        ownerOnly(drivers);
+        Path copy = Files.createFile(drivers.resolve(source.getFileName()));
+        ownerOnly(copy);
+        Files.write(copy, Files.readAllBytes(source));
         JavaProcess.Result result = cli(false, null, "driver-register", "--jar=" + copy, "--class=org.postgresql.Driver");
         assertThat(result.exit()).as(result.streams()).isZero();
         String registration = Files.readString(etc.resolve("jdbc-driver.yaml"));
@@ -223,7 +236,8 @@ class PackagedProductSystemTest {
 
         hostId = "sys" + UUID.randomUUID().toString().substring(0, 8);
         author = "claude:" + hostId;
-        keys = Files.createDirectories(work.resolve("keys"));
+        // not created here: the hook makes its key folder owner-only and refuses one that others can use
+        keys = work.resolve("keys");
         JavaProcess.Result printed = hook(keys, "", "session-key", "ledger", author);
         assertThat(printed.exit()).as(printed.streams()).isZero();
         List<String> lines = printed.out().lines().toList();
@@ -545,6 +559,22 @@ class PackagedProductSystemTest {
             values.put(key, node.path(key).asString());
         }
         return values;
+    }
+
+    /**
+     * Makes a file or directory usable by its owner alone on a file system with ACLs (one ALLOW entry, nothing inherited);
+     * on a file system without ACLs the permissions the process created it with are what the product checks, so nothing is
+     * changed.
+     */
+    private static void ownerOnly(Path path) throws IOException {
+        AclFileAttributeView view = Files.getFileAttributeView(path, AclFileAttributeView.class);
+        if (view == null) {
+            return;
+        }
+        Set<AclEntryFlag> flags = Files.isDirectory(path)
+                ? EnumSet.of(AclEntryFlag.FILE_INHERIT, AclEntryFlag.DIRECTORY_INHERIT) : EnumSet.noneOf(AclEntryFlag.class);
+        view.setAcl(List.of(AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(view.getOwner())
+                .setPermissions(EnumSet.allOf(AclEntryPermission.class)).setFlags(flags).build()));
     }
 
     private static String slash(Path path) {
