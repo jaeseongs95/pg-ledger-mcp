@@ -11,8 +11,26 @@ fun positiveInt(name: String, value: String): Int {
     return number
 }
 
+// The settings of the test database (property name -> default). The defaults of the two password files are the files of the
+// test PC; only the paths are here, the files are read by the test JVM and nothing else.
+val ledgerTestDatabase = linkedMapOf(
+    "ledger.test.jdbc-url" to "jdbc:postgresql://127.0.0.1:55432/ledger_test",
+    "ledger.test.jdbc-user" to "ledger_test",
+    "ledger.test.app-user" to "ledger_test_app",
+    "ledger.test.jdbc-password-file" to "C:/ags-test-secrets/ags-dbms-ledger_test.pw",
+    "ledger.test.app-password-file" to "C:/ags-test-secrets/ags-dbms-ledger_test_app.pw",
+)
+
 subprojects {
     apply(plugin = "java-library")
+
+    // The PostgreSQL JDBC driver jar alone (no transitive part), for the tests that register a driver jar by its path.
+    // Test-only: no runtime classpath of any module has a driver (verifyRuntimeClasspath).
+    val postgresDriverJar by configurations.creating {
+        isCanBeConsumed = false
+        isCanBeResolved = true
+        isTransitive = false
+    }
 
     group = "org.pgledger"
     version = "0.1.0-SNAPSHOT"
@@ -30,6 +48,8 @@ subprojects {
         "testImplementation"("org.junit.jupiter:junit-jupiter")
         "testImplementation"("org.assertj:assertj-core")
         "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")
+        "postgresDriverJar"(platform(rootProject.libs.spring.boot.bom))
+        "postgresDriverJar"("org.postgresql:postgresql")
     }
 
     tasks.withType<JavaCompile>().configureEach {
@@ -54,6 +74,22 @@ subprojects {
         }
         ledgerTestProperty("ledger.test.activeProcessorCount")?.let {
             jvmArgs("-XX:ActiveProcessorCount=${positiveInt("ledger.test.activeProcessorCount", it)}")
+        }
+        // The test database is the PostgreSQL of the test PC (docs/testing/TEST_CASES.md 1.4a, 1.4b). Each setting is a Gradle
+        // property with a default and reaches the test JVM as a system property. The two password file properties carry
+        // the PATH of a one-line file only: the test support reads the file, and the value is never a property, a log
+        // line or a message. A test that cannot reach the database fails; it is not skipped.
+        ledgerTestDatabase.forEach { (name, fallback) ->
+            systemProperty(name, ledgerTestProperty(name) ?: fallback)
+        }
+        // The path of the PostgreSQL JDBC driver jar (test-only configuration), for the tests that register a driver.
+        doFirst {
+            systemProperty("ledger.test.postgres-jar", postgresDriverJar.singleFile.absolutePath)
+        }
+        // A test of a database is never up to date: the state of the database is an input that Gradle cannot see.
+        if (project.name in setOf("ledger-database", "ledger-application", "ledger-mcp-server", "ledger-admin-web",
+                "ledger-cli")) {
+            outputs.upToDateWhen { false }
         }
         testLogging {
             events("passed", "failed", "skipped")
