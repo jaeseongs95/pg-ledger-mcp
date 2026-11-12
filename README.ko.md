@@ -450,4 +450,10 @@ JVM이 인식하는 프로세서 수를 제한할 수 있습니다. 속성은 �
 
 ## 라이선스
 
-MIT
+pg-ledger-mcp는 2.0 버전부터 GNU Affero General Public License v3.0 only(`AGPL-3.0-only`)에 따라 배포합니다. 자세한 내용은 [LICENSE](LICENSE)를 참조하십시오.
+
+Copyright (C) 2026 Jaeseong Song
+
+1.x까지의 릴리스는 계속 MIT License에 따릅니다.
+
+라이선스 제13조에 따라, 수정한 버전을 네트워크 서비스로 운영하는 자는 그 서비스의 이용자에게 해당 소스 코드를 제공해야 합니다.

@@ -500,4 +500,10 @@ number, or is smaller than 1, fails the build at configuration time.
 
 ## License
 
-MIT
+From version 2.0, pg-ledger-mcp is licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`); see [LICENSE](LICENSE).
+
+Copyright (C) 2026 Jaeseong Song
+
+Releases up to 1.x remain under the MIT License.
+
+Under section 13 of the license, whoever runs a modified version as a network service must offer the users of that service the corresponding source code.
