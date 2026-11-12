@@ -24,12 +24,11 @@ val ledgerTestDatabase = linkedMapOf(
 subprojects {
     apply(plugin = "java-library")
 
-    // The PostgreSQL JDBC driver jar alone (no transitive part), for the tests that register a driver jar by its path.
+    // The PostgreSQL JDBC driver jar, for the tests that register a driver jar by its path (the test selects the one jar).
     // Test-only: no runtime classpath of any module has a driver (verifyRuntimeClasspath).
     val postgresDriverJar by configurations.creating {
         isCanBeConsumed = false
         isCanBeResolved = true
-        isTransitive = false
     }
 
     group = "org.pgledger"
@@ -84,7 +83,10 @@ subprojects {
         }
         // The path of the PostgreSQL JDBC driver jar (test-only configuration), for the tests that register a driver.
         doFirst {
-            systemProperty("ledger.test.postgres-jar", postgresDriverJar.singleFile.absolutePath)
+            // the version comes from the Boot BOM (a platform needs the transitive resolution); the driver jar is the file
+            // named postgresql-<version>.jar among the resolved files
+            systemProperty("ledger.test.postgres-jar",
+                postgresDriverJar.files.single { it.name.startsWith("postgresql-") }.absolutePath)
         }
         // A test of a database is never up to date: the state of the database is an input that Gradle cannot see.
         if (project.name in setOf("ledger-database", "ledger-application", "ledger-mcp-server", "ledger-admin-web",
