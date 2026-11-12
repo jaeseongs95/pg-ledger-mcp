@@ -14,6 +14,7 @@ import org.pgledger.application.admin.ProjectService;
 import org.pgledger.application.admin.ProjectService.ProjectCommand;
 import org.pgledger.application.admin.SessionKeyService;
 import org.pgledger.application.admin.SessionKeyService.RegisterCommand;
+import org.pgledger.application.write.FieldsInput;
 import org.pgledger.application.write.RecordCaseCommand;
 import org.pgledger.application.write.RecordCaseService;
 import org.pgledger.application.write.SaveCommand;
@@ -25,6 +26,7 @@ import org.pgledger.attestation.AttestationClaims;
 import org.pgledger.attestation.AttestationToken;
 import org.pgledger.attestation.PublicKeys;
 import org.pgledger.domain.context.ToolScope;
+import org.pgledger.domain.value.Patch;
 import org.springframework.stereotype.Component;
 import org.pgledger.testing.TestOwners;
 
@@ -98,7 +100,7 @@ public class Seeds {
         fields.put("behavior", "behavior of " + title);
         fields.put("root_cause", "cause of " + title);
         return signed("ledger_save", attestation -> saves.save(attestation,
-                new SaveCommand(null, "defect", null, 0L, fields, REASON))).id();
+                new SaveCommand(null, "defect", null, 0L, fieldsOf(fields), REASON))).id();
     }
 
     public String task(Seeded seeded, String title) {
@@ -108,7 +110,7 @@ public class Seeds {
         fields.put("purpose", "purpose of " + title);
         fields.put("success_condition", "success of " + title);
         return signed("ledger_save", attestation -> saves.save(attestation,
-                new SaveCommand(null, "task", null, 0L, fields, REASON))).id();
+                new SaveCommand(null, "task", null, 0L, fieldsOf(fields), REASON))).id();
     }
 
     public String condition(Seeded seeded, String suffix, String release, String conditionCode) {
@@ -118,7 +120,20 @@ public class Seeds {
         fields.put("code", conditionCode);
         fields.put("condition_text", "condition " + conditionCode);
         return signed("ledger_save", attestation -> saves.save(attestation, new SaveCommand(null, "condition",
-                seeded.code() + "-C-" + suffix, 0L, fields, REASON))).id();
+                seeded.code() + "-C-" + suffix, 0L, fieldsOf(fields), REASON))).id();
+    }
+
+    /** The fields of a save from a map of wire keys: a key in the map is a patch set to its value, a key left out is absent. */
+    private static FieldsInput fieldsOf(Map<String, String> raw) {
+        return new FieldsInput(patch(raw, "project_id"), patch(raw, "title"), patch(raw, "category"),
+                patch(raw, "severity"), patch(raw, "behavior"), patch(raw, "root_cause"), patch(raw, "owner_actor_id"),
+                patch(raw, "purpose"), patch(raw, "success_condition"), patch(raw, "origin_ref"),
+                patch(raw, "origin_quote"), patch(raw, "release"), patch(raw, "goal_label"), patch(raw, "code"),
+                patch(raw, "condition_text"));
+    }
+
+    private static Patch<String> patch(Map<String, String> raw, String key) {
+        return raw.containsKey(key) ? Patch.set(raw.get(key)) : null;
     }
 
     /** Moves an OPEN defect (version 1) to DISPUTED, with the given evidence text in the history row. */

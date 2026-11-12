@@ -26,12 +26,16 @@ import org.springframework.stereotype.Component;
 @Component
 public final class AdminTokenProvider implements AuthenticationProvider {
 
+    /** The authority of a signed-in owner (token or OpenID Connect): the one place the name is written. */
+    public static final String OWNER_AUTHORITY = "ROLE_OWNER";
+
     /** The shortest token that is accepted as the secret of the owner. */
     static final int MIN_TOKEN_LENGTH = LedgerAdminProperties.MIN_TOKEN_LENGTH;
 
     private final byte[] expected;
     private final byte[] agent;
     private final LoginAttempts attempts;
+    private final LoginDelay delays;
 
     /**
      * The agent token is required and must differ from the admin token (the binding of {@link LedgerAdminProperties}
@@ -40,7 +44,7 @@ public final class AdminTokenProvider implements AuthenticationProvider {
      * @throws IllegalArgumentException when the token is missing, blank or too short, or the agent token is missing or
      *         equals it; the message names the key and never the value
      */
-    public AdminTokenProvider(LedgerAdminProperties properties, LoginAttempts attempts) {
+    public AdminTokenProvider(LedgerAdminProperties properties, LoginAttempts attempts, LoginDelay delays) {
         String token = properties.token();
         if (token == null || token.isBlank() || token.length() < MIN_TOKEN_LENGTH) {
             throw new IllegalArgumentException("ledger.admin.token must be set to at least " + MIN_TOKEN_LENGTH
@@ -56,6 +60,7 @@ public final class AdminTokenProvider implements AuthenticationProvider {
             throw new IllegalArgumentException("ledger.admin.agent-token must differ from ledger.admin.token");
         }
         this.attempts = attempts;
+        this.delays = delays;
     }
 
     @Override
@@ -76,22 +81,18 @@ public final class AdminTokenProvider implements AuthenticationProvider {
         }
         attempts.succeeded(client);
         return UsernamePasswordAuthenticationToken.authenticated("owner", null,
-                List.of(new SimpleGrantedAuthority("ROLE_OWNER")));
+                List.of(new SimpleGrantedAuthority(OWNER_AUTHORITY)));
     }
 
     /**
      * Waits before the token is compared when the global budget of checks is used up (see {@link LoginAttempts}): the
      * check is slowed down and still made, so the owner with the right token logs in, only later. A wait that is
      * interrupted (the server is stopping) restores the interrupt and refuses the attempt without comparing, since the
-     * delay it stands for did not happen.
-     * {@link Thread#sleep(java.time.Duration)}: https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/Thread.html
+     * delay it stands for did not happen. The wait is the injected {@link LoginDelay}.
      */
-    private static void slowDown(Duration delay) {
-        if (delay.isZero()) {
-            return;
-        }
+    private void slowDown(Duration delay) {
         try {
-            Thread.sleep(delay);
+            delays.await(delay);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new AdminAuthenticationException(AdminCode.TOO_MANY_AUTH_FAILURES, interrupted);

@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiFunction;
-import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Named;
@@ -17,6 +16,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
@@ -56,7 +56,7 @@ import org.pgledger.domain.value.Sha256;
 class ReceiptTest {
 
     private static SaveCommand create(Scenario s, String requestId, String title) {
-        return new SaveCommand(requestId, "defect", null, 0L, s.defectFields(title), Scenario.REASON);
+        return new SaveCommand(requestId, "defect", null, 0L, Fields.of(s.defectFields(title)), Scenario.REASON);
     }
 
     private static long receipts(Scenario s, String requestId) {
@@ -92,7 +92,7 @@ class ReceiptTest {
                 Named.of("another expected version", (s, c) -> new SaveCommand(c.requestId(), c.entity(), c.id(), 5L,
                         c.fields(), c.reason())),
                 Named.of("another field value", (s, c) -> new SaveCommand(c.requestId(), c.entity(), c.id(),
-                        c.expectedVersion(), Map.of("title", "other title"), c.reason())));
+                        c.expectedVersion(), Fields.of("title", "other title"), c.reason())));
     }
 
     @ParameterizedTest
@@ -102,7 +102,7 @@ class ReceiptTest {
         s.newDefect("one");
         s.newDefect("two");
         String id = Scenario.uuid();
-        SaveCommand base = new SaveCommand(id, "defect", s.defectId(1), 1L, Map.of("title", "edited"),
+        SaveCommand base = new SaveCommand(id, "defect", s.defectId(1), 1L, Fields.of("title", "edited"),
                 Scenario.REASON);
         s.bean(SaveService.class).save(Scenario.AUTHOR, base);
         long history = s.count("SELECT COUNT(*) FROM history");
@@ -148,32 +148,24 @@ class ReceiptTest {
 
     // ---------------------------------------------------------------------- 05
 
-    static Stream<Named<UnaryOperator<SaveCommand>>> samePayloadSpelledDifferently() {
+    static Stream<Named<BiFunction<Scenario, SaveCommand, SaveCommand>>> samePayloadSpelledDifferently() {
         return Stream.of(
-                Named.of("key order changed", c -> {
-                    List<String> keys = new java.util.ArrayList<>(c.fields().keySet());
-                    java.util.Collections.reverse(keys);
-                    Map<String, String> reversed = new LinkedHashMap<>();
-                    keys.forEach(k -> reversed.put(k, c.fields().get(k)));
-                    return new SaveCommand(c.requestId(), c.entity(), c.id(), c.expectedVersion(), reversed,
-                            c.reason());
-                }),
-                Named.of("reason padded with spaces", c -> new SaveCommand(c.requestId(), c.entity(), c.id(),
+                Named.of("reason padded with spaces", (s, c) -> new SaveCommand(c.requestId(), c.entity(), c.id(),
                         c.expectedVersion(), c.fields(), "   " + c.reason() + "   ")),
-                Named.of("expected version absent instead of 0", c -> new SaveCommand(c.requestId(), c.entity(),
+                Named.of("expected version absent instead of 0", (s, c) -> new SaveCommand(c.requestId(), c.entity(),
                         c.id(), null, c.fields(), c.reason())),
-                Named.of("blank id instead of absent", c -> new SaveCommand(c.requestId(), c.entity(), "  ",
+                Named.of("blank id instead of absent", (s, c) -> new SaveCommand(c.requestId(), c.entity(), "  ",
                         c.expectedVersion(), c.fields(), c.reason())),
-                Named.of("an optional field blank instead of absent", c -> {
-                    Map<String, String> fields = new LinkedHashMap<>(c.fields());
+                Named.of("an optional field blank instead of absent", (s, c) -> {
+                    Map<String, String> fields = new LinkedHashMap<>(s.defectFields("d"));
                     fields.put("owner_actor_id", "   ");
-                    return new SaveCommand(c.requestId(), c.entity(), c.id(), c.expectedVersion(), fields,
+                    return new SaveCommand(c.requestId(), c.entity(), c.id(), c.expectedVersion(), Fields.of(fields),
                             c.reason());
                 }),
-                Named.of("an optional field null instead of absent", c -> {
-                    Map<String, String> fields = new LinkedHashMap<>(c.fields());
+                Named.of("an optional field null instead of absent", (s, c) -> {
+                    Map<String, String> fields = new LinkedHashMap<>(s.defectFields("d"));
                     fields.put("owner_actor_id", null);
-                    return new SaveCommand(c.requestId(), c.entity(), c.id(), c.expectedVersion(), fields,
+                    return new SaveCommand(c.requestId(), c.entity(), c.id(), c.expectedVersion(), Fields.of(fields),
                             c.reason());
                 }));
     }
@@ -181,10 +173,10 @@ class ReceiptTest {
     @ParameterizedTest
     @MethodSource("samePayloadSpelledDifferently")
     @DisplayName("SVC-RCP-05 / SVC-NORM-04: the same payload spelled differently is a replay")
-    void rcp05_normalisedDigest(UnaryOperator<SaveCommand> spell, Scenario s) {
+    void rcp05_normalisedDigest(BiFunction<Scenario, SaveCommand, SaveCommand> spell, Scenario s) {
         String id = Scenario.uuid();
         SaveResult first = s.bean(SaveService.class).save(Scenario.AUTHOR, create(s, id, "d"));
-        assertThat(s.bean(SaveService.class).save(Scenario.AUTHOR, spell.apply(create(s, id, "d")))).isEqualTo(first);
+        assertThat(s.bean(SaveService.class).save(Scenario.AUTHOR, spell.apply(s, create(s, id, "d")))).isEqualTo(first);
         assertThat(defects(s)).isEqualTo(1);
     }
 
@@ -196,10 +188,10 @@ class ReceiptTest {
         SaveResult d = s.newDefect("d");
         String id = Scenario.uuid();
         Expect.failure(() -> s.bean(SaveService.class).save(Scenario.AUTHOR, new SaveCommand(id, "defect", d.id(), 9L,
-                Map.of("title", "x"), Scenario.REASON)), ConflictCode.VERSION_CONFLICT);
+                Fields.of("title", "x"),Scenario.REASON)), ConflictCode.VERSION_CONFLICT);
         assertThat(receipts(s, id)).isZero();
         assertThat(s.bean(SaveService.class).save(Scenario.AUTHOR, new SaveCommand(id, "defect", d.id(), 1L,
-                Map.of("title", "x"), Scenario.REASON)).version()).isEqualTo(2);
+                Fields.of("title", "x"),Scenario.REASON)).version()).isEqualTo(2);
         assertThat(receipts(s, id)).isEqualTo(1);
     }
 
@@ -360,13 +352,13 @@ class ReceiptTest {
     void rcp14_batch(Scenario s) {
         String id = Scenario.uuid();
         List<BatchOpInput> ops = List.of(
-                new BatchOpInput.Save("defect", s.defectFields("one"), Scenario.REASON, null, null, null),
-                new BatchOpInput.Save("task", s.taskFields("two"), Scenario.REASON, null, null, null));
+                new BatchOpInput.Save("defect", Fields.of(s.defectFields("one")), Scenario.REASON, null, null, null),
+                new BatchOpInput.Save("task", Fields.of(s.taskFields("two")), Scenario.REASON, null, null, null));
         BatchResult first = s.bean(BatchService.class).batch(Scenario.AUTHOR, id, ops);
         assertThat(s.bean(BatchService.class).batch(Scenario.AUTHOR, id, ops)).isEqualTo(first);
         RequestId derived = RequestId.parse(id).derive(1);
         assertThat(s.bean(SaveService.class).save(Scenario.AUTHOR, new SaveCommand(derived.toString(), "task", null,
-                0L, s.taskFields("two"), Scenario.REASON))).isEqualTo(first.results().get(1));
+                0L, Fields.of(s.taskFields("two")), Scenario.REASON))).isEqualTo(first.results().get(1));
         assertThat(defects(s)).isEqualTo(1);
     }
 }

@@ -13,6 +13,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
 import org.pgledger.application.support.LedgerServiceTest;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.BatchOpInput;
 import org.pgledger.application.write.BatchService;
@@ -51,10 +52,10 @@ class ProvenanceTest {
     void prv01_batchProvenance(Created created, Scenario s) {
         SaveResult d1 = s.newDefect("seed one");
         s.bean(BatchService.class).batch(Scenario.AUTHOR, null, List.of(
-                new BatchOpInput.Save("task", s.taskFields("t"), Scenario.REASON, s.taskId(1), null, null),
-                new BatchOpInput.Save("condition", s.conditionFields("r", "c"), Scenario.REASON, s.conditionId("1"),
+                new BatchOpInput.Save("task", Fields.of(s.taskFields("t")), Scenario.REASON, s.taskId(1), null, null),
+                new BatchOpInput.Save("condition", Fields.of(s.conditionFields("r", "c")), Scenario.REASON, s.conditionId("1"),
                         null, null),
-                new BatchOpInput.Save("defect", s.defectFields("second"), Scenario.REASON, null, null, null),
+                new BatchOpInput.Save("defect", Fields.of(s.defectFields("second")), Scenario.REASON, null, null, null),
                 new BatchOpInput.Link("defect_task", d1.id(), s.taskId(1), Scenario.REASON, null, null),
                 new BatchOpInput.Link("blocks", d1.id(), s.defectId(2), Scenario.REASON, null, null),
                 new BatchOpInput.Link("condition_task", s.conditionId("1"), s.taskId(1), Scenario.REASON, null,

@@ -47,6 +47,7 @@ import org.pgledger.application.read.StatsService.StatsQuery;
 import org.pgledger.application.support.Expect;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.MergeFixture;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.CorrectCommand;
 import org.pgledger.application.write.CorrectService;
@@ -191,7 +192,7 @@ class ReadQueryTest {
     void h09_historyIsTheReceipt(Scenario s) {
         String requestId = Scenario.uuid();
         SaveResult d = s.bean(SaveService.class).save(Scenario.AUTHOR, new org.pgledger.application.write
-                .SaveCommand(requestId, "defect", null, 0L, s.defectFields("d"), Scenario.REASON));
+                .SaveCommand(requestId, "defect", null, 0L, Fields.of(s.defectFields("d")), Scenario.REASON));
         var page = history(s).history(new HistoryQuery(List.of(d.historyId()), null, null, null, null, null, null,
                 null, null, null, null, null, null));
         assertThat(page.items()).hasSize(1);

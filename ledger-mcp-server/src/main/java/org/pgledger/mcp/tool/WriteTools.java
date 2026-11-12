@@ -75,7 +75,7 @@ public class WriteTools implements ToolAdapter {
             @McpToolParam(description = "param.host_attestation", required = false) String _hostAttestation,
             @McpToolParam(description = "param.author_id", required = false) String author_id) {
         return WriteOutputs.saved(save.save(_hostAttestation,
-                new SaveCommand(request_id, entity, id, expected_version, fields.toMap(), reason)));
+                new SaveCommand(request_id, entity, id, expected_version, fields.toInput(), reason)));
     }
 
     @McpTool(name = "ledger_transition", description = "tool.ledger_transition", generateOutputSchema = true)

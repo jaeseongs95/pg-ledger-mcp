@@ -35,6 +35,7 @@ import org.pgledger.application.read.HistoryService;
 import org.pgledger.application.read.HistoryService.HistoryQuery;
 import org.pgledger.application.support.ConnectionLog;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.LedgerAppContext;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.admin.GrantService;
@@ -320,7 +321,7 @@ class LegacyImportTest {
             for (String requestId : List.of(imported, UUID.nameUUIDFromBytes("request-pending".getBytes(StandardCharsets.UTF_8))
                     .toString())) {
                 LedgerException refused = Expect.failure(() -> rig.ctx().bean(SaveService.class).save(SEED,
-                        new SaveCommand(requestId, "defect", null, 0L, defectFields("old", "replay"), Scenario.REASON)),
+                        new SaveCommand(requestId, "defect", null, 0L, Fields.of(defectFields("old", "replay")), Scenario.REASON)),
                         ConflictCode.REQUEST_ID_LEGACY);
                 assertThat(refused.getMessage()).doesNotContain("OLD-D-0001");
             }
@@ -367,7 +368,7 @@ class LegacyImportTest {
             rig.importAll();
             SaveService save = rig.ctx().bean(SaveService.class);
             String requestId = UUID.randomUUID().toString();
-            SaveCommand command = new SaveCommand(requestId, "defect", null, 0L, defectFields("old", "after the import"),
+            SaveCommand command = new SaveCommand(requestId, "defect", null, 0L, Fields.of(defectFields("old", "after the import")),
                     Scenario.REASON);
             String token = TestKeyRing.token(TestKeyRing.newPair(), SEED, "ledger_save", requestId,
                     rig.ctx().clock().instant());
@@ -380,7 +381,7 @@ class LegacyImportTest {
             assertThat(rig.count("SELECT COUNT(*) FROM request_receipt WHERE request_id = ?", requestId)).isZero();
 
             rig.ctx().enroll(SEED);
-            SaveResult saved = save.save(SEED, new SaveCommand(null, "defect", null, 0L, defectFields("old", "after the key"),
+            SaveResult saved = save.save(SEED, new SaveCommand(null, "defect", null, 0L, Fields.of(defectFields("old", "after the key")),
                     Scenario.REASON));
             assertThat(saved.author()).isEqualTo(SEED);
             assertThat(saved.id()).isEqualTo("OLD-D-0004");
@@ -556,12 +557,12 @@ class LegacyImportTest {
             assertThat(rig.ctx().jdbc().sql("SELECT severity FROM defect WHERE id = 'OLD-D-0003'").query(String.class).single())
                     .isEqualTo("UNRATED");
             ValidationException refused = (ValidationException) Expect.failure(() -> save.save(SEED, new SaveCommand(null,
-                    "defect", "OLD-D-0003", 1L, Map.of("title", "unrated, edited"), Scenario.REASON)),
+                    "defect", "OLD-D-0003", 1L, Fields.of("title", "unrated, edited"), Scenario.REASON)),
                     ValidationCode.CODE_INVALID);
             assertThat(refused.args()).startsWith("defect.severity", "UNRATED");
 
             SaveResult edited = save.save(SEED, new SaveCommand(null, "defect", "OLD-D-0003", 1L,
-                    Map.of("title", "unrated, edited", "severity", "P3"), Scenario.REASON));
+                    Fields.of(Map.of("title", "unrated, edited", "severity", "P3")), Scenario.REASON));
             assertThat(edited.version()).isEqualTo(2);
             assertThat(rig.ctx().jdbc().sql("SELECT severity FROM defect WHERE id = 'OLD-D-0003'").query(String.class).single())
                     .isEqualTo("P3");
@@ -694,16 +695,16 @@ class LegacyImportTest {
             ctx.bean(GrantService.class).grant(new GrantCommand(SEED, "old", List.of("fix"), null, null), TestOwners.OWNER);
 
             SaveResult created = ctx.bean(SaveService.class).save(SEED, new SaveCommand(null, "defect", null, 0L,
-                    defectFields("old", "after the import"), Scenario.REASON));
+                    Fields.of(defectFields("old", "after the import")), Scenario.REASON));
             assertThat(created.id()).isEqualTo("OLD-D-0004");
             assertThat(created.historyId()).isGreaterThan(57);
             SaveResult task = ctx.bean(SaveService.class).save(SEED, new SaveCommand(null, "task", null, 0L,
-                    Map.of("project_id", "old", "title", "new task", "purpose", "p", "success_condition", "s"),
+                    Fields.of(Map.of("project_id", "old", "title", "new task", "purpose", "p", "success_condition", "s")),
                     Scenario.REASON));
             assertThat(task.id()).isEqualTo("OLD-T-0001");
 
             SaveResult edited = ctx.bean(SaveService.class).save(SEED, new SaveCommand(null, "defect", "OLD-D-0001", 1L,
-                    Map.of("title", "edited after the import"), Scenario.REASON));
+                    Fields.of("title", "edited after the import"), Scenario.REASON));
             assertThat(edited.version()).isEqualTo(2);
             assertThat(edited.historyId()).isGreaterThan(created.historyId());
 

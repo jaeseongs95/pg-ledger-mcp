@@ -104,7 +104,7 @@ class SessionKeyTest {
         return ScopedValue.where(org.pgledger.domain.context.ToolScope.CURRENT, "ledger_save")
                 .where(org.pgledger.domain.context.ToolScope.ARGUMENTS_DIGEST, TestKeyRing.DIRECT_DIGEST).call(
                 () -> s.bean(SaveService.class).save(token, new org.pgledger.application.write.SaveCommand(request,
-                        "defect", null, 0L, s.defectFields("by key"), Scenario.REASON)));
+                        "defect", null, 0L, org.pgledger.application.support.Fields.of(s.defectFields("by key")), Scenario.REASON)));
     }
 
     @Test

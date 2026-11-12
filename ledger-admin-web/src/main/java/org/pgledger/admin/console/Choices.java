@@ -14,7 +14,8 @@ import org.springframework.util.StringUtils;
 @Component
 public class Choices {
 
-    private static final int ALL = 1000;
+    /** The most rows one list asks for: every project and every code of the lists the pages offer. */
+    public static final int ALL = 1000;
 
     private final CatalogService catalog;
 

@@ -17,6 +17,7 @@ import org.pgledger.application.read.DetailService.CaseView;
 import org.pgledger.application.read.DetailService.DefectDetail;
 import org.pgledger.application.read.GetService;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.MergeFixture;
 import org.pgledger.application.support.Scenario;
@@ -177,7 +178,7 @@ class ReadDetailTest {
     @DisplayName("MCR-D02 / SVC-CAS-13: a merge chain of 50 defects terminates and lists every one")
     void d02_chainOfFifty(Scenario s) {
         List<BatchOpInput> ops = IntStream.rangeClosed(1, 50).mapToObj(i -> (BatchOpInput) new BatchOpInput.Save(
-                "defect", s.defectFields("chain " + i), Scenario.REASON, null, null, null)).toList();
+                "defect", Fields.of(s.defectFields("chain " + i)), Scenario.REASON, null, null, null)).toList();
         s.bean(BatchService.class).batch(Scenario.AUTHOR, null, ops);
         IntStream.iterate(50, k -> k >= 2, k -> k - 1).forEach(k -> MergeFixture.merge(s, s.defectId(k), 1,
                 s.defectId(k - 1)));

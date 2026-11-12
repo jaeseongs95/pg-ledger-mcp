@@ -18,6 +18,7 @@ import org.pgledger.application.history.Change;
 import org.pgledger.application.history.ChangeSet;
 import org.pgledger.application.json.LedgerJson;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.write.RecordCaseCommand;
@@ -162,7 +163,7 @@ class NormTest {
                         new RecordFixCommand(null, s.newDefect("d").id(), " ", Scenario.commit('a'), Scenario.REASON,
                                 null, null, null, null, null)), ValidationCode.VALIDATION_FAILED, "repo"),
                 new Required("reason", s -> s.bean(SaveService.class).save(Scenario.AUTHOR,
-                        new SaveCommand(null, "defect", null, 0L, s.defectFields("d"), "          ")),
+                        new SaveCommand(null, "defect", null, 0L, Fields.of(s.defectFields("d")), "          ")),
                         ValidationCode.REASON_INVALID, "reason"));
     }
 

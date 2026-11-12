@@ -54,10 +54,10 @@
     <p><span th:text="#{grants.fingerprint}">Fingerprint of the pasted key</span>: <code class="fingerprint" th:text="${preview.fingerprint()}">0000</code></p>
     <p th:if="${preview.server() != null}"><span th:text="#{grants.key.server}">Server the key was made for</span>: <code class="server" th:text="${preview.server()}">ledger</code></p>
     <p th:if="${preview.alreadyRegistered()}" th:text="#{grants.key.same}">The author already has this key.</p>
-    <p th:if="${preview.currentFingerprint() != null}" class="notice" role="alert">
+    <p th:if="${currentKey != null}" class="notice" role="alert">
       <span th:text="#{grants.key.current(${preview.form().author()})}">The author already has another registered key</span>:
-      <code class="fingerprint" th:text="${preview.currentFingerprint()}">1111</code>,
-      <span th:text="#{grants.key.registeredAt}">registered</span> <time th:replace="~{fragments :: time(${preview.currentRegisteredAt()})}">t</time>
+      <code class="fingerprint" th:text="${currentKey.fingerprint()}">1111</code>,
+      <span th:text="#{grants.key.registeredAt}">registered</span> <time th:replace="~{fragments :: time(${currentKey.registeredAt()})}">t</time>
     </p>
     <form method="post" th:action="@{/grants}">
       <input type="hidden" name="author" th:value="${preview.form().author()}">
@@ -68,8 +68,8 @@
       <input type="hidden" name="publicKey" th:value="${preview.form().publicKey()}">
       <input type="hidden" name="fingerprint" th:value="${preview.fingerprint()}">
       <label class="check"><input type="checkbox" name="confirmFingerprint" value="yes" required> <span th:text="#{grants.confirm.check}">I compared this fingerprint with the one the session printed</span></label>
-      <th:block th:if="${preview.currentFingerprint() != null}">
-        <input type="hidden" name="replaceFingerprint" th:value="${preview.currentFingerprint()}">
+      <th:block th:if="${currentKey != null}">
+        <input type="hidden" name="replaceFingerprint" th:value="${currentKey.fingerprint()}">
         <label class="check"><input type="checkbox" name="replace" value="yes"> <span th:text="#{grants.replace.check}">Replace the registered key shown above with this one</span></label>
       </th:block>
       <button type="submit" th:text="#{grants.submit}">Issue</button>

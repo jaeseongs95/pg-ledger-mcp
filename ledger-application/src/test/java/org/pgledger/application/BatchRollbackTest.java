@@ -7,6 +7,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.write.BatchOpInput;
@@ -26,7 +27,7 @@ class BatchRollbackTest {
         String actor = s.actorWith("defect");
         String requestId = Scenario.uuid();
         List<BatchOpInput> ops = List.of(
-                new BatchOpInput.Save("defect", s.defectFields("created by the batch"), Scenario.REASON, null, null,
+                new BatchOpInput.Save("defect", Fields.of(s.defectFields("created by the batch")), Scenario.REASON, null, null,
                         null),
                 new BatchOpInput.Transition("defect", existing.id(), 9L, "DISPUTED", Scenario.REASON,
                         Scenario.EVIDENCE, null, null, null));

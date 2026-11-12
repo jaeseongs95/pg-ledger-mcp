@@ -32,6 +32,10 @@ import org.springframework.security.web.firewall.StrictHttpFirewall;
 @EnableWebSecurity
 public class McpSecurityConfiguration {
 
+    /**
+     * A {@code @Bean} method because the firewall is a Spring Security type that the framework picks up by type and that
+     * is configured with the allowed hosts of this server; it has no constructor the container could fill.
+     */
     @Bean
     HttpFirewall httpFirewall(LedgerMcpProperties properties) {
         Set<String> hosts = Set.copyOf(properties.allowedHosts().stream()
@@ -41,15 +45,19 @@ public class McpSecurityConfiguration {
         return firewall;
     }
 
+    /**
+     * A {@code @Bean} method because the handler is a Spring Security class that the framework picks up by type; the
+     * status it answers with (403, for a Host that is not allowed) is the choice made here.
+     */
     @Bean
     RequestRejectedHandler requestRejectedHandler() {
         return new HttpStatusRequestRejectedHandler(HttpStatus.FORBIDDEN.value());
     }
 
     @Bean
-    SecurityFilterChain mcpSecurity(HttpSecurity http, LedgerMcpProperties properties) throws Exception {
-        AuthenticationManager agents = new ProviderManager(new AgentTokenProvider(properties));
-        TransportOriginAuthorization origin = new TransportOriginAuthorization(properties);
+    SecurityFilterChain mcpSecurity(HttpSecurity http, AgentTokenProvider tokens, TransportOriginAuthorization origin)
+            throws Exception {
+        AuthenticationManager agents = new ProviderManager(tokens);
         return http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

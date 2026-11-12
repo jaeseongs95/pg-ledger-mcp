@@ -196,6 +196,35 @@ class FormsTest {
     }
 
     @Test
+    @DisplayName("ADM-PRN-07: the code form is bound to CodeGroup and CodeState: a value that is none of them is 400 "
+            + "VALIDATION_FAILED on its path with the allowed values; a sort order that is no number is NOT_AN_INTEGER")
+    void admPrn07_theCodeFormIsBoundToTheClosedSets() throws Exception {
+        Browser browser = Browser.signedIn(mvc);
+
+        post(browser, "/codes", "/codes", Form.of("group", "X", "code", "ABC", "nameKo", "n"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].path").value("group"))
+                .andExpect(jsonPath("$.errors[0].allowed[0]").value("DEFECT_CATEGORY"));
+        post(browser, "/codes", "/codes", Form.of("group", "DEFECT_CATEGORY", "code", "ABC", "nameKo", "n", "state",
+                "BOGUS")).andExpect(status().isBadRequest()).andExpect(jsonPath("$.errors[0].path").value("state"))
+                .andExpect(jsonPath("$.errors[0].allowed[0]").value("ACTIVE"));
+        post(browser, "/codes", "/codes", Form.of("group", "DEFECT_CATEGORY", "code", "ABC", "nameKo", "n",
+                "sortOrder", "many")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].path").value("sort_order"));
+    }
+
+    @Test
+    @DisplayName("ADM-PRN-08: the errors of Spring MVC keep their codes: 405 is HTTP_405, an unknown path is NOT_FOUND")
+    void admPrn08_theCodesOfSpringsErrorsAreKept() throws Exception {
+        Browser browser = Browser.signedIn(mvc);
+
+        browser.perform(browser.get("/codes/delete").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isMethodNotAllowed()).andExpect(jsonPath("$.code").value("HTTP_405"));
+        browser.perform(browser.get("/no/such/page").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
     @DisplayName("ADM-024: a code is created, then set INACTIVE; the row stays listed as inactive; the revision moves")
     void adm024_createAndRetireCode() throws Exception {
         Browser browser = Browser.signedIn(mvc);

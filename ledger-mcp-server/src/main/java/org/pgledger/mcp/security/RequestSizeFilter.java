@@ -13,12 +13,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import org.pgledger.domain.error.AdminCode;
 import org.pgledger.mcp.config.LedgerMcpProperties;
-import org.springframework.context.support.MessageSourceAccessor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
-import org.springframework.web.ErrorResponseException;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
@@ -32,20 +29,21 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  * documentation (https://tomcat.apache.org/tomcat-11.0-doc/config/http.html) says {@code maxPostSize} is the limit
  * of a form POST that the container parses and {@code maxSwallowSize} the number of bytes it swallows of an aborted
  * upload; neither limits a JSON body that the handler reads itself. Spring's {@code ContentCachingRequestWrapper}
- * caches but does not limit what the handler reads. The refusal is not written here (principle 3.8): the
- * {@link ErrorResponseException} goes to the {@link HandlerExceptionResolver} of the dispatcher, which hands it to
- * the one HTTP error advice that renders the problem detail.
+ * caches but does not limit what the handler reads. The refusal is not written here (principle 3.8): the filter only
+ * raises {@link RequestTooLargeException}, which goes to the {@link HandlerExceptionResolver} of the dispatcher, which
+ * hands it to the one HTTP error advice that builds the problem detail.
+ *
+ * <p>The filter is a component; {@code McpWebConfiguration} registers it (URL pattern and order).
  */
+@Component
 public final class RequestSizeFilter extends OncePerRequestFilter {
 
     private final long maxBytes;
-    private final MessageSourceAccessor messages;
     private final HandlerExceptionResolver errors;
 
-    public RequestSizeFilter(LedgerMcpProperties properties, MessageSourceAccessor modelMessages,
-            HandlerExceptionResolver errors) {
+    public RequestSizeFilter(LedgerMcpProperties properties,
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver errors) {
         this.maxBytes = properties.maxRequestSize().toBytes();
-        this.messages = modelMessages;
         this.errors = errors;
     }
 
@@ -70,11 +68,7 @@ public final class RequestSizeFilter extends OncePerRequestFilter {
     }
 
     private void refuse(HttpServletRequest request, HttpServletResponse response) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONTENT_TOO_LARGE,
-                messages.getMessage(AdminCode.PAYLOAD_TOO_LARGE.messageKey()));
-        problem.setProperty("code", AdminCode.PAYLOAD_TOO_LARGE.token());
-        errors.resolveException(request, response, null,
-                new ErrorResponseException(HttpStatus.CONTENT_TOO_LARGE, problem, null));
+        errors.resolveException(request, response, null, new RequestTooLargeException());
     }
 
     /** The request with the body that was read: the handler reads it again from memory. */

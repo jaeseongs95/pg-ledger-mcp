@@ -16,6 +16,10 @@ public class McpMessagesConfiguration {
     /** The language of all model-facing text. */
     private static final Locale MODEL_LANGUAGE = Locale.ENGLISH;
 
+    /**
+     * A {@code @Bean} method because {@link MessageSourceAccessor} is a Spring class that is given the one language of the
+     * model-facing text here; the container would make it with the language of each request.
+     */
     @Bean
     MessageSourceAccessor modelMessages(MessageSource messageSource) {
         return new MessageSourceAccessor(messageSource, MODEL_LANGUAGE);

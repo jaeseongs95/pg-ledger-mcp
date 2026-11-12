@@ -1,11 +1,12 @@
 package org.pgledger.admin.console;
 
-import java.time.Instant;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
-import org.pgledger.admin.security.OwnerActors;
+import org.pgledger.admin.web.FormErrors;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.GrantService.RevokeCommand;
@@ -17,9 +18,9 @@ import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.model.SessionPublicKey;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.value.OwnerIdentity;
-import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
+import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,24 +36,33 @@ import org.springframework.web.bind.annotation.PostMapping;
  * commit by themselves); a refused grant after a registered key leaves the key registered, which grants nothing. An author
  * that already has another live key is not changed silently: the owner has to confirm the replacement of that exact key,
  * which the preview shows with its registration time. Every operation is recorded with the signed-in owner.
+ *
+ * <p>The checks of the forms that need no knowledge of the ledger are the constraints of the form records ({@link FormErrors}
+ * turns a violation into the one failure of invalid input). What needs a computed value stays here: whether the fingerprint
+ * the owner repeated is the fingerprint of the pasted key.
  */
 @Controller
 public class GrantsController {
 
-    /**
-     * The forms of the screen: the issue form with the pasted public key; the confirmation adds the fingerprint that the
-     * owner saw and compared, and for a replacement the fingerprint of the key that is replaced.
-     */
+    /** The issue form with the pasted public key (the key is required: the grant screen registers it). */
     public record GrantForm(String author, String project, List<String> scopes, String expiresAt, String note,
-            String publicKey, String fingerprint, String confirmFingerprint, String replace, String replaceFingerprint) {
+            @NotNull(message = FormErrors.REQUIRED) String publicKey) {
     }
 
     /**
-     * What the owner compares before confirming: the fingerprint of the pasted key, and the key the author has now (if it
-     * is another one) with its registration time.
+     * What the confirmation adds: the fingerprint that the owner saw and compared (and the box that says so), and for a
+     * replacement the fingerprint of the key that is replaced.
      */
-    public record Preview(GrantForm form, String fingerprint, String server, boolean alreadyRegistered, String currentFingerprint,
-            Instant currentRegisteredAt) {
+    @ComparedFingerprint
+    public record Confirmation(String fingerprint, String confirmFingerprint, String replace,
+            String replaceFingerprint) {
+    }
+
+    /**
+     * What the owner compares before confirming: the fingerprint of the pasted key, whether the author has that key
+     * already. The key the author has now, when it is another one, is the model attribute {@code currentKey}.
+     */
+    public record Preview(GrantForm form, String fingerprint, String server, boolean alreadyRegistered) {
     }
 
     /** The form that closes a key: the author and the fingerprint of its live key, typed by the owner. */
@@ -62,11 +72,13 @@ public class GrantsController {
     private final GrantService grants;
     private final SessionKeyService keys;
     private final Choices choices;
+    private final FormErrors forms;
 
-    public GrantsController(GrantService grants, SessionKeyService keys, Choices choices) {
+    public GrantsController(GrantService grants, SessionKeyService keys, Choices choices, FormErrors forms) {
         this.grants = grants;
         this.keys = keys;
         this.choices = choices;
+        this.forms = forms;
     }
 
     @GetMapping("/grants")
@@ -81,34 +93,35 @@ public class GrantsController {
      * to the fingerprint, and the block must be for the author of the form.
      */
     @PostMapping("/grants/preview")
-    String preview(@ModelAttribute GrantForm form, Model model) {
-        PresentedKey presented = keys.present(form.author(), requireKey(form));
+    String preview(@Valid @ModelAttribute GrantForm form, BindingResult formErrors, Model model) {
+        forms.raiseIfAny(formErrors);
+        PresentedKey presented = keys.present(form.author(), form.publicKey());
         Optional<SessionPublicKey> current = keys.live(form.author());
-        boolean alreadyRegistered = current.filter(live -> Objects.equals(live.fingerprint(), presented.fingerprint()))
-                .isPresent();
-        Optional<SessionPublicKey> other = current
-                .filter(live -> !Objects.equals(live.fingerprint(), presented.fingerprint()));
+        boolean alreadyRegistered = current.map(live -> Objects.equals(live.fingerprint(), presented.fingerprint()))
+                .orElse(false);
         fill(model);
+        current.filter(live -> !Objects.equals(live.fingerprint(), presented.fingerprint()))
+                .ifPresent(other -> model.addAttribute("currentKey", other));
         // the confirmation carries the bare key, whichever of the two forms was pasted
         GrantForm shown = new GrantForm(form.author(), form.project(), form.scopes(), form.expiresAt(), form.note(),
-                presented.publicKey(), form.fingerprint(), form.confirmFingerprint(), form.replace(),
-                form.replaceFingerprint());
-        model.addAttribute("preview", new Preview(shown, presented.fingerprint(), presented.server(), alreadyRegistered,
-                other.map(SessionPublicKey::fingerprint).orElse(null),
-                other.map(SessionPublicKey::registeredAt).orElse(null)));
+                presented.publicKey());
+        model.addAttribute("preview", new Preview(shown, presented.fingerprint(), presented.server(),
+                alreadyRegistered));
         return "grants";
     }
 
     @PostMapping("/grants")
-    String grant(@ModelAttribute GrantForm form, Authentication authentication) {
-        OwnerIdentity actor = OwnerActors.of(authentication);
-        PresentedKey presented = keys.present(form.author(), requireKey(form));
-        requireComparison(form, presented.fingerprint());
+    String grant(@Valid @ModelAttribute GrantForm form, BindingResult formErrors,
+            @Valid @ModelAttribute Confirmation confirmation, BindingResult confirmationErrors, OwnerIdentity actor) {
+        forms.raiseIfAny(formErrors);
+        PresentedKey presented = keys.present(form.author(), form.publicKey());
+        forms.raiseIfAny(confirmationErrors);
+        requireTheKeysFingerprint(confirmation, presented.fingerprint());
         RegisterCommand key = new RegisterCommand(form.author(), presented.publicKey(), null);
-        if (form.replace() == null) {
+        if (confirmation.replace() == null) {
             keys.register(key, actor);
         } else {
-            keys.registerReplacing(key, actor, form.replaceFingerprint());
+            keys.registerReplacing(key, actor, confirmation.replaceFingerprint());
         }
         grants.grant(new GrantCommand(form.author(), form.project(), form.scopes(), form.expiresAt(), form.note()),
                 actor);
@@ -116,8 +129,8 @@ public class GrantsController {
     }
 
     @PostMapping("/grants/revoke")
-    String revoke(@ModelAttribute RevokeCommand command, Authentication authentication) {
-        grants.revoke(command, OwnerActors.of(authentication));
+    String revoke(@ModelAttribute RevokeCommand command, OwnerIdentity actor) {
+        grants.revoke(command, actor);
         return "redirect:/grants";
     }
 
@@ -127,8 +140,8 @@ public class GrantsController {
      * another key is registered. Recorded with the signed-in owner.
      */
     @PostMapping("/grants/keys/revoke")
-    String revokeKey(@ModelAttribute KeyRevokeForm form, Authentication authentication) {
-        keys.revokeConfirmed(form.author(), form.fingerprint(), OwnerActors.of(authentication));
+    String revokeKey(@ModelAttribute KeyRevokeForm form, OwnerIdentity actor) {
+        keys.revokeConfirmed(form.author(), form.fingerprint(), actor);
         return "redirect:/grants";
     }
 
@@ -139,19 +152,9 @@ public class GrantsController {
         model.addAttribute("scopes", Scope.values());
     }
 
-    private static String requireKey(GrantForm form) {
-        if (form.publicKey() == null) {
-            throw ValidationException.invalid("public_key", ValidationReason.REQUIRED);
-        }
-        return form.publicKey();
-    }
-
-    /** The owner compared the fingerprint: the form repeats the one of the key and the box is checked. */
-    private static void requireComparison(GrantForm form, String fingerprint) {
-        if (form.fingerprint() == null || form.confirmFingerprint() == null) {
-            throw ValidationException.invalid("fingerprint", ValidationReason.REQUIRED);
-        }
-        if (!Objects.equals(fingerprint, form.fingerprint().toLowerCase(Locale.ROOT))) {
+    /** The owner repeated the fingerprint of the pasted key (letters of either case): compared with the computed one. */
+    private static void requireTheKeysFingerprint(Confirmation confirmation, String fingerprint) {
+        if (!Objects.equals(fingerprint, confirmation.fingerprint().toLowerCase(Locale.ROOT))) {
             throw ValidationException.invalid("fingerprint", ValidationReason.MUST_MATCH, fingerprint);
         }
     }

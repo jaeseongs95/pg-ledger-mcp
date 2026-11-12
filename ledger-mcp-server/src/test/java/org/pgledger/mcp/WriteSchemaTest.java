@@ -53,15 +53,15 @@ class WriteSchemaTest {
     }
 
     @Test
-    @DisplayName("MCW-002: the only object of a write schema that lists no keys is the free-key fields map of a "
-            + "batch operation")
-    void theOnlyOpenObjectIsTheFieldsMapOfABatchOperation(McpSession session) {
+    @DisplayName("MCW-002 / MCW-PRN-01: no object of a write schema is a map of free keys: since the batch binds the fields "
+            + "of a save as the same record as ledger_save, the fields of a batch operation list their keys too")
+    void noObjectIsAMapOfFreeKeys(McpSession session) {
         List<String> withOpenObject = ToolNames.WRITE.stream()
                 .filter(tool -> input(session, tool).nodes().anyMatch(node -> "object".equals(node.type())
                         && node.properties().isEmpty()))
                 .toList();
 
-        assertThat(withOpenObject).containsExactly("ledger_batch");
+        assertThat(withOpenObject).isEmpty();
     }
 
     @Test

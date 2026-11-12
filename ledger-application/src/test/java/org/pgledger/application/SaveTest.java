@@ -15,8 +15,10 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.application.history.Change;
 import org.pgledger.application.support.Expect;
+import org.pgledger.application.support.Fields;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
+import org.pgledger.application.write.BatchService;
 import org.pgledger.application.write.SaveCommand;
 import org.pgledger.application.write.SaveService;
 import org.pgledger.application.write.WriteResult.SaveResult;
@@ -192,18 +194,31 @@ class SaveTest {
                 Map.of("project_id", s.projectId()))), TransitionCode.PROJECT_MOVE_FORBIDDEN);
     }
 
-    static Stream<String> keysThatAreNotEditable() {
-        return Stream.of("status", "version", "created_by", "id", "merged_into", "state", "updated_at", "titel");
+    static Stream<String> keysOfAnotherEntity() {
+        return Stream.of("purpose", "success_condition", "origin_ref", "origin_quote", "release", "goal_label", "code",
+                "condition_text");
     }
 
     @ParameterizedTest
-    @MethodSource("keysThatAreNotEditable")
-    @DisplayName("SVC-SAV-10: a key that is not an editable field is refused and named")
-    void sav10_unknownKey(String key, Scenario s) {
-        ValidationException e = (ValidationException) Expect.failure(() -> s.bean(SaveService.class).save(
-                Scenario.AUTHOR, s.create("defect", null, with(s.defectFields("d"), key, "x"))),
-                ValidationCode.VALIDATION_FAILED);
+    @MethodSource("keysOfAnotherEntity")
+    @DisplayName("SVC-SAV-10: a key that belongs to another entity is refused and named")
+    void sav10_keyOfAnotherEntity(String key, Scenario s) {
+        SaveCommand command = new SaveCommand(null, "defect", null, 0L, Fields.of(with(s.defectFields("d"), key, "x")),
+                Scenario.REASON);
+        ValidationException e = (ValidationException) Expect.failure(
+                () -> s.bean(SaveService.class).save(Scenario.AUTHOR, command), ValidationCode.VALIDATION_FAILED);
         assertThat(e.issues().get(0).path()).isEqualTo("fields." + key);
+        assertThat(s.count("SELECT COUNT(*) FROM defect WHERE project_id = ?", s.projectId())).isZero();
+    }
+
+    @Test
+    @DisplayName("SVC-SAV-10: a key that is not a field of any entity is refused in a batch given as text")
+    void sav10_unknownKeyInABatchText(Scenario s) {
+        String ops = "[{\"op\":\"save\",\"entity\":\"defect\",\"fields\":{\"title\":\"t\",\"status\":\"X\"},"
+                + "\"reason\":\"a reason that is long enough\"}]";
+        ValidationException e = (ValidationException) Expect.failure(
+                () -> s.bean(BatchService.class).batch(Scenario.AUTHOR, null, ops), ValidationCode.VALIDATION_FAILED);
+        assertThat(e.issues().get(0).path()).startsWith("ops[0].fields");
         assertThat(s.count("SELECT COUNT(*) FROM defect WHERE project_id = ?", s.projectId())).isZero();
     }
 
@@ -265,7 +280,7 @@ class SaveTest {
     void sav16_reasonLength(int length, Scenario s) {
         String id = Scenario.uuid();
         Expect.failure(() -> s.bean(SaveService.class).save(Scenario.AUTHOR, new SaveCommand(id, "defect", null, 0L,
-                s.defectFields("d"), "r".repeat(length))), ValidationCode.REASON_INVALID);
+                Fields.of(s.defectFields("d")), "r".repeat(length))), ValidationCode.REASON_INVALID);
         assertThat(s.count("SELECT COUNT(*) FROM request_receipt WHERE request_id = ?", id)).isZero();
     }
 

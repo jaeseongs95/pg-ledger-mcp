@@ -3,7 +3,6 @@ package org.pgledger.application.write;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import jakarta.validation.constraints.NotNull;
-import java.util.Map;
 
 /**
  * One operation of a batch as it arrives: the {@code op} key picks the record, the other keys are the keys of
@@ -28,7 +27,7 @@ public sealed interface BatchOpInput {
     /** The operation's own request id, or null (the batch derives one). */
     String requestId();
 
-    record Save(@NotNull(message = REQUIRED) String entity, @NotNull(message = REQUIRED) Map<String, String> fields,
+    record Save(@NotNull(message = REQUIRED) String entity, @NotNull(message = REQUIRED) FieldsInput fields,
             @NotNull(message = REQUIRED) String reason, String id, Long expectedVersion, String requestId)
             implements BatchOpInput {
     }

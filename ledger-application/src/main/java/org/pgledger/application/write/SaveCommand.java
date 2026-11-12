@@ -1,15 +1,15 @@
 package org.pgledger.application.write;
 
-import java.util.Map;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
 
 /**
  * Create (expected version absent or 0) or edit (expected version of the row) a defect, task or condition. The
- * field values are texts; a key that is present with a null or blank value clears an optional field.
+ * field values are texts; a key that is written with a null or blank value clears an optional field, a key that is
+ * left out is not touched ({@link FieldsInput}).
  */
 public record SaveCommand(String requestId, String entity, String id, Long expectedVersion,
-        Map<String, String> fields, String reason) implements WriteCommand {
+        FieldsInput fields, String reason) implements WriteCommand {
 
     /**
      * Whether the request creates a row (no expected version, or 0) rather than edits one.
@@ -37,6 +37,6 @@ public record SaveCommand(String requestId, String entity, String id, Long expec
 
     /** The project the request names in {@code fields}, as text, or null when it names none. */
     String mentionedProject() {
-        return fields == null ? null : fields.get("project_id");
+        return fields == null ? null : fields.projectId().orNull();
     }
 }

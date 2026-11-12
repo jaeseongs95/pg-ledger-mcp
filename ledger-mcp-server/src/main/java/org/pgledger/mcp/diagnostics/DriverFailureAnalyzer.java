@@ -20,6 +20,8 @@ public class DriverFailureAnalyzer extends AbstractFailureAnalyzer<Infrastructur
                 && cause.code() != InfrastructureCode.DRIVER_INVALID) {
             return null;
         }
+        // made with new: Spring Boot creates a failure analyzer from spring.factories (reflection, no-argument constructor)
+        // while the application context failed to start, so no container exists to inject a MessageSource from
         ResourceBundleMessageSource bundles = new ResourceBundleMessageSource();
         bundles.setBasename("messages/ledger-errors");
         bundles.setFallbackToSystemLocale(false);

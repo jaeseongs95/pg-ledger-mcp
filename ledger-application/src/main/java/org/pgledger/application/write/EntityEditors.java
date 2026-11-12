@@ -52,34 +52,31 @@ public class EntityEditors {
         };
     }
 
-    /** Refuses unknown keys and builds the typed fields; a missing map is a failure. */
-    public EntityFields parse(HistoryEntity entity, Map<String, String> raw) {
-        if (raw == null) {
+    /**
+     * Refuses a key that belongs to another kind of row (the editable keys are those of {@link #keys}) and builds the typed
+     * fields; a missing input is a failure. A key that no kind has never gets here: the JSON reading refuses it.
+     */
+    public EntityFields parse(HistoryEntity entity, FieldsInput input) {
+        if (input == null) {
             throw ValidationException.invalid("fields", ValidationReason.REQUIRED);
         }
         List<String> allowed = keys(entity);
-        for (String key : raw.keySet()) {
+        for (String key : input.mentioned().keySet()) {
             if (!allowed.contains(key)) {
                 throw ValidationException.invalid("fields." + key, ValidationReason.NOT_AN_EDITABLE_FIELD_OF, allowed,
                         entity.token());
             }
         }
         return switch (entity) {
-            case DEFECT -> DefectFields.of(patch(raw, "project_id"), patch(raw, "title"), patch(raw, "category"),
-                    patch(raw, "severity"), patch(raw, "behavior"), patch(raw, "root_cause"),
-                    patch(raw, "owner_actor_id"));
-            case TASK -> TaskFields.of(patch(raw, "project_id"), patch(raw, "title"), patch(raw, "purpose"),
-                    patch(raw, "success_condition"), patch(raw, "owner_actor_id"), patch(raw, "origin_ref"),
-                    patch(raw, "origin_quote"));
-            case CONDITION -> ConditionFields.of(patch(raw, "project_id"), patch(raw, "release"),
-                    patch(raw, "goal_label"), patch(raw, "code"), patch(raw, "condition_text"));
+            case DEFECT -> DefectFields.of(input.projectId(), input.title(), input.category(), input.severity(),
+                    input.behavior(), input.rootCause(), input.ownerActorId());
+            case TASK -> TaskFields.of(input.projectId(), input.title(), input.purpose(), input.successCondition(),
+                    input.ownerActorId(), input.originRef(), input.originQuote());
+            case CONDITION -> ConditionFields.of(input.projectId(), input.release(), input.goalLabel(), input.code(),
+                    input.conditionText());
             case DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE ->
                 throw new IllegalStateException("keys() refused it");
         };
-    }
-
-    private static Patch<String> patch(Map<String, String> raw, String key) {
-        return raw.containsKey(key) ? Patch.set(raw.get(key)) : Patch.absent();
     }
 
     /** The mentioned fields of a request as text (null for a field that is cleared). */

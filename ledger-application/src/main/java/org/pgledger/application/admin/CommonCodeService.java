@@ -78,4 +78,10 @@ public class CommonCodeService {
     public List<CommonCode> list(CodeGroup group) {
         return codes.catalog(group).entries();
     }
+
+    /** The code revision: it moves whenever a code is changed, so a reader of the codes can tell when to read them again. */
+    @Transactional(readOnly = true)
+    public long revision() {
+        return revision.current();
+    }
 }
