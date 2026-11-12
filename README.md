@@ -247,9 +247,13 @@ The options of `deploy/install.sh` are given as `--name=value`; the ones it does
 | `--admin-port=<n>` | the loopback port of the admin web, default 8865 |
 | `--mcp-host=<host>` | the public host name of the MCP server, allowed in its `Host` check |
 | `--admin-host=<host>` | the public host name of the admin web |
-| `--nginx-conf=<path>` | Linux: write the nginx site to this file; needs both host names, `--tls-certificate=<path>` and `--tls-key=<path>` |
+| `--nginx-conf=<path>` | Linux: write the nginx site to this file; needs both host names and either `--tls-certificate=<path>` and `--tls-key=<path>` or `--tls-acme` |
 | `--tls-certificate=<path>` | the TLS certificate of the operator; nothing issues or renews one |
 | `--tls-key=<path>` | the TLS key of the operator |
+| `--tls-acme` | a flag, instead of the certificate and the key of the operator: the certificate is made and renewed by `ledger-cli` (see Automatic certificate) |
+| `--acme-directory=<url>` | with `--tls-acme`, optional: the ACME directory URL of the certificate authority; the default is the production directory of Let's Encrypt, `https://acme-v02.api.letsencrypt.org/directory` |
+| `--acme-email=<address>` | with `--tls-acme`, optional: the contact address of the ACME account |
+| `--agree-tos` | with `--tls-acme`: you have read the terms of service of the certificate authority and agree to them; the first order needs it |
 | `--from-1x-env=<file>` | migration from 1.x: the 1.x environment file; its two tokens become secrets before any token is generated (see Migrating from 1.x) |
 | `--stdin` | read the passwords from standard input instead of the terminal: first the one of the application account (only while it is not stored), then the DDL one; the convention of `docker login --password-stdin` |
 
@@ -279,6 +283,54 @@ With a public name and TLS, add the host names and the paths of your certificate
 ```sh
 sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --mcp-host=<mcp-host> --admin-host=<admin-host> --nginx-conf=/etc/nginx/conf.d/pg-ledger-mcp.conf --tls-certificate=<certificate> --tls-key=<key>
 ```
+
+### Automatic certificate
+
+With `--tls-acme` in place of `--tls-certificate` and `--tls-key`, `ledger-cli` makes and renews the certificate itself. It is a
+standard ACME client (RFC 8555) built on the library acme4j (Apache-2.0; it brings jose4j, Apache-2.0, and Bouncy Castle, under the
+Bouncy Castle license, an MIT-style license, which acme4j uses for the certificate request). The certificate authority is any ACME
+directory: `--acme-directory=<url>`, by default the production directory of Let's Encrypt. The proof is HTTP-01 only, so no
+interface of a DNS or CDN vendor is involved. The result is `fullchain.pem` and `privkey.pem` in `/etc/<name>/tls`, next to the
+account key `account.key`: standard PEM files that any other proxy can use as well. The keys are made with the JDK (EC P-256),
+stored so that only the service user can read them, never printed, and the files are replaced atomically, so a failed renewal
+leaves the old certificate in place.
+
+What the operator does, in this order:
+
+1. Create the DNS records (`A` and `AAAA`) of the two host names, `--mcp-host` and `--admin-host`, that point to the server.
+2. Allow the ports `80` and `443` in the firewall. Port `80` must reach nginx: the certificate authority fetches the proof from
+   there over HTTP.
+3. If a CDN or another proxy stands in front of the server, it has to pass the path `/.well-known/acme-challenge/` through to the
+   server on port `80` and must neither cache it nor redirect it. Long-lived MCP connections (Streamable HTTP) need a timeout of
+   the proxy that is long enough; the nginx site itself sets `proxy_buffering off` and `proxy_read_timeout 3600s` for the MCP host.
+4. Read the terms of service of the certificate authority and give `--agree-tos`; `--acme-email=<address>` is an optional contact.
+
+```sh
+sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --mcp-host=<mcp-host> --admin-host=<admin-host> --nginx-conf=/etc/nginx/conf.d/pg-ledger-mcp.conf --tls-acme --agree-tos
+```
+
+The nginx site holds only the `server` blocks of its own two host names. It never takes `default_server` and changes no other
+site, so it can live next to other services of the host. For each host name a port 80 block serves `/.well-known/acme-challenge/`
+from the web root `/var/www/<name>-acme` and redirects everything else to https; the 443 blocks use the PEM files.
+
+First issuance: nginx cannot load a 443 block before its certificate files exist, so `render-deploy` writes the 443 blocks only
+when `fullchain.pem` and `privkey.pem` exist. The installer therefore writes the site with the port 80 blocks, lets nginx load it,
+runs `tls-issue` as the service user, runs `render-deploy` again (now with the 443 blocks), lets nginx load the site again and
+enables the timer. Running the installer again asks `tls-renew` instead, which orders only what is due.
+
+Renewal: `render-deploy --tls-acme` writes the systemd service `<name>-tls-renew.service` and the timer
+`<name>-tls-renew.timer`. The timer runs twice a day, at a random time. `tls-renew` orders a new certificate only when the present
+one expires within 30 days (`--renew-before-days=<n>`) or does not name exactly the two host names, and otherwise does nothing and
+says so. The service runs as the service user without any capability, may write only the TLS directory and the web root, and
+reloads nginx afterwards with `ExecStartPost=+/usr/bin/systemctl reload nginx`. That is one fixed command line that systemd runs with
+full privileges outside the sandbox (the `+` prefix of systemd.service(5)), because only root may reload nginx. Nothing from the
+service user reaches it, and no `sudo` rule and no polkit rule has to be kept; the process that talks to the network and writes the
+keys keeps no privilege.
+
+Automatic certificates are for Linux only, because the nginx site is: the installer for Windows has no web server of its own (a
+Windows server is reached through a reverse proxy that you prepare). The commands themselves run on any host: with `--webroot=<dir>`
+and `--tls-dir=<dir>` they write the proof where the web server of your choice serves it and the PEM files where your proxy reads
+them, and `--name=<name>` selects the instance whose directories are the defaults.
 
 ### Windows: a personal PC or a server
 
@@ -381,10 +433,12 @@ service user), and every owner operation is recorded with that user.
 | `revoke` | `revoke <author> [<project> [<scope>]]` | revoke live grants |
 | `grants` | `grants [<author>]` | list live grants |
 | `mcp-check` | `mcp-check [--url=<url>] [--ledger.mcp.token=<token>]` | connect to a running MCP server and check its tools |
-| `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>] [--check]` | write the service definitions (systemd units, or WinSW configurations on Windows), the settings and the optional nginx site; the installers call it |
-| `prepare-host` | `prepare-host --jars=<dir> --driver-jar=<file> [--winsw=<file>] --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | prepare the files of the host (run as root, or elevated on Windows): the folders with owner and mode, or their ACLs, the copies of the jars and the driver (on Windows also of WinSW), and what `render-deploy` writes; the installers call it |
-| `seal-host` | `seal-host --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | Windows, last: give LocalService its access and hand the secrets over to it; the installer calls it |
+| `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> (--tls-certificate=<path> --tls-key=<path> | --tls-acme [--acme-directory=<url>])] [--root=<directory>] [--check]` | write the service definitions (systemd units, or WinSW configurations on Windows), the settings and the optional nginx site; the installers call it |
+| `prepare-host` | `prepare-host --jars=<dir> --driver-jar=<file> [--winsw=<file>] --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> (--tls-certificate=<path> --tls-key=<path> | --tls-acme [--acme-directory=<url>])] [--root=<directory>]` | prepare the files of the host (run as root, or elevated on Windows): the folders with owner and mode, or their ACLs, the copies of the jars and the driver (on Windows also of WinSW), and what `render-deploy` writes; the installers call it |
+| `seal-host` | `seal-host --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> (--tls-certificate=<path> --tls-key=<path> | --tls-acme [--acme-directory=<url>])] [--root=<directory>]` | Windows, last: give LocalService its access and hand the secrets over to it; the installer calls it |
 | `install-default` | `install-default <name>` | print one default of the installation from the seed bundle (`instance-name`, `mcp-port` or `admin-port`); the installers ask for their defaults with it |
+| `tls-issue` | `tls-issue --mcp-host=<host> --admin-host=<host> [--name=<name>] [--webroot=<dir>] [--tls-dir=<dir>] [--acme-directory=<url>] [--acme-email=<address>] [--agree-tos]` | order a certificate for the two host names from a certificate authority that speaks ACME and write `fullchain.pem` and `privkey.pem`; the first run creates the account and needs `--agree-tos`; see Automatic certificate |
+| `tls-renew` | `tls-renew --mcp-host=<host> --admin-host=<host> [--name=<name>] [--webroot=<dir>] [--tls-dir=<dir>] [--acme-directory=<url>] [--renew-before-days=<n>]` | order a new certificate when the present one expires within `--renew-before-days` (default 30) or does not name exactly the two host names, and otherwise do nothing; the timer of `--tls-acme` runs it |
 
 ## Admin web
 

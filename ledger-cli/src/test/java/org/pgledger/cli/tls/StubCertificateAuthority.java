@@ -497,7 +497,7 @@ final class StubCertificateAuthority implements AutoCloseable {
     // ---- JWS and keys ----
 
     private static String decode(String base64Url) {
-        return new String(Base64.getUrlDecoder().decode(base64Url), StandardCharsets.UTF_8).strip();
+        return StandardCharsets.UTF_8.decode(java.nio.ByteBuffer.wrap(Base64.getUrlDecoder().decode(base64Url))).toString().strip();
     }
 
     private static PublicKey publicKey(Map<String, Object> jwk) throws GeneralSecurityException {
