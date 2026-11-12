@@ -62,7 +62,9 @@ class SaveInputTest {
                 .isEqualTo(Scenario.AUTHOR);
 
         WriteOutputs.Saved cleared = session.ok("ledger_save",
-                edit(session, created.id(), retitled.version(), one("owner_actor_id", null)),
+                // the test client drops a null of a map when it writes the call (its mapper omits nulls), so the null is
+                // written in the text form of fields, which the server reads into the same map with the null in it
+                edit(session, created.id(), retitled.version(), "{\"owner_actor_id\":null}"),
                 WriteOutputs.Saved.class);
 
         ReadOutputs.Defect read = defect(session, created.id());
