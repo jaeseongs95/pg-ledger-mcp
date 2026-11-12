@@ -46,7 +46,6 @@ class DocsTest {
     /** Changed by install: {@code deploy/} holds the installer of 2.x (deploy/install.sh), it is not a 1.x directory any more. */
     private static final List<String> LEGACY_DIRECTORIES = List.of("bin", "web", "mcp", "sql", "tests");
     private static final String INSTALL_SCRIPT = "deploy/install.sh";
-    /** The options the script reads itself: the patterns {@code --name=*)} of its option loop (derived from the script). */
     /** An option of the loop of install.sh: {@code --name=*)} (with a value) or {@code --stdin)} (a flag); a digit is allowed ({@code --from-1x-env}). */
     private static final Pattern SCRIPT_OPTION = Pattern.compile("--([a-z][a-z0-9-]*)(?:=\\*)?\\)");
     private static final List<String> INSTALL_NOTE_TERMS = List.of("deploy/install.sh", "deploy\\install.cmd", "render-deploy",

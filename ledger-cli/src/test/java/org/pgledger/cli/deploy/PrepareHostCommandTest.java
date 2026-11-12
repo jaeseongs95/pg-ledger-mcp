@@ -57,6 +57,9 @@ class PrepareHostCommandTest {
 
     private Path jars() throws IOException {
         Path jars = tmp.resolve("jars");
+        if (Files.exists(jars)) {
+            return jars;
+        }
         Files.createDirectories(jars);
         for (String jar : List.of(DeployLayout.CLI_JAR, DeployLayout.MCP_JAR, DeployLayout.ADMIN_JAR, "driver.jar", "WinSW.exe")) {
             Files.write(jars.resolve(jar), ("content of " + jar).getBytes(StandardCharsets.UTF_8));
@@ -195,8 +198,8 @@ class PrepareHostCommandTest {
 
     /** Whether this process may change what only an administrator may: it can list the configuration of the system. */
     private static boolean elevated() {
-        try (DirectoryStream<Path> ignored = Files.newDirectoryStream(Path.of("C:/Windows/System32/config"))) {
-            return true;
+        try (DirectoryStream<Path> configuration = Files.newDirectoryStream(Path.of("C:/Windows/System32/config"))) {
+            return configuration != null;
         } catch (IOException e) {
             return false;
         }
