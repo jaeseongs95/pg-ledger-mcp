@@ -33,12 +33,12 @@ import org.springframework.test.context.ContextConfiguration;
  * search never come from a value. The schema is built by the real {@code db/V*.sql} files when the context starts; every
  * test runs in a transaction that Spring rolls back.
  */
-// The database is a named in-memory H2 behind Boot's pooled (Hikari) DataSource, and Boot's own embedded replacement is
+// The test database is a named in-memory H2 behind Boot's pooled (Hikari) DataSource, and Boot's own embedded replacement is
 // switched off (Replace.NONE). Why: in H2 2.4.240 a CHECK ... IN (<constants>) constraint keeps the session that created
 // it (ConditionInConstantSet compares through that session), so once that session is closed every later insert into the
 // table fails with "The database has been closed" (stack: SessionLocal.getDatabase from ConditionInConstantSet). Boot's
 // embedded replacement opens and closes a connection for every call, so the session that ran the schema files is gone
-// before the first insert; a pool keeps its connections open. The product always runs behind a pool.
+// before the first insert; a pool keeps its connections open, so this test database is pooled.
 @JdbcTest(properties = {"ledger.schema.long-text-type=CLOB",
         "spring.datasource.url=jdbc:h2:mem:w2searchslice;DB_CLOSE_DELAY=-1"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)

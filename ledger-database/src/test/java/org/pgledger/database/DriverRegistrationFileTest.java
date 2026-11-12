@@ -31,6 +31,8 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.TransactionSystemException;
 import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -103,14 +105,23 @@ class DriverRegistrationFileTest {
     void theFileIsReplacedAfterTheCommit(LedgerTestContext ctx) throws IOException {
         DriverRegistrationFile file = fileWithTheOldRegistration();
         List<String> seenInsideTheTransaction = new ArrayList<>();
+        List<String> seenJustBeforeTheCommit = new ArrayList<>();
 
         file.register(NEW, transaction(ctx, false), () -> {
             auditRow(ctx, 8_100_001L);
             seenInsideTheTransaction.add(file.read().orElseThrow().sha256());
+            // looks again at the last moment before the commit, after the replacement has been tied to the transaction
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void beforeCommit(boolean readOnly) {
+                    seenJustBeforeTheCommit.add(file.read().orElseThrow().sha256());
+                }
+            });
         });
 
         assertThat(seenInsideTheTransaction).as("not replaced while the audit row is not committed")
                 .containsExactly(OLD.sha256());
+        assertThat(seenJustBeforeTheCommit).as("still not replaced just before the commit").containsExactly(OLD.sha256());
         assertThat(file.read().orElseThrow()).isEqualTo(new DriverRegistrationFile.Entry(NEW.jar().toString(),
                 NEW.className(), NEW.sha256(), NEW.registeredAt()));
         assertThat(auditRows(ctx, 8_100_001L)).isEqualTo(1);
