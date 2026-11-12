@@ -20,7 +20,9 @@ public final class DeployOptions {
     public static final String LONG_TEXT_TYPE = "long-text-type";
     public static final String MCP_PORT = "mcp-port";
     public static final String ADMIN_PORT = "admin-port";
+    /** The public host names of the MCP server: one name or a comma list, each allowed in its Host check and served by the nginx site. */
     public static final String MCP_HOST = "mcp-host";
+    /** The public host names of the admin web, in the form of {@link #MCP_HOST}; optional (the admin web is then reached on loopback only). */
     public static final String ADMIN_HOST = "admin-host";
     /** Linux only: write the nginx site (the reverse proxy in front of the two services); absent writes none. */
     public static final String NGINX_CONF = "nginx-conf";
@@ -36,6 +38,12 @@ public final class DeployOptions {
      * can live on one host (each with its own ports).
      */
     public static final String NAME = "name";
+    /**
+     * Not rendered into any file: the environment file of a 1.x installation ({@code deploy/install.sh --from-1x-env}). The public host
+     * names it allows must be carried by {@link #MCP_HOST} and {@link #ADMIN_HOST}, or the command is refused before anything is
+     * changed ({@link LegacyHosts}).
+     */
+    public static final String FROM_1X_ENV = "from-1x-env";
     /** Not rendered into any file: a directory the files are written below instead of at their own paths. */
     public static final String ROOT = "root";
     /** {@code prepare-host} on Windows: the WinSW executable, copied once for each of the two services; no value on Linux. */
@@ -45,7 +53,7 @@ public final class DeployOptions {
 
     /** The options that take a value, in the order of their usage text. */
     public static final List<String> ALL = List.of(NAME, PLATFORM, HOME, JAVA, JDBC_URL, APP_ACCOUNT, SCHEMA, LONG_TEXT_TYPE,
-            MCP_PORT, ADMIN_PORT, MCP_HOST, ADMIN_HOST, NGINX_CONF, TLS_CERTIFICATE, TLS_KEY, ACME_DIRECTORY, ROOT);
+            MCP_PORT, ADMIN_PORT, MCP_HOST, ADMIN_HOST, NGINX_CONF, TLS_CERTIFICATE, TLS_KEY, ACME_DIRECTORY, FROM_1X_ENV, ROOT);
 
     /** Every option of the command, as the set the runner checks the command line against. */
     public static final Set<String> NAMES = Stream.concat(ALL.stream(), Stream.of(CHECK, TLS_ACME))

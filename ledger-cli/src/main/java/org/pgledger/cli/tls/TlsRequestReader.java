@@ -3,11 +3,12 @@ package org.pgledger.cli.tls;
 import java.net.URI;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.pgledger.cli.CliOptions;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.UsageException;
@@ -44,10 +45,12 @@ final class TlsRequestReader {
      *         or a path that is not plain, INVALID_OPTION_VALUE for the directory URL, the address or the threshold
      */
     TlsRequest read(ApplicationArguments arguments, boolean issue) {
-        String mcpHost = DeployForms.requireHost(CliOptions.required(arguments, DeployOptions.MCP_HOST), DeployOptions.MCP_HOST);
-        String adminHost = DeployForms.requireHost(CliOptions.required(arguments, DeployOptions.ADMIN_HOST), DeployOptions.ADMIN_HOST);
-        if (Objects.equals(mcpHost, adminHost)) {
-            // the same rule as the deployment: the two services have two public host names
+        // the names are those of the deployment: a comma list for each service, the admin web with no public name needs none
+        List<String> mcpHosts = DeployForms.requireHosts(CliOptions.required(arguments, DeployOptions.MCP_HOST), DeployOptions.MCP_HOST);
+        List<String> adminHosts = CliOptions.value(arguments, DeployOptions.ADMIN_HOST)
+                .map(value -> DeployForms.requireHosts(value, DeployOptions.ADMIN_HOST)).orElse(List.of());
+        if (!Collections.disjoint(mcpHosts, adminHosts)) {
+            // the same rule as the deployment: a name is served by one of the two services
             throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, DeployOptions.ADMIN_HOST);
         }
         String name = DeployForms.requireName(CliOptions.value(arguments, DeployOptions.NAME).orElseGet(defaults::instanceName),
@@ -67,7 +70,7 @@ final class TlsRequestReader {
         } else {
             days = days(CliOptions.integerOrNull(arguments, TlsOptions.RENEW_BEFORE_DAYS));
         }
-        return new TlsRequest(List.of(mcpHost, adminHost), webroot, directory, acme, email, agree, days);
+        return new TlsRequest(Stream.concat(mcpHosts.stream(), adminHosts.stream()).toList(), webroot, directory, acme, email, agree, days);
     }
 
     private static Path path(String value, String option) {

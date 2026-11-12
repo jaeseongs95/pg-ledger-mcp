@@ -57,6 +57,10 @@ final class DeployInputReader {
             values.put(DeployOptions.TLS_ACME, "");
         }
         DeployParameters parameters = parameters(values);
+        if (values.containsKey(DeployOptions.FROM_1X_ENV)) {
+            // the public names of the 1.x clients are carried by the options or the command is refused, before anything is changed
+            LegacyHosts.require(pathOf(values.get(DeployOptions.FROM_1X_ENV)), parameters);
+        }
         try {
             Path root = values.containsKey(DeployOptions.ROOT) ? Path.of(values.get(DeployOptions.ROOT)) : null;
             return new DeployInput(certificateIssued(parameters, root), root);
@@ -121,12 +125,22 @@ final class DeployInputReader {
                 values.get(DeployOptions.SCHEMA), values.get(DeployOptions.LONG_TEXT_TYPE),
                 number(values.get(DeployOptions.MCP_PORT), defaults.mcpPort(), DeployOptions.MCP_PORT),
                 number(values.get(DeployOptions.ADMIN_PORT), defaults.adminPort(), DeployOptions.ADMIN_PORT),
-                values.get(DeployOptions.MCP_HOST), values.get(DeployOptions.ADMIN_HOST), nginx);
+                DeployForms.splitHosts(values.get(DeployOptions.MCP_HOST)),
+                DeployForms.splitHosts(values.get(DeployOptions.ADMIN_HOST)), nginx);
         Set<ConstraintViolation<DeployParameters>> violations = validator.validate(parameters);
         if (!violations.isEmpty()) {
             throw refused(violations);
         }
         return parameters;
+    }
+
+    /** The path of the 1.x file as the operator wrote it; the file is read as root reads it, so it is any path of the host. */
+    private static Path pathOf(String value) {
+        try {
+            return Path.of(value);
+        } catch (InvalidPathException e) {
+            throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, e, DeployOptions.FROM_1X_ENV);
+        }
     }
 
     private static String require(String value) {

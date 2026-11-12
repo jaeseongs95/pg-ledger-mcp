@@ -103,8 +103,14 @@ class TlsRequestReaderTest {
     static Stream<Arguments> badHosts() {
         return Stream.of(
                 Arguments.argumentSet("mcp host missing", List.of("--admin-host=admin.example.org"), ErrorCode.MISSING_ARGUMENT),
-                Arguments.argumentSet("admin host missing", List.of("--mcp-host=mcp.example.org"), ErrorCode.MISSING_ARGUMENT),
-                Arguments.argumentSet("equal", List.of("--mcp-host=a.example.org", "--admin-host=a.example.org"),
+                Arguments.argumentSet("a name twice", List.of("--mcp-host=a.example.org,a.example.org", "--admin-host=admin.example.org"),
+                        ErrorCode.INVALID_DEPLOY_VALUE),
+                Arguments.argumentSet("an empty entry", List.of("--mcp-host=a.example.org,,b.example.org"), ErrorCode.INVALID_DEPLOY_VALUE),
+                Arguments.argumentSet("a name of both", List.of("--mcp-host=a.example.org,b.example.org", "--admin-host=b.example.org"),
+                        ErrorCode.INVALID_DEPLOY_VALUE),
+                Arguments.argumentSet("eleven names", List.of("--mcp-host=" + String.join(",", java.util.stream.IntStream.rangeClosed(1, 11)
+                        .mapToObj(n -> "h" + n + ".example.org").toList())), ErrorCode.INVALID_DEPLOY_VALUE),
+                Arguments.argumentSet("equal",List.of("--mcp-host=a.example.org", "--admin-host=a.example.org"),
                         ErrorCode.INVALID_DEPLOY_VALUE),
                 Arguments.argumentSet("upper case", List.of("--mcp-host=MCP.example.org", "--admin-host=admin.example.org"),
                         ErrorCode.INVALID_DEPLOY_VALUE),
@@ -126,6 +132,17 @@ class TlsRequestReaderTest {
         if (expected == ErrorCode.INVALID_DEPLOY_VALUE) {
             assertThat(refused.arguments()).hasSize(1).first().isIn("mcp-host", "admin-host");
         }
+    }
+
+    @Test
+    @DisplayName("REH4-OPT-05 the MCP host is a list and the admin host is optional: the certificate is for the names given, the MCP names first")
+    void reh4Opt05_severalNamesAndNoAdminHost() {
+        assertThat(reader.read(new DefaultApplicationArguments("--mcp-host=a.example.org,b.example.org"), true).hosts())
+                .containsExactly("a.example.org", "b.example.org");
+        assertThat(reader.read(new DefaultApplicationArguments("--mcp-host=a.example.org,b.example.org",
+                "--admin-host=admin.example.org"), false).hosts()).containsExactly("a.example.org", "b.example.org", "admin.example.org");
+        assertThat(reader.read(arguments(), true).hosts()).containsExactly("mcp.example.org", "admin.example.org");
+        assertThat(refused(true, "--admin-host=admin.example.org").code()).isEqualTo(ErrorCode.MISSING_ARGUMENT);
     }
 
     @Test

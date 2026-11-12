@@ -1,5 +1,7 @@
 package org.pgledger.cli.deploy;
 
+import java.util.List;
+
 /**
  * The settings files, Spring Boot properties in YAML, the same on every platform: {@code application.yaml} (what the two
  * services and the owner commands share: the JDBC URL, the account of the application, the schema), and one file per
@@ -36,14 +38,14 @@ final class ServiceSettings {
     static String mcp(DeployParameters p) {
         StringBuilder yaml = head(p.mcpPort());
         Text.line(yaml, "  mcp:");
-        hosts(yaml, p.mcpHost());
+        hosts(yaml, p.mcpHosts());
         return yaml.toString();
     }
 
     static String admin(DeployParameters p) {
         StringBuilder yaml = head(p.adminPort());
         Text.line(yaml, "  admin:");
-        hosts(yaml, p.adminHost());
+        hosts(yaml, p.adminHosts());
         Text.line(yaml, "    driver-file: " + Text.quoted(p.layout().etc() + "/jdbc-driver.yaml"));
         Text.line(yaml, "    driver-directory: " + Text.quoted(p.layout().etc() + "/drivers"));
         Text.line(yaml, "    mcp:");
@@ -61,12 +63,12 @@ final class ServiceSettings {
         return yaml;
     }
 
-    /** The loopback names (the health check and a local call) and the public host name when there is one. */
-    private static void hosts(StringBuilder yaml, String publicHost) {
+    /** The loopback names (the health check and a local call) and the public host names there are, in the order of the option. */
+    private static void hosts(StringBuilder yaml, List<String> publicHosts) {
         Text.line(yaml, "    allowed-hosts:");
         Text.line(yaml, "      - '127.0.0.1'");
         Text.line(yaml, "      - 'localhost'");
-        if (publicHost != null) {
+        for (String publicHost : publicHosts) {
             Text.line(yaml, "      - " + Text.quoted(publicHost));
         }
     }

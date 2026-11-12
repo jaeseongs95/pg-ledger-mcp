@@ -43,6 +43,8 @@ class SetupCommandTest {
 
     private static final Pattern DIGESTS = Pattern
             .compile("digest of the seed ([0-9a-f]{64}), digest of the same codes in the database ([0-9a-f]{64})\\.");
+    /** REH4-SEED-01: what the report says about a code that differs from the seed (the operator changed it, or import-legacy took it from 1.x). */
+    private static final String KEPT_REASON = "changed by the operator or taken from 1.x by import-legacy";
     private static final String CODES = "SELECT code_group, code, name_ko, name_en, description_ko, description_en, sort_order, state "
             + "FROM common_code WHERE code_group = 'DEFECT_CATEGORY' ORDER BY sort_order, code";
 
@@ -113,7 +115,7 @@ class SetupCommandTest {
                 seed.stream().map(code -> "DEFECT_CATEGORY/" + code.code()).toList());
         assertThat(output.info()).contains("Applied ").contains("grants").contains("Added 14 seed code(s)");
         String report = report(output);
-        assertThat(report).startsWith("Seed check: 14 codes in the seed, 14 present in the database, 14 equal to the seed, 0 changed");
+        assertThat(report).startsWith("Seed check: 14 codes in the seed, 14 present in the database, 14 equal to the seed, 0 differ from the seed and were kept (" + KEPT_REASON + ")");
         Matcher digests = DIGESTS.matcher(report);
         assertThat(digests.find()).isTrue();
         assertThat(digests.group(1)).isEqualTo(digests.group(2)).isEqualTo(SeedBundle.packaged().digest());
@@ -152,7 +154,7 @@ class SetupCommandTest {
         assertThat(database.rows("SELECT name_ko, state FROM common_code WHERE code = 'ARC'").getFirst())
                 .containsEntry("name_ko", "내 이름").containsEntry("state", "ACTIVE");
         assertThat(database.rows("SELECT state FROM common_code WHERE code = 'CON'").getFirst()).containsEntry("state", "INACTIVE");
-        assertThat(report(output)).startsWith("Seed check: 14 codes in the seed, 14 present in the database, 12 equal to the seed, 2 changed");
+        assertThat(report(output)).startsWith("Seed check: 14 codes in the seed, 14 present in the database, 12 equal to the seed, 2 differ from the seed and were kept (" + KEPT_REASON + ")");
         Matcher digests = DIGESTS.matcher(report(output));
         assertThat(digests.find()).isTrue();
         assertThat(digests.group(2)).isNotEqualTo(digests.group(1));
@@ -193,7 +195,21 @@ class SetupCommandTest {
 
         assertThat(result.exitCode()).isZero();
         assertThat(codesOfTheDatabase()).isEqualTo(SeedBundle.packaged().codes());
-        assertThat(report(output)).startsWith("Seed check: 14 codes in the seed, 14 present in the database, 14 equal to the seed, 0 changed");
+        assertThat(report(output)).startsWith("Seed check: 14 codes in the seed, 14 present in the database, 14 equal to the seed, 0 differ from the seed and were kept (" + KEPT_REASON + ")");
+    }
+
+    @Test
+    @DisplayName("REH4-SEED-02 the Korean report says that a code that differs from the seed was kept whether the operator changed it or import-legacy took it from 1.x, with the same six values")
+    void reh4Seed02_theKoreanReport() throws IOException {
+        Properties korean = new Properties();
+        try (InputStream stream = new ClassPathResource("messages_ko.properties").getInputStream()) {
+            korean.load(new InputStreamReader(stream, StandardCharsets.UTF_8));
+        }
+        String text = korean.getProperty("setup.report");
+
+        assertThat(text).contains("import-legacy").contains("1.x").contains("시드와 다르지만 그대로 둔")
+                .contains("{0}").contains("{1}").contains("{2}").contains("{3}").contains("{4}").contains("{5}");
+        assertThat(bundle().getProperty("setup.report")).contains("import-legacy").contains("1.x");
     }
 
     static Stream<Arguments> usageRefusals() {

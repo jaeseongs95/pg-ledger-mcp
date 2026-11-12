@@ -99,7 +99,7 @@ class DeployParametersTest {
         assertThat(VALIDATOR.validate(good)).isEmpty();
 
         DeployParameters wrong = new DeployParameters(
-                DeployLayout.linux("Bad_Name-admin"), "relative", "jdbc:x", "a b", "Wrong", "1TEXT", 80, 80, "-h", "-h",
+                DeployLayout.linux("Bad_Name-admin"), "relative", "jdbc:x", "a b", "Wrong", "1TEXT", 80, 80, java.util.List.of("-h"), java.util.List.of("-h"),
                 new DeployParameters.Nginx("rel", "rel", "rel"));
         Set<String> messages = new TreeSet<>();
         for (ConstraintViolation<DeployParameters> violation : VALIDATOR.validate(wrong)) {

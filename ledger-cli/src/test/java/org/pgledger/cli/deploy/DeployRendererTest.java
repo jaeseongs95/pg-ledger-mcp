@@ -287,10 +287,10 @@ class DeployRendererTest {
     }
 
     @Test
-    @DisplayName("INS-019 the nginx site needs both host names, a certificate and a key; a certificate without a site is refused; a missing required option is MISSING_ARGUMENT; Windows needs its home")
+    @DisplayName("INS-019 the nginx site needs the MCP host name (the admin one is optional since REH4), a certificate and a key; a certificate without a site is refused; a missing required option is MISSING_ARGUMENT; Windows needs its home")
     void ins019_incompleteParametersAreRefused() {
         Map<String, String> noHost = withSite();
-        noHost.remove(DeployOptions.ADMIN_HOST);
+        noHost.remove(DeployOptions.MCP_HOST);
         assertThatThrownBy(() -> DeployTestBeans.parameters(noHost)).isInstanceOfSatisfying(UsageException.class,
                 e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_DEPLOY_VALUE));
 

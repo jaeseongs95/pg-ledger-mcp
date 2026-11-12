@@ -1,5 +1,6 @@
 package org.pgledger.cli.deploy;
 
+import java.util.List;
 import java.util.regex.Pattern;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.UsageException;
@@ -17,6 +18,8 @@ public final class DeployForms {
     static final int LAST_PORT = 65535;
     static final int MAX_PATH = 200;
     static final int MAX_HOST = 253;
+    /** At most this many names in one comma list ({@code --mcp-host}, {@code --admin-host}). */
+    public static final int MAX_HOSTS = 10;
     static final int MAX_URL = 600;
 
     /** A path segment of plain characters; {@code .} and {@code ..} are no segment (they would leave the directory). */
@@ -60,6 +63,28 @@ public final class DeployForms {
             throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, option);
         }
         return value;
+    }
+
+    /**
+     * The names of a comma list ({@code --mcp-host=a.example.org,b.example.org}) in the order given; none for an absent value. An
+     * empty entry is kept as an empty name, which is no host name, so that the constraints refuse it.
+     */
+    public static List<String> splitHosts(String value) {
+        return value == null ? List.of() : List.of(value.split(",", -1));
+    }
+
+    /**
+     * The names of a comma list when each is a plain host name, none twice, at most {@value #MAX_HOSTS}.
+     *
+     * @throws UsageException INVALID_DEPLOY_VALUE naming the option, never the value
+     */
+    public static List<String> requireHosts(String value, String option) {
+        List<String> hosts = splitHosts(value);
+        if (hosts.isEmpty() || hosts.size() > MAX_HOSTS || new java.util.HashSet<>(hosts).size() != hosts.size()) {
+            throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, option);
+        }
+        hosts.forEach(host -> requireHost(host, option));
+        return hosts;
     }
 
     /**

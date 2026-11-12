@@ -1,7 +1,12 @@
 package org.pgledger.cli.deploy;
 
+import java.util.List;
+import java.util.stream.Stream;
+
 /**
- * The nginx site of the two public host names (the same on every platform). It overwrites {@code X-Forwarded-For} with the
+ * The nginx site of the public host names of the two services (the same on every platform): one {@code server} block for the names of
+ * the MCP server, one for the names of the admin web when it has any (several names are one {@code server_name}, the same names as
+ * the allowed hosts of the service). It overwrites {@code X-Forwarded-For} with the
  * address of the connection ({@code $remote_addr}) and never appends to what the client sent, because the admin web trusts
  * that header from the loopback proxy only and counts its failed attempts per address; {@code Host} is the host of the
  * request. See https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_set_header.
@@ -35,17 +40,26 @@ final class NginxSite {
         Text.line(site, "# X-Forwarded-For is overwritten with the address of the connection and never appended to: the admin web trusts it");
         Text.line(site, "# from this proxy only and counts failed attempts per address.");
         if (acme != null) {
-            challenge(site, p, p.mcpHost());
-            Text.line(site, "");
-            challenge(site, p, p.adminHost());
+            // one port 80 block for each own name (a redirect names the name it answered to), the names of the MCP server first
+            List<String> names = Stream.concat(p.mcpHosts().stream(), p.adminHosts().stream()).toList();
+            for (int i = 0; i < names.size(); i++) {
+                if (i > 0) {
+                    Text.line(site, "");
+                }
+                challenge(site, p, names.get(i));
+            }
             if (!acme.certificateIssued()) {
                 return site.toString();
             }
             Text.line(site, "");
         }
-        server(site, p, p.mcpHost(), p.mcpPort(), true);
-        Text.line(site, "");
-        server(site, p, p.adminHost(), p.adminPort(), false);
+        // one block for the names of each service (its names in one server_name, the same names as its allowed hosts); the admin
+        // web has a block only when it has a public name
+        server(site, p, p.mcpHosts(), p.mcpPort(), true);
+        if (!p.adminHosts().isEmpty()) {
+            Text.line(site, "");
+            server(site, p, p.adminHosts(), p.adminPort(), false);
+        }
         return site.toString();
     }
 
@@ -65,11 +79,11 @@ final class NginxSite {
         Text.line(site, "}");
     }
 
-    private static void server(StringBuilder site, DeployParameters p, String host, int port, boolean streaming) {
+    private static void server(StringBuilder site, DeployParameters p, List<String> hosts, int port, boolean streaming) {
         Text.line(site, "server {");
         Text.line(site, "    listen 443 ssl;");
         Text.line(site, "    listen [::]:443 ssl;");
-        Text.line(site, "    server_name " + host + ";");
+        Text.line(site, "    server_name " + String.join(" ", hosts) + ";");
         Text.line(site, "");
         Text.line(site, "    ssl_certificate " + p.nginx().certificate() + ";");
         Text.line(site, "    ssl_certificate_key " + p.nginx().key() + ";");

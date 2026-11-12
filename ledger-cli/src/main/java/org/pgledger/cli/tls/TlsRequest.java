@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * What {@code tls-issue} and {@code tls-renew} are asked for, read and validated once ({@link TlsRequestReader}).
  *
- * @param hosts            the host names the certificate is for: the MCP host and the admin host, in this order
+ * @param hosts            the host names the certificate is for: the MCP host names and then the admin host names (when it has any), each in the order given
  * @param webroot          the web root the token files are written below
  * @param directory        the TLS directory: the account key and the two certificate files
  * @param acmeDirectory    the directory URL of the certificate authority

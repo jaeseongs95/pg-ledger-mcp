@@ -21,7 +21,10 @@
 # Migration from 1.x (the operator stops the 1.x services first, see the README: this script never stops, disables or removes a
 # service of another installation): --from-1x-env=<file> takes the two tokens of the 1.x environment file over as secrets before
 # any token is generated, so the clients and the admin sign-in keep working; the file belongs to root, so this script opens it
-# and Java reads it from standard input. A unit file of 1.x that a new unit replaces is kept as <file>.1x-backup by prepare-host.
+# and Java reads it from standard input. The same file is given to the check of the options (render-deploy --check, which root runs):
+# a public host name that 1.x allowed (DBHUB_ALLOWED_HOSTS, PGLEDGER_ADMIN_ALLOWED_HOSTS) and that --mcp-host or --admin-host (one name
+# or a comma list) does not carry stops the installation before anything is changed. A unit file of 1.x that a new unit replaces is kept
+# as <file>.1x-backup by prepare-host.
 # --stdin gives the passwords on standard input instead of the terminal (an installation without one), as docker login
 # --password-stdin does: first the password of the application account (read only while it is not stored), then the DDL one.
 # Automatic certificate: --tls-acme (with --nginx-conf, --mcp-host and --admin-host) orders the certificate with tls-issue (ACME, HTTP-01)
@@ -93,7 +96,7 @@ ADMIN=$NAME-admin
 LIB=/opt/$NAME
 ETC=/etc/$NAME
 # Every option, the name included, is validated by Java before anything is created.
-"$JAVA" -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent render-deploy --check --java="$JAVA" "$@"
+"$JAVA" -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent render-deploy --check --java="$JAVA" ${FROM_ENV:+--from-1x-env="$FROM_ENV"} "$@"
 
 # useradd: Java has no API to create an operating system user. Status 9 is "name in use": the user of an earlier run stays.
 useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$SVC" || [ $? = 9 ]
@@ -131,9 +134,9 @@ fi
 # Then render-deploy writes the site again, now with the 443 blocks, and nginx loads it.
 if [ -n "$ACME" ]; then
   if [ -f "$ETC/tls/fullchain.pem" ]; then
-    as_svc tls-renew --name="$NAME" --mcp-host="$MCP_HOST" --admin-host="$ADMIN_HOST" ${ACME_DIR:+--acme-directory="$ACME_DIR"}
+    as_svc tls-renew --name="$NAME" --mcp-host="$MCP_HOST" ${ADMIN_HOST:+--admin-host="$ADMIN_HOST"} ${ACME_DIR:+--acme-directory="$ACME_DIR"}
   else
-    as_svc tls-issue --name="$NAME" --mcp-host="$MCP_HOST" --admin-host="$ADMIN_HOST" ${ACME_DIR:+--acme-directory="$ACME_DIR"} ${EMAIL:+--acme-email="$EMAIL"} $AGREE
+    as_svc tls-issue --name="$NAME" --mcp-host="$MCP_HOST" ${ADMIN_HOST:+--admin-host="$ADMIN_HOST"} ${ACME_DIR:+--acme-directory="$ACME_DIR"} ${EMAIL:+--acme-email="$EMAIL"} $AGREE
   fi
   "$JAVA" -Duser.timezone=UTC -jar "$LIB/ledger-cli.jar" --ledger.secrets.home=/nonexistent render-deploy --java="$JAVA" "$@"
   # nginx: the check and the reload again, for the 443 blocks.

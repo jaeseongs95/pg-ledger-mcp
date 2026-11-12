@@ -201,10 +201,21 @@ class InstallScriptsTest {
                 "    --acme-email=*) EMAIL=${arg#*=} ;;", "    --agree-tos) AGREE=--agree-tos ;;");
         assertThat(text(SH).toLowerCase(Locale.ROOT)).doesNotContain("certbot", "acme.sh", "cloudflare", "lightsail");
         // the steps of an installation without --tls-acme are in the file as they were, in the same order
-        assertThat(code).containsSubsequence("\"$JAVA\" -Duser.timezone=UTC -jar \"$JARS/ledger-cli.jar\" --ledger.secrets.home=/nonexistent render-deploy --check --java=\"$JAVA\" \"$@\"",
+        assertThat(code).containsSubsequence("\"$JAVA\" -Duser.timezone=UTC -jar \"$JARS/ledger-cli.jar\" --ledger.secrets.home=/nonexistent render-deploy --check --java=\"$JAVA\" ${FROM_ENV:+--from-1x-env=\"$FROM_ENV\"} \"$@\"",
                 "useradd --system --user-group --no-create-home --shell /usr/sbin/nologin \"$SVC\" || [ $? = 9 ]",
                 "as_svc setup --owner-account=\"$OWNER\" --app-account=\"$APP_ACCOUNT\" $STDIN", "systemctl daemon-reload",
                 "systemctl enable \"$SVC\" \"$ADMIN\"", "systemctl restart \"$SVC\" \"$ADMIN\"", "if [ -n \"$NGINX\" ]; then", "if [ -n \"$ACME\" ]; then");
+    }
+
+    @Test
+    @DisplayName("REH4-INS-01 tls-issue and tls-renew get --admin-host only when it was given (the admin web may have no public name), and the MCP names go on as the one option value (a comma list)")
+    void reh4Ins01_theAdminNameIsOptionalForTheCertificate() {
+        List<String> calls = shCodeLines().stream().filter(line -> line.contains("as_svc tls-")).toList();
+
+        assertThat(calls).hasSize(2).allSatisfy(line -> {
+            assertThat(line).contains("--mcp-host=\"$MCP_HOST\"").contains("${ADMIN_HOST:+--admin-host=\"$ADMIN_HOST\"}");
+            assertThat(line.replace("${ADMIN_HOST:+--admin-host=\"$ADMIN_HOST\"}", "")).doesNotContain("--admin-host");
+        });
     }
 
     @Test
@@ -472,7 +483,11 @@ class InstallScriptsTest {
         assertThat(imported).as("the tokens of 1.x are in the store before a token is generated").isLessThan(firstToken);
         assertThat(code.get(imported)).as("root opens the file of root, Java reads standard input, the file is no argument")
                 .isEqualTo("[ -z \"$FROM_ENV\" ] || as_svc secret-import-1x --stdin < \"$FROM_ENV\"");
-        assertThat(code.stream().filter(line -> line.contains("FROM_ENV") && line.contains("render-deploy"))).isEmpty();
+        // REH4-INS-01: Java, run by root, compares the host names of the file with the options in the check phase only
+        assertThat(code.stream().filter(line -> line.contains("FROM_ENV") && line.contains("render-deploy")).toList()).containsExactly(
+                "\"$JAVA\" -Duser.timezone=UTC -jar \"$JARS/ledger-cli.jar\" --ledger.secrets.home=/nonexistent render-deploy --check --java=\"$JAVA\" ${FROM_ENV:+--from-1x-env=\"$FROM_ENV\"} \"$@\"");
+        assertThat(code.stream().filter(line -> line.contains("prepare-host") || line.contains("tls-issue") || line.contains("tls-renew"))
+                .filter(line -> line.contains("FROM_ENV"))).isEmpty();
     }
 
     @Test

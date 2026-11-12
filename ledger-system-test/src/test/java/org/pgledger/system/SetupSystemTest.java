@@ -145,7 +145,7 @@ class SetupSystemTest {
 
         assertThat(result.exit()).as(result.streams()).isZero();
         assertThat(result.out()).as(result.streams()).contains("Added 14 seed code(s)").contains(
-                "Seed check: 14 codes in the seed, 14 present in the database, 14 equal to the seed, 0 changed");
+                "Seed check: 14 codes in the seed, 14 present in the database, 14 equal to the seed, 0 differ from the seed and were kept (changed by the operator or taken from 1.x by import-legacy)");
         firstDigests = digests(result.out());
         assertThat(firstDigests).as("the digest of the seed and of the same codes in the database").hasSize(2);
         assertThat(firstDigests.get(0)).isEqualTo(firstDigests.get(1));
@@ -164,7 +164,7 @@ class SetupSystemTest {
 
         assertThat(result.exit()).as(result.streams()).isZero();
         assertThat(result.out()).as(result.streams()).contains("Added 0 seed code(s)").contains(
-                "Seed check: 14 codes in the seed, 14 present in the database, 14 equal to the seed, 0 changed");
+                "Seed check: 14 codes in the seed, 14 present in the database, 14 equal to the seed, 0 differ from the seed and were kept (changed by the operator or taken from 1.x by import-legacy)");
         assertThat(digests(result.out())).isEqualTo(firstDigests);
         assertThat(state()).isEqualTo(stateAfterTheFirstSetup);
     }

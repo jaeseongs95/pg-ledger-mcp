@@ -1,9 +1,20 @@
 package org.pgledger.cli.secret;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import org.pgledger.cli.ErrorCode;
+import org.pgledger.cli.FailureException;
 
 /**
  * The settings of the environment file of a 1.x installation ({@code /etc/pg-ledger-mcp/env}), as the 1.x
@@ -17,12 +28,44 @@ import java.util.regex.Pattern;
  */
 public final class OneXEnvironment {
 
+    /** The 1.x file has a few lines; this bounds what a wrong input can make the program hold. */
+    static final int MAXIMUM_BYTES = 64 * 1024;
+
     private static final Pattern NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
     private final Map<String, String> values;
 
     private OneXEnvironment(Map<String, String> values) {
         this.values = values;
+    }
+
+    /**
+     * Reads the file as the environment of 1.x (at most {@value #MAXIMUM_BYTES} bytes, UTF-8, nothing replaced). Only the kind
+     * of a failure is reported, never the text of an exception (it could hold what was read).
+     *
+     * @throws FailureException ENV_FILE_FAILED naming the kind of the failure
+     */
+    public static OneXEnvironment read(Path file) {
+        try (InputStream stream = Files.newInputStream(file)) {
+            return parse(decode(stream.readNBytes(MAXIMUM_BYTES + 1), ErrorCode.ENV_FILE_FAILED));
+        } catch (IOException e) {
+            throw new FailureException(ErrorCode.ENV_FILE_FAILED, e.getClass().getSimpleName());
+        }
+    }
+
+    /** UTF-8, nothing replaced; the bytes are wiped once decoded. A text over the bound is not an environment file of 1.x. */
+    static String decode(byte[] bytes, ErrorCode failure) {
+        try {
+            if (bytes.length > MAXIMUM_BYTES) {
+                throw new FailureException(failure, "TooLarge");
+            }
+            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (CharacterCodingException e) {
+            throw new FailureException(failure, e.getClass().getSimpleName());
+        } finally {
+            Arrays.fill(bytes, (byte) 0);
+        }
     }
 
     public static OneXEnvironment parse(String text) {

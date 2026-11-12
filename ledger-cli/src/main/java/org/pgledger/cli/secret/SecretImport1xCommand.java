@@ -2,11 +2,6 @@ package org.pgledger.cli.secret;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -95,7 +90,7 @@ public class SecretImport1xCommand implements Command {
     /** A 1.x token is 64 hexadecimal characters; anything under this is not a token that was generated. */
     static final int MINIMUM_LENGTH = 16;
     /** The 1.x file has a few lines; this bounds what a wrong input can make the program hold. */
-    static final int MAXIMUM_BYTES = 64 * 1024;
+    static final int MAXIMUM_BYTES = OneXEnvironment.MAXIMUM_BYTES;
 
     private final SecretStore store;
     private final StandardInput standardInput;
@@ -133,9 +128,8 @@ public class SecretImport1xCommand implements Command {
             throw new UsageException(ErrorCode.MISSING_ARGUMENT);
         }
         // no file means --stdin (checked above); standard input is read only then
-        String text = file.map(name -> readFile(Path.of(name)))
-                .orElseGet(() -> readStandardInput(standardInput.stream()));
-        OneXEnvironment environment = OneXEnvironment.parse(text);
+        OneXEnvironment environment = file.map(name -> OneXEnvironment.read(Path.of(name)))
+                .orElseGet(() -> OneXEnvironment.parse(readStandardInput(standardInput.stream())));
         Map<OneXKey, String> values = new EnumMap<>(OneXKey.class);
         for (OneXKey key : OneXKey.values()) {
             environment.value(key.setting()).ifPresent(value -> values.put(key, value));
@@ -189,35 +183,12 @@ public class SecretImport1xCommand implements Command {
         }
     }
 
-    /** The file; only the kind of a failure is reported, never the text of an exception (it could hold what was read). */
-    private static String readFile(Path file) {
-        try (InputStream stream = Files.newInputStream(file)) {
-            return decode(stream.readNBytes(MAXIMUM_BYTES + 1), ErrorCode.ENV_FILE_FAILED);
-        } catch (IOException e) {
-            throw new FailureException(ErrorCode.ENV_FILE_FAILED, e.getClass().getSimpleName());
-        }
-    }
-
+    /** Standard input as the text of the file: the same bound and decoding as {@link OneXEnvironment#read}. */
     private static String readStandardInput(InputStream stream) {
         try {
-            return decode(stream.readNBytes(MAXIMUM_BYTES + 1), ErrorCode.STDIN_FAILED);
+            return OneXEnvironment.decode(stream.readNBytes(MAXIMUM_BYTES + 1), ErrorCode.STDIN_FAILED);
         } catch (IOException e) {
             throw new FailureException(ErrorCode.STDIN_FAILED, e.getClass().getSimpleName());
-        }
-    }
-
-    /** UTF-8, nothing replaced; the bytes are wiped once decoded. A text over the bound is not an environment file of 1.x. */
-    private static String decode(byte[] bytes, ErrorCode failure) {
-        try {
-            if (bytes.length > MAXIMUM_BYTES) {
-                throw new FailureException(failure, "TooLarge");
-            }
-            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
-        } catch (CharacterCodingException e) {
-            throw new FailureException(failure, e.getClass().getSimpleName());
-        } finally {
-            Arrays.fill(bytes, (byte) 0);
         }
     }
 }

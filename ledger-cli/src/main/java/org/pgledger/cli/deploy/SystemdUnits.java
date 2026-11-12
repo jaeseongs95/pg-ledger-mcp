@@ -49,7 +49,8 @@ final class SystemdUnits {
         Text.line(unit, "Group=" + layout.serviceUser());
         StringBuilder start = new StringBuilder("ExecStart=" + p.java() + " -Duser.timezone=UTC -jar " + layout.lib() + "/"
                 + DeployLayout.CLI_JAR + " --ledger.secrets.instance=" + layout.name() + " tls-renew --name=" + layout.name()
-                + " --mcp-host=" + p.mcpHost() + " --admin-host=" + p.adminHost());
+                + " --mcp-host=" + String.join(",", p.mcpHosts())
+                + (p.adminHosts().isEmpty() ? "" : " --admin-host=" + String.join(",", p.adminHosts())));
         if (p.nginx().acme().directory() != null) {
             start.append(" --acme-directory=").append(p.nginx().acme().directory());
         }
