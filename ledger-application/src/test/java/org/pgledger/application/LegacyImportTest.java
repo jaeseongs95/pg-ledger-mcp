@@ -40,6 +40,8 @@ import org.pgledger.application.support.LedgerAppContext;
 import org.pgledger.application.support.Scenario;
 import org.pgledger.application.admin.GrantService;
 import org.pgledger.application.admin.GrantService.GrantCommand;
+import org.pgledger.application.admin.CommonCodeService;
+import org.pgledger.application.admin.CommonCodeService.CodeCommand;
 import org.pgledger.application.admin.ProjectService;
 import org.pgledger.application.admin.ProjectService.ProjectCommand;
 import org.pgledger.application.write.RecordCaseCommand;
@@ -483,6 +485,104 @@ class LegacyImportTest {
 
             assertThat(rig.count("SELECT COUNT(*) FROM project")).isEqualTo(1);
             assertThat(rig.count("SELECT COUNT(*) FROM history")).isZero();
+        });
+    }
+
+    private static final String REVISION = "SELECT revision FROM code_revision WHERE id = 1";
+
+    @Test
+    @DisplayName("REH2-MIG-02 a new schema that holds a code set through the code service (a CODE_SET row in owner_audit, what migrate and setup make) is accepted: the comparison of every table is equal, and the code revision is one higher than after the code was set")
+    void reh2Mig02_acceptsWhatSetupMade() {
+        withRich(rig -> {
+            rig.ctx().bean(CommonCodeService.class).set(new CodeCommand("DEFECT_CATEGORY", "MINE", "내 코드", "My code", null, null, 3,
+                    "ACTIVE"), TestOwners.OWNER);
+            assertThat(rig.count("SELECT COUNT(*) FROM owner_audit WHERE operation = 'CODE_SET'")).isEqualTo(1);
+            long revision = rig.count(REVISION);
+
+            ImportReport report = rig.importAll();
+
+            assertThat(report.tables()).allMatch(TableCheck::matches);
+            assertThat(rig.count(REVISION)).isEqualTo(revision + 1);
+            assertThat(rig.count("SELECT COUNT(*) FROM owner_audit WHERE operation = 'IMPORT'")).isEqualTo(1);
+            assertThat(rig.count("SELECT COUNT(*) FROM history")).isEqualTo(rig.legacy().count("history"));
+        });
+    }
+
+    @Test
+    @DisplayName("REH2-MIG-03 a code of the new schema that the legacy ledger also has is overwritten with the legacy values (the row of the same key), a code only the new schema has stays as it is, the comparison of common_code is equal and verify passes")
+    void reh2Mig03_aSeedCodeOfTheLegacyLedger() {
+        withRich(rig -> {
+            CommonCodeService codes = rig.ctx().bean(CommonCodeService.class);
+            codes.set(new CodeCommand("DEFECT_CATEGORY", "CON", "내 이름", "My name", "내 설명", "My description", 7, "INACTIVE"),
+                    TestOwners.OWNER);
+            codes.set(new CodeCommand("DEFECT_CATEGORY", "MINE", "내 코드", "My code", null, null, 3, "ACTIVE"), TestOwners.OWNER);
+
+            ImportReport report = rig.importAll();
+
+            Category con = LegacyFixtures.categories().stream().filter(category -> "CON".equals(category.code())).findFirst()
+                    .orElseThrow();
+            Map<String, Object> row = rig.rows("SELECT name_ko, name_en, description_ko, sort_order, state FROM common_code "
+                    + "WHERE code_group = 'DEFECT_CATEGORY' AND code = 'CON'").getFirst();
+            assertThat(text(row, "name_ko")).isEqualTo(con.name());
+            assertThat(text(row, "name_en")).isEqualTo("Concurrency and atomicity");
+            assertThat(text(row, "description_ko")).isEqualTo(con.definition());
+            assertThat(text(row, "sort_order")).isEqualTo("0");
+            assertThat(text(row, "state")).isEqualTo("ACTIVE");
+            Map<String, Object> mine = rig.rows("SELECT name_ko, sort_order FROM common_code WHERE code = 'MINE'").getFirst();
+            assertThat(text(mine, "name_ko")).isEqualTo("내 코드");
+            assertThat(text(mine, "sort_order")).isEqualTo("3");
+            assertThat(report.tables()).filteredOn(check -> check.table() == LegacyTable.COMMON_CODE).singleElement()
+                    .matches(TableCheck::matches);
+            assertThat(rig.service().verify().tables()).allMatch(TableCheck::matches);
+        });
+    }
+
+    @Test
+    @DisplayName("REH2-MIG-04 a project of its own (PROJECT_ADDED in the audit trail) and a grant on it (GRANT_ISSUED) refuse the import with DUPLICATE_KEY naming the tables that hold the rows (project; project and session_grant) and never owner_audit; nothing is written")
+    void reh2Mig04_ledgerDataRefuses() {
+        withRich(rig -> {
+            rig.ctx().bean(ProjectService.class).add(new ProjectCommand("own", "OWN", "A project of its own"), TestOwners.OWNER);
+            long rows = rig.ledgerRows();
+
+            LedgerException project = Expect.failure(rig::importAll, ConflictCode.DUPLICATE_KEY);
+
+            assertThat(project.args().getFirst()).contains("project").doesNotContain("session_grant").doesNotContain("owner_audit");
+            assertThat(rig.ledgerRows()).isEqualTo(rows);
+
+            rig.ctx().bean(GrantService.class).grant(new GrantCommand(SEED, "own", List.of("fix"), null, null), TestOwners.OWNER);
+            long withGrant = rig.ledgerRows();
+
+            LedgerException grant = Expect.failure(rig::importAll, ConflictCode.DUPLICATE_KEY);
+
+            assertThat(grant.args().getFirst()).contains("project").contains("session_grant").doesNotContain("owner_audit");
+            assertThat(rig.ledgerRows()).isEqualTo(withGrant);
+        });
+    }
+
+    @Test
+    @DisplayName("REH2-MIG-05 a row of session_key refuses the import (naming session_key), and so does an owner_audit row of the operation IMPORT alone, an earlier import of an empty legacy ledger (naming owner_audit); nothing is written")
+    void reh2Mig05_aSessionKeyAndAnEarlierImportRefuse() {
+        withRich(rig -> {
+            rig.ctx().jdbc().sql("INSERT INTO session_key (id, author_id, public_key, fingerprint, registered_by, registered_at, "
+                    + "active_key, fingerprint_key) VALUES (1, 'claude:x', 'AAAA', 'ffff', 'cli:alice', "
+                    + "TIMESTAMP '2026-11-01 00:00:00', 'claude:x', 'ffff')").update();
+            long rows = rig.ledgerRows();
+
+            LedgerException key = Expect.failure(rig::importAll, ConflictCode.DUPLICATE_KEY);
+
+            assertThat(key.args().getFirst()).isEqualTo("ledger data in session_key");
+            assertThat(rig.ledgerRows()).isEqualTo(rows);
+        });
+        withRich(rig -> {
+            rig.ctx().jdbc().sql("INSERT INTO owner_audit (id, occurred_at, actor, operation, subject) VALUES (1, "
+                    + "TIMESTAMP '2026-11-01 00:00:00', 'cli:alice', 'IMPORT', 'legacy schema ledger')").update();
+            long rows = rig.ledgerRows();
+
+            LedgerException earlier = Expect.failure(rig::importAll, ConflictCode.DUPLICATE_KEY);
+
+            assertThat(earlier.args().getFirst()).isEqualTo("ledger data in owner_audit");
+            assertThat(rig.ledgerRows()).isEqualTo(rows);
+            assertThat(rig.count("SELECT COUNT(*) FROM project")).isZero();
         });
     }
 
