@@ -188,8 +188,8 @@ class TimeZoneTest {
             expected.put("session_grant.last_used_at", I.plusSeconds(4));
             expected.put("session_key.registered_at", I);
             expected.put("session_key.revoked_at", I.plusSeconds(6));
-            expected.put("owner_audit.at", I);
-            expected.put("history.at", I);
+            expected.put("owner_audit.occurred_at", I);
+            expected.put("history.occurred_at", I);
             expected.put("request_receipt.created_at", I);
             expected.put("schema_history.applied_at", LedgerTestContext.START);
             assertThat(expected.keySet()).containsExactlyInAnyOrderElementsOf(SchemaCatalogTest.TIMESTAMP_COLUMNS);

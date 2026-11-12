@@ -27,7 +27,9 @@ class SchemaWiringTest {
 
     private static ApplicationContextRunner runner(DataSource pool, Class<?> configuration) {
         return new ApplicationContextRunner().withUserConfiguration(configuration)
-                .withBean(DataSource.class, () -> pool).withBean(Clock.class, Clock::systemUTC)
+                // the pool belongs to the test, which runs several contexts on it: a context must not close it with itself
+                .withBean(DataSource.class, () -> pool, definition -> definition.setDestroyMethodName(""))
+                .withBean(Clock.class, Clock::systemUTC)
                 .withPropertyValues("ledger.schema.long-text-type=" + Databases.LONG_TEXT,
                         "ledger.schema.require-utc=false");
     }

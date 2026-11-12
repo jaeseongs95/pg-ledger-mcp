@@ -20,7 +20,7 @@ import org.springframework.core.io.support.ResourcePatternResolver;
  */
 public record MigrationFile(int version, String fileName, String text, Sha256 digest) {
 
-    private static final Pattern NAME = Pattern.compile("V([1-9][0-9]*)__([a-z0-9_]+)\.sql");
+    private static final Pattern NAME = Pattern.compile("V([1-9][0-9]*)__([a-z0-9_]+)\\.sql");
 
     /**
      * All files at {@code location}, ordered by version. A file with another name is an error, not skipped.

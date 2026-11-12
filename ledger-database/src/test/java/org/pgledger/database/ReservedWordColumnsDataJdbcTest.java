@@ -29,6 +29,7 @@ import org.pgledger.domain.value.RequestId;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jdbc.test.autoconfigure.DataJdbcTest;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -42,7 +43,10 @@ import org.springframework.test.context.ContextConfiguration;
  * words of SQL:2003) are written and read through their repositories, and the text of the columns is what the schema files
  * say. The schema is built by the real {@code db/V*.sql} files when the context starts.
  */
-@DataJdbcTest(properties = "ledger.schema.long-text-type=CLOB")
+// Boot's pooled DataSource on an embedded H2 (Replace.NONE): see SearchQueryRepositoryJdbcTest for the reason.
+@DataJdbcTest(properties = {"ledger.schema.long-text-type=CLOB",
+        "spring.datasource.url=jdbc:h2:mem:w2mappingslice;DB_CLOSE_DELAY=-1"})
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ContextConfiguration(classes = ReservedWordColumnsDataJdbcTest.Slice.class)
 class ReservedWordColumnsDataJdbcTest {
 

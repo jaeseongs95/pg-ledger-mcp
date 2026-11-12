@@ -19,6 +19,7 @@ import org.pgledger.domain.value.MaxRows;
 import org.pgledger.domain.value.ProjectId;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jdbc.test.autoconfigure.JdbcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -32,7 +33,12 @@ import org.springframework.test.context.ContextConfiguration;
  * search never come from a value. The schema is built by the real {@code db/V*.sql} files when the context starts; every
  * test runs in a transaction that Spring rolls back.
  */
-@JdbcTest(properties = "ledger.schema.long-text-type=CLOB")
+// The database is the embedded H2 with Boot's pooled DataSource (Replace.NONE: Boot's own embedded replacement hands out
+// a new connection every time, and H2 binds a CHECK ... IN (...) of a table to the session that created it, so the
+// constraints of tables created on a connection that was closed again would fail; a pool keeps that connection).
+@JdbcTest(properties = {"ledger.schema.long-text-type=CLOB",
+        "spring.datasource.url=jdbc:h2:mem:w2searchslice;DB_CLOSE_DELAY=-1"})
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ContextConfiguration(classes = SearchQueryRepositoryJdbcTest.Slice.class)
 class SearchQueryRepositoryJdbcTest {
 
