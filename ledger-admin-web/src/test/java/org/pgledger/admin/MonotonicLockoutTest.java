@@ -7,6 +7,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pgledger.admin.support.AdminTestInfrastructure;
 import org.pgledger.admin.support.AdminTestSettings;
+import org.pgledger.testing.database.TestSchemaInitializer;
+import org.springframework.test.context.ContextConfiguration;
 import org.pgledger.admin.support.Browser;
 import org.pgledger.admin.support.MutableClock;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +26,7 @@ import org.springframework.test.web.servlet.ResultActions;
  * context has no test ticker, so the application uses its own ticker ({@code System.nanoTime}); setting the wall clock
  * forward by two hours must not end the lock.
  */
+@ContextConfiguration(initializers = TestSchemaInitializer.class)
 @SpringBootTest(classes = LedgerAdminApplication.class, properties = {AdminTestSettings.TOKEN_PROPERTY,
     AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.NO_GLOBAL_CAP, "admin.test.moving-ticker=false",
     AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG, AdminTestSettings.NO_JMX})

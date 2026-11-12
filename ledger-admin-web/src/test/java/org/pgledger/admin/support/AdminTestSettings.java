@@ -1,9 +1,10 @@
 package org.pgledger.admin.support;
 
 /**
- * The configuration properties of the admin test contexts: an embedded H2 database is brought by the test
- * configuration; these are the secrets (generated test values, not real ones) and the quiet logging. The embedded
- * profile makes the application take that database instead of the registered JDBC driver.
+ * The configuration properties of the admin test contexts: the PostgreSQL of the test PC is brought by the test
+ * configuration ({@code TestDataSourceConfiguration}); these are the secrets (generated test values, not real ones)
+ * and the quiet logging. The embedded profile makes the application take that database from the context instead of
+ * the registered JDBC driver.
  */
 public final class AdminTestSettings {
 

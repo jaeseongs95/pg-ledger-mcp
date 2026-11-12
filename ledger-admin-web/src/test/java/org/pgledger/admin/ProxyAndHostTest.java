@@ -13,6 +13,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.admin.support.AdminTestInfrastructure;
 import org.pgledger.admin.support.AdminTestSettings;
+import org.pgledger.testing.database.TestSchemaInitializer;
+import org.springframework.test.context.ContextConfiguration;
 import org.pgledger.admin.support.RealHttp;
 import org.pgledger.admin.support.RealHttp.Reply;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +29,7 @@ import org.springframework.test.context.ActiveProfiles;
  * The proxy of the host is {@code 127.0.0.1}; a client that connects from another address, even another loopback
  * address, is not the proxy and chooses neither the address the lock counts nor the host the firewall checks.
  */
+@ContextConfiguration(initializers = TestSchemaInitializer.class)
 @SpringBootTest(classes = LedgerAdminApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.AGENT_TOKEN_PROPERTY,
             AdminTestSettings.INSECURE_COOKIE, AdminTestSettings.NO_GLOBAL_CAP, AdminTestSettings.QUIET_BANNER,

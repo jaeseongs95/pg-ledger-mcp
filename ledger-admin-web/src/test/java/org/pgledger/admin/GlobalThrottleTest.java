@@ -14,6 +14,8 @@ import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.pgledger.admin.support.AdminTestInfrastructure;
 import org.pgledger.admin.support.AdminTestSettings;
+import org.pgledger.testing.database.TestSchemaInitializer;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -29,6 +31,7 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
  * the budget of the global throttle is counted and decided in one atomic step, so checks that arrive together cannot
  * overshoot it. The budget is 8 checks per window and a check beyond it waits 400 ms.
  */
+@ContextConfiguration(initializers = TestSchemaInitializer.class)
 @SpringBootTest(classes = LedgerAdminApplication.class, properties = {AdminTestSettings.TOKEN_PROPERTY,
     AdminTestSettings.AGENT_TOKEN_PROPERTY, "ledger.admin.lockout.global-max-failures=8",
     "ledger.admin.lockout.global-delay=400ms", AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,

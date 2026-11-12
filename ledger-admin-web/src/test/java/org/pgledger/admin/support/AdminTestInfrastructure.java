@@ -1,11 +1,8 @@
 package org.pgledger.admin.support;
 
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
-import java.util.UUID;
 import javax.sql.DataSource;
 import org.pgledger.application.admin.CommonCodeService;
 import org.pgledger.application.admin.CommonCodeService.CodeCommand;
@@ -14,21 +11,24 @@ import org.pgledger.database.schema.SchemaProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.core.env.Environment;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.pgledger.testing.TestOwners;
+import org.pgledger.testing.database.TestDataSourceConfiguration;
+import org.pgledger.testing.database.TestSchemaInitializer;
 
 /**
- * What the admin tests add to the application under test: the embedded H2 database in its default mode (no
- * compatibility mode; the product ships no driver, the test classpath has H2), its schema built by the real
+ * What the admin tests add to the application under test: the PostgreSQL of the test PC (the {@code DataSource} of
+ * {@link TestDataSourceConfiguration}: the shared pool of the test JVM, every connection in the schema
+ * {@code ledger.schema.name} that a {@code TestSchemaInitializer} gave the context), its schema built by the real
  * {@code db/V*.sql} files and the real migrator, a clock that tests move, and the defect categories of an
- * installation that has been set up.
+ * installation that has been set up. The product ships no driver; the test class path has the PostgreSQL driver.
  */
 @TestConfiguration(proxyBeanMethods = false)
+@Import(TestDataSourceConfiguration.class)
 public class AdminTestInfrastructure {
-
-    /** The long text type of the schema files on H2, the only per-DBMS difference of the DDL. */
-    private static final String LONG_TEXT = "CLOB";
 
     /** Present once the schema is built. */
     public record SchemaMigrated(List<Integer> versions) {
@@ -36,15 +36,6 @@ public class AdminTestInfrastructure {
 
     /** Present once the categories are in the database. */
     public record CategoriesSeeded() {
-    }
-
-    @Bean(destroyMethod = "close")
-    DataSource dataSource() {
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=60000");
-        config.setMaximumPoolSize(10);
-        config.setConnectionInitSql("SET TIME ZONE 'UTC'");
-        return new HikariDataSource(config);
     }
 
     @Bean
@@ -62,9 +53,10 @@ public class AdminTestInfrastructure {
     }
 
     @Bean
-    SchemaMigrated schemaMigrated(DataSource dataSource, Clock clock) {
+    SchemaMigrated schemaMigrated(DataSource dataSource, Clock clock, Environment environment) {
         return new SchemaMigrated(new SchemaMigrator(dataSource, new PathMatchingResourcePatternResolver(),
-                new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, LONG_TEXT, true, null,
+                new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, SchemaProperties.DEFAULT_LONG_TEXT_TYPE, true,
+                        environment.getRequiredProperty(TestSchemaInitializer.SCHEMA_PROPERTY),
                         Duration.parse(SchemaProperties.DEFAULT_PEER_WAIT)), clock).migrate());
     }
 

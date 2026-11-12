@@ -9,7 +9,6 @@ import com.jayway.jsonpath.JsonPath;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.io.UncheckedIOException;
-import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -29,6 +28,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.admin.support.AdminTestSettings;
 import org.pgledger.admin.support.Browser;
 import org.pgledger.admin.support.Browser.Form;
+import org.pgledger.admin.support.TestDriverJar;
 import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.testing.OwnerOnlyFiles;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,13 +49,14 @@ import org.springframework.util.MultiValueMap;
 
 /**
  * ADM-041, ADM-042, DRV-015, DRV-016, DRV-022: the application without a registered JDBC driver starts in setup mode
- * (no DataSource, no ledger page) and the driver page registers a driver. The test classpath has the H2 driver, which is
- * what the user would supply; it is registered like any other jar.
+ * (no DataSource, no ledger page) and the driver page registers a driver. The PostgreSQL driver jar of the test build
+ * is what the user would supply; it is registered like any other jar (the registration only asks the driver whether it
+ * accepts the URL and never connects).
  */
 @SpringBootTest(classes = LedgerAdminApplication.class, properties = {AdminTestSettings.TOKEN_PROPERTY,
     AdminTestSettings.AGENT_TOKEN_PROPERTY, AdminTestSettings.NO_GLOBAL_CAP,
     AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG, AdminTestSettings.NO_JMX,
-    "ledger.jdbc.url=jdbc:h2:mem:setup-mode"})
+    TestDriverJar.URL_PROPERTY})
 @AutoConfigureMockMvc
 @ExtendWith(OutputCaptureExtension.class)
 class SetupModeTest {
@@ -89,20 +90,16 @@ class SetupModeTest {
         }
     }
 
-    /** The H2 jar where it is on the class path: outside the allowed directory. */
-    private static Path outsideH2Jar() {
-        try {
-            return Path.of(org.h2.Driver.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        } catch (URISyntaxException e) {
-            throw new IllegalStateException("the H2 jar has no path", e);
-        }
+    /** The PostgreSQL driver jar where the build resolved it: outside the allowed directory. */
+    private static Path outsideDriverJar() {
+        return TestDriverJar.jar();
     }
 
-    /** A copy of the H2 jar inside the allowed directory: the jar the user would put there. */
-    private static Path h2Jar() {
+    /** A copy of the PostgreSQL driver jar inside the allowed directory: the jar the user would put there. */
+    private static Path driverJar() {
         try {
-            return OwnerOnlyFiles.restrict(Files.copy(outsideH2Jar(), DRIVERS.resolve("h2.jar"), StandardCopyOption.REPLACE_EXISTING))
-                    .toRealPath();
+            return OwnerOnlyFiles.restrict(Files.copy(outsideDriverJar(), DRIVERS.resolve("postgresql.jar"),
+                    StandardCopyOption.REPLACE_EXISTING)).toRealPath();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -154,19 +151,19 @@ class SetupModeTest {
     static Stream<Invalid> invalidRegistrations() throws IOException {
         Path notAJar = OwnerOnlyFiles.write(DRIVERS.resolve("not-a-jar.jar"), "this is text, not an archive".getBytes(StandardCharsets.UTF_8));
         Path empty = OwnerOnlyFiles.write(DRIVERS.resolve("empty.jar"), new byte[0]);
-        String jar = h2Jar().toString();
+        String jar = driverJar().toString();
         return Stream.of(
-                new Invalid("path that does not exist", DRIVERS.resolve("missing.jar").toString(), "org.h2.Driver"),
-                new Invalid("a directory", DRIVERS.toString(), "org.h2.Driver"),
-                new Invalid("relative path", "driver.jar", "org.h2.Driver"),
+                new Invalid("path that does not exist", DRIVERS.resolve("missing.jar").toString(), TestDriverJar.DRIVER_CLASS),
+                new Invalid("a directory", DRIVERS.toString(), TestDriverJar.DRIVER_CLASS),
+                new Invalid("relative path", "driver.jar", TestDriverJar.DRIVER_CLASS),
                 new Invalid("path with ..", DRIVERS.resolve("sub").resolve("..").resolve("x.jar").toString(),
-                        "org.h2.Driver"),
-                new Invalid("text file named .jar", notAJar.toString(), "org.h2.Driver"),
-                new Invalid("empty file", empty.toString(), "org.h2.Driver"),
+                        TestDriverJar.DRIVER_CLASS),
+                new Invalid("text file named .jar", notAJar.toString(), TestDriverJar.DRIVER_CLASS),
+                new Invalid("empty file", empty.toString(), TestDriverJar.DRIVER_CLASS),
                 new Invalid("class absent from the jar", jar, "org.example.NoSuchDriver"),
-                new Invalid("class that is not a Driver", jar, "org.h2.engine.Constants"),
-                new Invalid("a valid jar outside the allowed directory", outsideH2Jar().toString(), "org.h2.Driver"),
-                new Invalid("no jar given", "", "org.h2.Driver"),
+                new Invalid("class that is not a Driver", jar, TestDriverJar.NOT_A_DRIVER_CLASS),
+                new Invalid("a valid jar outside the allowed directory", outsideDriverJar().toString(), TestDriverJar.DRIVER_CLASS),
+                new Invalid("no jar given", "", TestDriverJar.DRIVER_CLASS),
                 new Invalid("no class given", jar, ""));
     }
 
@@ -176,14 +173,14 @@ class SetupModeTest {
     void adm063_theClientLearnsNothingAboutTheJar(CapturedOutput output) throws Exception {
         Browser owner = Browser.signedIn(mvc);
         Path notAJar = OwnerOnlyFiles.write(DRIVERS.resolve("not-a-jar-63.jar"), "this is text, not an archive".getBytes(StandardCharsets.UTF_8));
-        String inside = h2Jar().toString();
+        String inside = driverJar().toString();
         List<Invalid> refused = List.of(
-                new Invalid("missing", DRIVERS.resolve("missing-63.jar").toString(), "org.h2.Driver"),
-                new Invalid("outside", outsideH2Jar().toString(), "org.h2.Driver"),
-                new Invalid("not an archive", notAJar.toString(), "org.h2.Driver"),
+                new Invalid("missing", DRIVERS.resolve("missing-63.jar").toString(), TestDriverJar.DRIVER_CLASS),
+                new Invalid("outside", outsideDriverJar().toString(), TestDriverJar.DRIVER_CLASS),
+                new Invalid("not an archive", notAJar.toString(), TestDriverJar.DRIVER_CLASS),
                 new Invalid("class absent", inside, "org.example.NoSuchDriver63"),
-                new Invalid("directory", DRIVERS.toString(), "org.h2.Driver"),
-                new Invalid("relative", "driver-63.jar", "org.h2.Driver"));
+                new Invalid("directory", DRIVERS.toString(), TestDriverJar.DRIVER_CLASS),
+                new Invalid("relative", "driver-63.jar", TestDriverJar.DRIVER_CLASS));
         Set<String> details = new HashSet<>();
 
         for (Invalid input : refused) {
@@ -228,23 +225,23 @@ class SetupModeTest {
             + "after the restart; the file is what Spring Boot binds to ledger.jdbc.driver")
     void drv016_validRegistration(CapturedOutput output) throws Exception {
         Browser owner = Browser.signedIn(mvc);
-        Path jar = h2Jar();
-        MultiValueMap<String, String> fields = Form.of("jar", jar.toString(), "className", "org.h2.Driver");
+        Path jar = driverJar();
+        MultiValueMap<String, String> fields = Form.of("jar", jar.toString(), "className", TestDriverJar.DRIVER_CLASS);
 
         owner.perform(owner.form("/driver", fields, owner.csrfOf("/driver"))).andExpect(status().is3xxRedirection())
                 .andExpect(header().string(HttpHeaders.LOCATION, org.hamcrest.Matchers.endsWith("/driver?registered")));
 
         String page = owner.perform(owner.get("/driver?registered")).andReturn().getResponse().getContentAsString();
         String digest = sha256(jar);
-        assertThat(page).contains(jar.toString(), "org.h2.Driver", digest, "takes effect after the next start")
+        assertThat(page).contains(jar.toString(), TestDriverJar.DRIVER_CLASS, digest, "takes effect after the next start")
                 .contains("restart the products");
         DriverRegistration bound = bind(REGISTRATION);
         assertThat(bound.jar()).isEqualTo(jar);
-        assertThat(bound.className()).isEqualTo("org.h2.Driver");
+        assertThat(bound.className()).isEqualTo(TestDriverJar.DRIVER_CLASS);
         assertThat(bound.sha256()).isEqualTo(digest);
         assertThat(registrationText().orElseThrow()).contains("registered-at").containsPattern("registered-at: .*Z");
         // ADM-072 (audit2 N3): there is no database in setup mode, so no audit row; the registration is logged with the owner
-        assertThat(output.getAll()).contains("driver registered by token:owner").contains("org.h2.Driver").contains(digest);
+        assertThat(output.getAll()).contains("driver registered by token:owner").contains(TestDriverJar.DRIVER_CLASS).contains(digest);
     }
 
     /** What every product does with the file: Spring Boot loads it as a YAML property source and binds the record. */

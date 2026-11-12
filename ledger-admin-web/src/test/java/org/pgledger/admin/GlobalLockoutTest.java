@@ -8,6 +8,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pgledger.admin.support.AdminTestInfrastructure;
 import org.pgledger.admin.support.AdminTestSettings;
+import org.pgledger.testing.database.TestSchemaInitializer;
+import org.springframework.test.context.ContextConfiguration;
 import org.pgledger.admin.support.Browser;
 import org.pgledger.admin.support.MutableClock;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +28,7 @@ import org.springframework.test.web.servlet.ResultActions;
  * all are the budget and every check beyond it waits 300 ms: a client with a new address that never failed, the owner
  * with the right token, still logs in (a global lock would be a denial of service of the only login).
  */
+@ContextConfiguration(initializers = TestSchemaInitializer.class)
 @SpringBootTest(classes = LedgerAdminApplication.class, properties = {AdminTestSettings.TOKEN_PROPERTY,
     AdminTestSettings.AGENT_TOKEN_PROPERTY, "ledger.admin.lockout.global-max-failures=3",
     "ledger.admin.lockout.global-delay=300ms", AdminTestSettings.QUIET_BANNER, AdminTestSettings.QUIET_LOG,
