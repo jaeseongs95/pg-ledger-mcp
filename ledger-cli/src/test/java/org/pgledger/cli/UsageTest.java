@@ -90,11 +90,11 @@ class UsageTest {
     }
 
     @Test
-    @DisplayName("CLI-001 the usage text names the commands of the owner tool (changed by import: import-legacy is listed after migrate; changed by install, INS-029: token-generate follows secret-set and render-deploy ends the list; SEC-027: secret-import-1x follows token-generate; INS-044: prepare-host and seal-host end the list; SETUP: setup follows migrate and install-default ends the list)")
+    @DisplayName("CLI-001 the usage text names the commands of the owner tool (changed by import: import-legacy is listed after migrate; changed by install, INS-029: token-generate follows secret-set and render-deploy ends the list; SEC-027: secret-import-1x follows token-generate; INS-044: prepare-host and seal-host end the list; SETUP: setup follows migrate and install-default ends the list; TLS: tls-issue and tls-renew end the list)")
     void theCommandSetIsTheOneOfThePlan() {
         assertThat(Stream.of(CliCommand.values()).map(CliCommand::cliName)).containsExactly("secret-set",
                 "token-generate", "secret-import-1x", "driver-register", "migrate", "setup", "import-legacy", "key-register", "key-revoke", "project-add", "code-set",
-                "codes", "grant", "revoke", "grants", "mcp-check", "render-deploy", "prepare-host", "seal-host", "install-default");
+                "codes", "grant", "revoke", "grants", "mcp-check", "render-deploy", "prepare-host", "seal-host", "install-default", "tls-issue", "tls-renew");
     }
 
     @Test
