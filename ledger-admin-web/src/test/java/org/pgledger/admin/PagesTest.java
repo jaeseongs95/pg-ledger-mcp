@@ -43,6 +43,34 @@ class PagesTest {
     }
 
     @Test
+    @DisplayName("REH3-ADM-01 a task whose id has the characters / # ? : and an id of 109 characters (ids of 1.x) are opened from the task list, and the history filter takes the long id")
+    void reh3Adm01_idsOfOneX() throws Exception {
+        Seeded project = seeds.project();
+        String odd = "AGS#9/x.y:z_1?a=b";
+        String longId = "ags:" + "x".repeat(105);
+        seeds.task(project, odd, "odd id task");
+        seeds.task(project, longId, "long id task");
+        Browser browser = Browser.signedIn(mvc);
+
+        String list = page(browser, "/tasks?project=" + project.project());
+
+        for (String[] row : new String[][] {{odd, "odd id task"}, {longId, "long id task"}}) {
+            Matcher link = Pattern.compile("<a href=\"([^\"]+)\"[^>]*>" + Pattern.quote(row[0]) + "</a>").matcher(list);
+            assertThat(link.find()).as("the list links the task %s", row[0]).isTrue();
+            String id = org.springframework.web.util.UriUtils.decode(org.springframework.web.util.UriComponentsBuilder
+                    .fromUriString(link.group(1).replace("&amp;", "&")).build().getQueryParams().getFirst("id"),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(id).isEqualTo(row[0]);
+            String detail = browser.perform(browser.get(link.group(1).replace("&amp;", "&"))).andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            assertThat(detail).contains(row[1]);
+        }
+        String history = page(browser, "/history?project=" + project.project());
+        assertThat(history).containsPattern("name=\"entityId\"[^>]*maxlength=\"300\"");
+        assertThat(page(browser, "/history?project=" + project.project() + "&entityId=" + longId)).contains(longId);
+    }
+
+    @Test
     @DisplayName("ADM-016: the overview, projects, defects, a defect, tasks, conditions, history, grants and codes each show "
             + "the seeded rows")
     void adm016_everyPageShowsItsRows() throws Exception {
@@ -59,7 +87,7 @@ class PagesTest {
         assertThat(page(browser, "/defects/" + defect)).contains("behavior of the first defect",
                 "cause of the first defect", "Recent changes");
         assertThat(page(browser, "/tasks?project=" + project.project())).contains(task, "the first task");
-        assertThat(page(browser, "/tasks/" + task)).contains("purpose of the first task");
+        assertThat(page(browser, "/tasks/detail?id=" + task)).contains("purpose of the first task");
         assertThat(page(browser, "/conditions?project=" + project.project())).contains("condition C1", "1.0");
         assertThat(page(browser, "/history?project=" + project.project())).contains(defect, "CREATE");
         assertThat(page(browser, "/grants")).contains(Seeds.AUTHOR, project.project());

@@ -106,20 +106,117 @@ public final class LegacyFixtures {
         return ledger;
     }
 
-    /** Adds the task {@code OLD-T-UNKNOWN} that has no history and empty {@code purpose} and {@code success_condition} (MIG-023). */
+    /**
+     * Adds the task {@code OLD-T-UNKNOWN} that has no history and empty {@code purpose} and {@code success_condition}
+     * (MIG-023; the 1.x columns allowed {@code ''}, the import stores NULL, REH3-IMP-01).
+     */
     public static LegacyLedger withEmptyPurpose(LegacyLedger ledger) {
         return ledger.insert("task", "id", "OLD-T-UNKNOWN", "project_id", "old", "title", "No history", "purpose", "",
                 "success_condition", "", "state", "PLANNED", "version", 1, "created_at", at("2026-11-01T00:00:00Z"),
                 "updated_at", at("2026-11-01T00:00:00Z"), "created_by", UNKNOWN);
     }
 
-    /** Adds a task and a condition whose ids have lower-case letters (MIG-028). */
+    /** Adds a task and a condition whose ids have lower-case letters (MIG-028: the ids of 1.x are kept). */
     public static LegacyLedger withLowerCaseIds(LegacyLedger ledger) {
         ledger.insert("task", "id", "old-t-lower", "project_id", "old", "title", "Lower-case id", "purpose", "p",
                 "success_condition", "s", "state", "PLANNED", "version", 1, "created_at", at("2026-11-01T00:00:00Z"),
                 "updated_at", at("2026-11-01T00:00:00Z"), "created_by", SEED);
         return ledger.insert("condition", "id", "old-c-lower", "project_id", "old", "release", "old", "code", "CL",
                 "condition_text", "lower case", "state", "UNKNOWN", "version", 1, "created_by", SEED);
+    }
+
+    private static void plainTask(LegacyLedger l, String id) {
+        l.insert("task", "id", id, "project_id", "old", "title", "Task " + id.length(), "purpose", "p", "success_condition",
+                "s", "state", "PLANNED", "version", 1, "created_at", at("2026-11-01T00:00:00Z"), "updated_at",
+                at("2026-11-01T00:00:00Z"), "created_by", SEED);
+    }
+
+    private static void plainCondition(LegacyLedger l, String id, String code) {
+        l.insert("condition", "id", id, "project_id", "old", "release", "old", "code", code, "condition_text", "text",
+                "state", "UNKNOWN", "version", 1, "created_by", SEED);
+    }
+
+    /** Adds tasks {@code OLD-T-a} and {@code OLD-T-A} and conditions {@code old-c} and {@code OLD-C}: ids that differ only in case. */
+    public static LegacyLedger withCaseDuplicates(LegacyLedger l) {
+        plainTask(l, "OLD-T-a");
+        plainTask(l, "OLD-T-A");
+        plainCondition(l, "old-c", "CA");
+        plainCondition(l, "OLD-C", "CB");
+        return l;
+    }
+
+    /** The id of a task that is 121 characters long. */
+    public static final String TASK_ID_121 = "OLD-" + "x".repeat(117);
+
+    /** Adds a task id with a space, one of 121 characters and a condition id with a tab: ids that no 1.x domain has a use for. */
+    public static LegacyLedger withMalformedIds(LegacyLedger l) {
+        plainTask(l, "OLD T SPACE");
+        plainTask(l, TASK_ID_121);
+        plainCondition(l, "OLD\tC", "CT");
+        return l;
+    }
+
+    /** Adds a condition with {@code release = ''} and a fix with {@code repo = ''}: NOT NULL columns that identify a row. */
+    public static LegacyLedger withEmptyIdentifyingTexts(LegacyLedger l) {
+        l.insert("condition", "id", "OLD-C-NORELEASE", "project_id", "old", "release", "", "code", "NR", "condition_text",
+                "text", "state", "UNKNOWN", "version", 1, "created_by", SEED);
+        l.insert("defect_fix", "id", 30, "defect_id", "E2E-D-0007", "repo", "", "commit_sha", "f".repeat(40), "recorded_by",
+                SEED, "recorded_at", at("2026-11-06T02:00:00Z"), "imported", false);
+        return l;
+    }
+
+    /** The ids of the real shapes of {@link #withRealShapes}: the examples of the production ledger of 1.x. */
+    public static final String REAL_TASK_A01 = "AGS:A01";
+    public static final String REAL_TASK_LOWER_SUFFIX = "AGS:A07-a";
+    public static final String REAL_TASK_LONG = "USER_BACKLOG:revision58:task:ledger-storage-reliability-design";
+    public static final String REAL_TASK_CHARS = "AGS#9/x.y:z_1";
+    public static final String REAL_TASK_120 = "AGS:" + "x".repeat(116);
+    public static final String REAL_TASK_EMPTY_BOTH = "AGS:EMPTY-BOTH";
+    public static final String REAL_TASK_EMPTY_ONE = "AGS:EMPTY-ONE";
+    public static final String REAL_CONDITION_LONG =
+            "AGS:condition:critical-local-fixes-once-cutoff-9254f21a-20261026-r01:actual-load-verification";
+    public static final String REAL_CONDITION_LOWER = "ags:c-lower";
+    public static final String REAL_DEFECT = "AGS-D-0001";
+    /** A condition code of 79 characters (the longest of the production ledger; the 2.0 column held 64). */
+    public static final String REAL_CODE_79 = "c".repeat(79);
+    /** A CI reference of 533 characters (the longest of the production ledger; the 2.0 column held 500). */
+    public static final String REAL_CI_REF_533 = "https://ci.example/" + "r".repeat(533 - "https://ci.example/".length());
+
+    /**
+     * Adds what the third rehearsal found in the 1.x ledger (REH3-IMP-01): the project {@code ags}; tasks whose ids have lower-case
+     * letters and the characters {@code # / . : _ -}, one of 120 characters; two tasks with {@code ''} in {@code purpose} and
+     * {@code success_condition}; a defect with {@code ''} in {@code behavior}; a condition with a code of 79 characters and a
+     * condition whose id is lower case and whose text is {@code ''}; a fix with a CI reference of 533 characters; and
+     * {@code condition_link} rows to tasks and to defects (the legacy table has no link key).
+     */
+    public static LegacyLedger withRealShapes(LegacyLedger l) {
+        l.insert("project", "id", "ags", "code", "AGS", "title", "The ledger of the real shapes", "created_by", OWNER);
+        for (String id : List.of(REAL_TASK_A01, REAL_TASK_LOWER_SUFFIX, REAL_TASK_LONG, REAL_TASK_CHARS, REAL_TASK_120)) {
+            task(l, id, "ags", "Task " + id.length(), "PLANNED", 1, SEED, "");
+        }
+        l.insert("task", "id", REAL_TASK_EMPTY_BOTH, "project_id", "ags", "title", "Empty texts", "purpose", "",
+                "success_condition", "", "state", "PLANNED", "version", 1, "created_at", at("2026-11-01T00:00:00Z"),
+                "updated_at", at("2026-11-01T00:00:00Z"), "created_by", UNKNOWN);
+        l.insert("task", "id", REAL_TASK_EMPTY_ONE, "project_id", "ags", "title", "One empty text", "purpose", "",
+                "success_condition", "it is done", "state", "PLANNED", "version", 1, "created_at",
+                at("2026-11-01T00:00:00Z"), "updated_at", at("2026-11-01T00:00:00Z"), "created_by", UNKNOWN);
+        l.insert("defect", "id", REAL_DEFECT, "project_id", "ags", "title", "A defect without text", "category", "OLDBUG",
+                "severity", "P2", "status", "SOURCE_FIXED", "behavior", "", "root_cause", "", "version", 2, "created_at",
+                at("2026-11-05T10:00:00Z"), "updated_at", at("2026-11-05T10:00:00Z"), "created_by", SEED);
+        l.insert("defect_fix", "id", 20, "defect_id", REAL_DEFECT, "repo", "repo/ags", "commit_sha", "e".repeat(40), "branch",
+                "main", "ci_ref", REAL_CI_REF_533, "ci_conclusion", "success", "ci_completed_at",
+                at("2026-11-06T01:02:03Z"), "recorded_by", SEED, "recorded_at", at("2026-11-06T01:03:00Z"), "imported", false);
+        l.insert("condition", "id", REAL_CONDITION_LONG, "project_id", "ags", "release", "2.0.0", "goal_label",
+                "g".repeat(114), "code", REAL_CODE_79, "condition_text", "the load is verified", "state", "UNKNOWN",
+                "version", 1, "created_by", SEED);
+        l.insert("condition", "id", REAL_CONDITION_LOWER, "project_id", "ags", "release", "2.0.0", "code", "LOW",
+                "condition_text", "", "state", "UNKNOWN", "version", 1, "created_by", SEED);
+        l.insert("condition_link", "condition_id", REAL_CONDITION_LONG, "task_id", REAL_TASK_A01, "created_by", SEED);
+        l.insert("condition_link", "condition_id", REAL_CONDITION_LONG, "task_id", REAL_TASK_CHARS, "created_by", SEED);
+        l.insert("condition_link", "condition_id", REAL_CONDITION_LONG, "defect_id", REAL_DEFECT, "created_by", SEED);
+        l.insert("condition_link", "condition_id", REAL_CONDITION_LOWER, "task_id", REAL_TASK_LOWER_SUFFIX, "created_by", SEED);
+        l.insert("defect_task", "defect_id", REAL_DEFECT, "task_id", REAL_TASK_LOWER_SUFFIX, "created_by", SEED);
+        return l;
     }
 
     // ----------------------------------------------------------------------------------------------- the data

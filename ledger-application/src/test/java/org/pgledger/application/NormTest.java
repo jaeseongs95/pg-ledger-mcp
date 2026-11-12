@@ -139,18 +139,7 @@ class NormTest {
                 new Required("defect title", s -> s.bean(SaveService.class).save(Scenario.AUTHOR,
                         s.create("defect", null, with(s.defectFields("d"), "title", "  "))),
                         ValidationCode.VALIDATION_FAILED, "title"),
-                new Required("defect behavior", s -> s.bean(SaveService.class).save(Scenario.AUTHOR,
-                        s.create("defect", null, with(s.defectFields("d"), "behavior", ""))),
-                        ValidationCode.VALIDATION_FAILED, "behavior"),
-                new Required("task purpose", s -> s.bean(SaveService.class).save(Scenario.AUTHOR,
-                        s.create("task", null, with(s.taskFields("t"), "purpose", " "))),
-                        ValidationCode.VALIDATION_FAILED, "purpose"),
-                new Required("task success_condition", s -> s.bean(SaveService.class).save(Scenario.AUTHOR,
-                        s.create("task", null, with(s.taskFields("t"), "success_condition", ""))),
-                        ValidationCode.VALIDATION_FAILED, "success_condition"),
-                new Required("condition condition_text", s -> s.bean(SaveService.class).save(Scenario.AUTHOR,
-                        s.create("condition", s.conditionId("1"), with(s.conditionFields("r", "c"), "condition_text",
-                                " "))), ValidationCode.VALIDATION_FAILED, "condition_text"),
+                // revised by REH3: behavior, root_cause, purpose, success_condition and condition_text may be empty (REH3-TXT-01)
                 new Required("condition release", s -> s.bean(SaveService.class).save(Scenario.AUTHOR,
                         s.create("condition", s.conditionId("1"), with(s.conditionFields("r", "c"), "release", ""))),
                         ValidationCode.VALIDATION_FAILED, "release"),
@@ -170,7 +159,7 @@ class NormTest {
 
     @ParameterizedTest
     @MethodSource("blankRequiredFields")
-    @DisplayName("SVC-NORM-02: a blank required field is refused and named")
+    @DisplayName("SVC-NORM-02: a blank required field (title, release, code, observation, repo, reason) is refused and named; the five long texts of 1.x that allowed '' follow REH3-TXT-01")
     void norm02_blankRequiredFields(Required required, Scenario s) {
         LedgerException e = Expect.failure(() -> required.write().accept(s), required.code());
         assertThat(((ValidationException) e).issues().get(0).path()).isEqualTo(required.path());

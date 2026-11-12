@@ -36,15 +36,39 @@ class BackupOfOneXTest {
         Files.writeString(unit, ONE_X, StandardCharsets.UTF_8);
         Files.writeString(backup, ONE_X, StandardCharsets.UTF_8);
         List<Path> kept = new ArrayList<>();
+        List<DeployFiles.Backup> how = new ArrayList<>();
 
-        List<Path> written = files.write(tmp, List.of(new RenderedFile(UNIT, RENDERED)), kept::add);
+        List<Path> written = files.write(tmp, List.of(new RenderedFile(UNIT, RENDERED)), (path, made) -> {
+            kept.add(path);
+            how.add(made);
+        });
 
         assertThat(written).containsExactly(unit);
         assertThat(kept).containsExactly(backup);
+        // REH3-INS-02: a backup that was there is told as left alone, not as made now
+        assertThat(how).containsExactly(DeployFiles.Backup.KEPT);
         assertThat(Files.readString(backup, StandardCharsets.UTF_8)).isEqualTo(ONE_X);
         assertThat(Files.readString(unit, StandardCharsets.UTF_8)).isEqualTo(RENDERED);
-        files.write(tmp, List.of(new RenderedFile(UNIT, RENDERED)), kept::add);
+        files.write(tmp, List.of(new RenderedFile(UNIT, RENDERED)), (path, made) -> {
+            kept.add(path);
+            how.add(made);
+        });
         assertThat(kept).hasSize(1);
+        assertThat(Files.readString(backup, StandardCharsets.UTF_8)).isEqualTo(ONE_X);
+    }
+
+    @Test
+    @DisplayName("REH3-INS-01 a file of 1.x without a backup is moved to <file>.1x-backup and told as moved (the sentence of the first run)")
+    void firstRunMovesIt() throws IOException {
+        Path unit = tmp.resolve("etc/systemd/system/pg-ledger-mcp.service");
+        Path backup = unit.resolveSibling("pg-ledger-mcp.service" + DeployFiles.BACKUP_SUFFIX);
+        Files.createDirectories(unit.getParent());
+        Files.writeString(unit, ONE_X, StandardCharsets.UTF_8);
+        List<DeployFiles.Backup> how = new ArrayList<>();
+
+        files.write(tmp, List.of(new RenderedFile(UNIT, RENDERED)), (path, made) -> how.add(made));
+
+        assertThat(how).containsExactly(DeployFiles.Backup.MOVED);
         assertThat(Files.readString(backup, StandardCharsets.UTF_8)).isEqualTo(ONE_X);
     }
 }

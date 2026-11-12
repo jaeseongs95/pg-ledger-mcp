@@ -113,21 +113,24 @@ class ImportLegacyCommandTest {
     }
 
     @Test
-    @DisplayName("CLI-046 a legacy value that cannot be imported is IMPORT_DATA_REFUSED (exit 1): every offending value is printed as table[key].column with its reason, nothing is written; the printed reason of an id is the format it must match")
+    @DisplayName("CLI-046 a legacy value that cannot be imported is IMPORT_DATA_REFUSED (exit 1): every offending value is printed as table[key].column with its reason, nothing is written (revised by REH3: an id of 1.x in any case and an empty purpose are no refusal; a malformed id, a NOT NULL text that identifies a row and ids that differ only in case are)")
     void listsWhatCannotBeImported(Cli cli, CapturedOutput captured) {
         LegacyFixtures.withEmptyPurpose(legacy);
         LegacyFixtures.withLowerCaseIds(legacy);
+        LegacyFixtures.withMalformedIds(legacy);
+        LegacyFixtures.withEmptyIdentifyingTexts(legacy);
         RecordingOutput output = new RecordingOutput();
 
         Outcome result = run(cli, output, "import-legacy");
 
         assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
         assertThat(result.code()).contains(ErrorCode.IMPORT_DATA_REFUSED);
-        assertThat(output.info()).contains("task[OLD-T-UNKNOWN].purpose: REQUIRED")
-                .contains("task[OLD-T-UNKNOWN].success_condition: REQUIRED")
-                .contains("task[old-t-lower].id: MUST_BE_UPPER_CASE_ID_MATCHING [A-Z0-9][A-Z0-9_|-]{0,119}")
-                .contains("release_condition[old-c-lower].id: MUST_BE_UPPER_CASE_ID_MATCHING");
-        assertThat(result.refusal().orElseThrow().arguments()).containsExactly("4");
+        assertThat(output.info()).contains("task[OLD T SPACE].id: MUST_BE_ID [120]")
+                .contains("task[" + LegacyFixtures.TASK_ID_121 + "].id: MUST_BE_ID [120]")
+                .contains("release_condition[OLD-C-NORELEASE].release_name: REQUIRED")
+                .contains("defect_fix[30].repo: REQUIRED")
+                .doesNotContain("OLD-T-UNKNOWN").doesNotContain("old-t-lower").doesNotContain("old-c-lower");
+        assertThat(result.refusal().orElseThrow().arguments()).containsExactly("5");
         assertThat(captured.getAll()).contains("cannot be imported as they are");
         assertThat(count("project")).isZero();
         assertThat(count("history")).isZero();

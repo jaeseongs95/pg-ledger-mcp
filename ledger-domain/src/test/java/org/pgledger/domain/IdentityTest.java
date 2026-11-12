@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.pgledger.domain.error.TrustCode;
 import org.pgledger.domain.error.ValidationCode;
+import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.value.ActorId;
 import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.ConditionId;
@@ -145,16 +146,39 @@ class IdentityTest {
         Expect.failsWith(ValidationCode.REASON_INVALID, () -> Reason.of(null));
     }
 
+    /** DOM-036 as revised by REH3: the ids of a task and a condition keep the domain of 1.x. */
     @Test
-    void dom036_entityIdsAreUpperCaseOnly() {
-        for (String ok : List.of("E2E-D-0001", "E2E-T-1", "E2E-T|PIPE", "OLD-PIPE-C|A", "OLD-C-1")) {
+    void dom036_reh3Id01_theIdsOfOneXAreKept() {
+        for (String ok : List.of("E2E-D-0001", "E2E-T-1", "E2E-T|PIPE", "OLD-PIPE-C|A", "OLD-C-1", "E2E-t-1", "Abc",
+                "AGS:A01", "AGS:A07-a", "USER_BACKLOG:revision58:task:ledger-storage-reliability-design",
+                "AGS:condition:critical-local-fixes-once-cutoff-9254f21a-20261026-r01:actual-load-verification",
+                "a#b/c.d:e_f-g|h", "x", "a".repeat(120), "가".repeat(120))) {
             assertThat(EntityId.of(ok).value()).isEqualTo(ok);
+            assertThat(TaskId.of(ok).value()).isEqualTo(ok);
             assertThat(ConditionId.of(ok).value()).isEqualTo(ok);
+            assertThat(TaskId.parse(ok)).isPresent();
+            assertThat(ConditionId.parse(ok)).isPresent();
         }
-        for (String bad : List.of("e2e-d-0001", "E2E-t-1", "Abc", "", " ")) {
-            Expect.invalid(() -> EntityId.of(bad));
+        String zeroWidthSpace = "A​B";
+        for (String bad : List.of("", " ", "   ", "a".repeat(121), "AGS A01", "A\tB", "A\nB", "A\r\nB", "A B",
+                zeroWidthSpace, "A\u0000B", "A\u0085B", "AGS:A01 ")) {
+            ValidationException refused = (ValidationException) Expect.invalid(() -> EntityId.of(bad));
+            assertThat(refused.issues().getFirst().reason().name()).as("reason for %s", bad).isEqualTo("MUST_BE_ID");
             Expect.invalid(() -> TaskId.of(bad));
             Expect.invalid(() -> ConditionId.of(bad));
+            assertThat(TaskId.parse(bad)).isEmpty();
+            assertThat(ConditionId.parse(bad)).isEmpty();
         }
+        // the id of a defect keeps its format
+        assertThat(DefectId.of("AGS-D-0001").value()).isEqualTo("AGS-D-0001");
+        ValidationException lower = (ValidationException) Expect.invalid(() -> DefectId.of("ags-d-0001"));
+        assertThat(lower.issues().getFirst().reason().name()).isEqualTo("DEFECT_ID_FORMAT");
+    }
+
+    /** REH3-ID-02: equality of ids is exact, so a lookup in Java never takes a sibling for the id. */
+    @Test
+    void reh3Id02_equalityOfIdsIsExact() {
+        assertThat(TaskId.of("AGS:A07-a")).isNotEqualTo(TaskId.of("AGS:A07-A")).isEqualTo(TaskId.of("AGS:A07-a"));
+        assertThat(ConditionId.of("ags:c1")).isNotEqualTo(ConditionId.of("AGS:C1"));
     }
 }
