@@ -86,6 +86,43 @@ class IdentityTest {
     }
 
     @Test
+    void dom005_defectNumberHasAnUpperBoundOfEighteenDigits() {
+        String eighteen = "E2E-D-" + "9".repeat(18);
+        String nineteen = "E2E-D-" + "9".repeat(19);
+        assertThat(DefectId.of(eighteen).number()).isEqualTo(999_999_999_999_999_999L);
+        assertThat(DefectId.parse(eighteen)).isPresent();
+        assertThat(DefectId.FORMAT.matcher(eighteen).matches()).isTrue();
+        // too many digits is a validation failure, never a NumberFormatException of a later number()
+        Expect.invalid(() -> DefectId.of(nineteen));
+        Expect.invalid(() -> DefectId.of("E2E-D-" + "9".repeat(40)));
+        assertThat(DefectId.parse(nineteen)).isEmpty();
+        assertThat(DefectId.FORMAT.matcher(nineteen).matches()).isFalse();
+        // a number cannot be issued beyond what the format holds
+        assertThat(DefectId.of(ProjectCode.of("E2E"), 999_999_999_999_999_999L).value()).isEqualTo(eighteen);
+        Expect.invalid(() -> DefectId.of(ProjectCode.of("E2E"), 1_000_000_000_000_000_000L));
+        Expect.invalid(() -> DefectId.of(ProjectCode.of("E2E"), Long.MAX_VALUE));
+        Expect.invalid(() -> TaskId.issue(ProjectCode.of("E2E"), Long.MAX_VALUE));
+    }
+
+    @Test
+    void dom006_taskNumberOfAServerIssuedId() {
+        ProjectCode e2e = ProjectCode.of("E2E");
+        assertThat(TaskId.of("E2E-T-0007").number()).hasValue(7);
+        assertThat(TaskId.of("E2E-T-7").number()).hasValue(7);
+        assertThat(TaskId.issue(e2e, 10000).number()).hasValue(10000);
+        assertThat(TaskId.of("E2E-T-" + "9".repeat(18)).number()).hasValue(999_999_999_999_999_999L);
+        // a free id that is valid text but carries no number that fits: no number, no exception
+        assertThat(TaskId.of("E2E-T-" + "9".repeat(19)).number()).isEmpty();
+        assertThat(TaskId.of("E2E-T|PIPE").number()).isEmpty();
+        assertThat(TaskId.of("E2E-D-0001").number()).isEmpty();
+        assertThat(TaskId.of("E2E-T-0007X").number()).isEmpty();
+        // the number of an id of a given project
+        assertThat(TaskId.of("E2E-T-0007").numberIn(e2e)).hasValue(7);
+        assertThat(TaskId.of("OTHER-T-0007").numberIn(e2e)).isEmpty();
+        assertThat(TaskId.of("E2E-T-" + "9".repeat(19)).numberIn(e2e)).isEmpty();
+    }
+
+    @Test
     void dom007_requestIdsAndDerivedIds() {
         Expect.invalid(() -> RequestId.parse("not-a-uuid"));
         Expect.invalid(() -> RequestId.parse("1-1-1-1-1"));

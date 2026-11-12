@@ -1,14 +1,12 @@
 package org.pgledger.attestation;
 
 import java.security.KeyFactory;
-import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.HexFormat;
 
 /**
  * The text forms of an Ed25519 public key: X.509 SubjectPublicKeyInfo (DER) in standard base64, which is what the
@@ -60,11 +58,7 @@ public final class PublicKeys {
 
     /** SHA-256 of the X.509 DER bytes, 64 lower-case hex characters. */
     public static String fingerprint(PublicKey key) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(key.getEncoded()));
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is mandatory on every JVM", failure);
-        }
+        return Sha256Hex.of(key.getEncoded());
     }
 
     /** The text that stands for the same key in one canonical form (what the server stores). */

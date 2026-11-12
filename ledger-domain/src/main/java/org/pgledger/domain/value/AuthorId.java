@@ -13,6 +13,8 @@ public record AuthorId(String value) implements ActorId {
 
     private static final String OWNER_VALUE = "user:owner";
 
+    private static final char SEPARATOR = ':';
+
     public static final AuthorId OWNER = new AuthorId(OWNER_VALUE);
 
     private static final Pattern SESSION_FORMAT = Pattern.compile("[a-z][a-z0-9-]{0,31}:[A-Za-z0-9._-]{1,128}");
@@ -34,5 +36,15 @@ public record AuthorId(String value) implements ActorId {
     public static boolean matches(String value) {
         return value != null && (OWNER_VALUE.equals(value)
                 || (SESSION_FORMAT.matcher(value).matches() && !value.startsWith("user:")));
+    }
+
+    /** The part before the colon: the host vendor of a session, {@code user} for the owner. */
+    public String vendor() {
+        return value.substring(0, value.indexOf(SEPARATOR));
+    }
+
+    /** The part after the colon: the session id of a session author, {@code owner} for the owner. */
+    public String session() {
+        return value.substring(value.indexOf(SEPARATOR) + 1);
     }
 }

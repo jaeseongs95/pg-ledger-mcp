@@ -14,16 +14,28 @@ import org.pgledger.domain.value.DefectId;
  */
 public record DefectRelation(DefectId a, DefectId b, CodeValue relation, ActorId createdBy) implements Link {
 
+    /** Two different defects in canonical order: {@code first} sorts before {@code second} as text. */
+    public record Pair(DefectId first, DefectId second) {
+
+        /**
+         * The two defects in canonical order: the one rule of the order, for the relation and for a caller that looks
+         * a relation up by its pair.
+         *
+         * @throws ValidationException when both are the same defect
+         */
+        public static Pair ordered(DefectId x, DefectId y) {
+            int order = x.value().compareTo(y.value());
+            if (order == 0) {
+                throw ValidationException.invalid("b", ValidationReason.MUST_DIFFER_FROM, "a");
+            }
+            return order < 0 ? new Pair(x, y) : new Pair(y, x);
+        }
+    }
+
     public DefectRelation {
-        int order = a.value().compareTo(b.value());
-        if (order == 0) {
-            throw ValidationException.invalid("b", ValidationReason.MUST_DIFFER_FROM, "a");
-        }
-        if (order > 0) {
-            DefectId first = b;
-            b = a;
-            a = first;
-        }
+        Pair pair = Pair.ordered(a, b);
+        a = pair.first();
+        b = pair.second();
     }
 
     @Override

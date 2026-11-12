@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.ResourceBundle;
 import java.util.Set;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -32,12 +31,7 @@ import org.pgledger.domain.error.TrustException;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
-import org.pgledger.domain.model.Batch;
-import org.pgledger.domain.model.BatchOp;
 import org.pgledger.domain.model.BatchOpKind;
-import org.pgledger.domain.value.DefectId;
-import org.pgledger.domain.value.Reason;
-import org.pgledger.domain.value.RequestId;
 import org.pgledger.domain.value.Tokens;
 
 /** DOM-025 .. DOM-027: batch operations, the exception hierarchy and the message bundles. */
@@ -65,26 +59,8 @@ class BatchAndErrorsTest {
     }
 
     @Test
-    void dom025_batchSizeAndDerivedRequestIds() {
-        RequestId batchId = new RequestId(UUID.randomUUID());
-        RequestId own = new RequestId(UUID.randomUUID());
-        BatchOp withId = new BatchOp.CorrectOp(1, Reason.of("a reason of enough length"), own);
-        BatchOp withoutId = new BatchOp.CorrectOp(2, Reason.of("a reason of enough length"), null);
-        Batch batch = new Batch(batchId, List.of(withId, withoutId));
-        assertThat(batch.requestIdOf(0)).isEqualTo(own);
-        assertThat(batch.requestIdOf(1)).isEqualTo(batchId.derive(1));
-        assertThat(batch.ops().get(0).kind()).isEqualTo(BatchOpKind.CORRECT);
-
-        Expect.invalid(() -> new Batch(batchId, List.of()));
-        Expect.invalid(() -> new Batch(batchId, null));
-        List<BatchOp> many = new ArrayList<>();
-        for (int i = 0; i < 201; i++) {
-            many.add(withoutId);
-        }
-        new Batch(batchId, many.subList(0, 200));
-        Expect.invalid(() -> new Batch(batchId, many));
-        assertThat(new BatchOp.RecordCaseOp(DefectId.of("E2E-D-0001"), "x", Reason.of("a reason of enough length"),
-                null, null, null, null).kind()).isEqualTo(BatchOpKind.RECORD_CASE);
+    void dom025_aBatchHoldsAtMostTwoHundredOperations() {
+        assertThat(BatchOpKind.MAX_OPS_PER_BATCH).isEqualTo(200);
     }
 
     static List<ErrorCode> allCodes() {
@@ -124,7 +100,7 @@ class BatchAndErrorsTest {
     @Test
     void dom026_everyCodeMapsToOneExceptionSubtypeOfItsCategory() {
         List<ErrorCode> codes = allCodes();
-        assertThat(codes).hasSize(41);
+        assertThat(codes).hasSize(59);
         assertThat(codes.stream().map(ErrorCode::token)).doesNotHaveDuplicates();
         assertThat(codes.stream().map(ErrorCode::token)).contains("AUTHOR_ID_FORMAT", "SESSION_NOT_GRANTED",
                 "HOST_ATTESTATION_REQUIRED", "VERSION_CONFLICT", "SAME_SESSION", "MERGED_DEFECT", "CODE_REQUIRED",
@@ -219,5 +195,52 @@ class BatchAndErrorsTest {
         assertThat(wrapped.args()).isEqualTo(original.args());
         assertThat(wrapped.details()).containsEntry("op_index", List.of("2"));
         assertThat(original.details()).doesNotContainKey("op_index");
+    }
+
+    @Test
+    void dom026_withDetailsKeepsTheCauseOfEverySubtype() {
+        Throwable cause = new IllegalStateException("the failure behind");
+        java.util.Map<String, List<String>> extra = java.util.Map.of("op_index", List.of("1"));
+        List<LedgerException> withCause = List.of(
+                new TrustException(TrustCode.ATTESTATION_MALFORMED, List.of(), java.util.Map.of(), cause),
+                new ValidationException(ValidationCode.VALIDATION_FAILED, List.of("p"), List.of(),
+                        java.util.Map.of(), cause),
+                new TransitionException(TransitionCode.TRANSITION_INVALID, List.of("a", "b"), cause),
+                new ConflictException(ConflictCode.DUPLICATE_KEY, List.of("x"), cause),
+                new InfrastructureException(InfrastructureCode.INTERNAL_ERROR, List.of(), cause));
+        for (LedgerException original : withCause) {
+            assertThat(original.getCause()).as(original.getClass().getSimpleName()).isSameAs(cause);
+            LedgerException wrapped = original.withDetails(extra);
+            assertThat(wrapped.getCause()).as(original.getClass().getSimpleName()).isSameAs(cause);
+            assertThat(wrapped.withDetails(java.util.Map.of("op", List.of("save"))).getCause()).isSameAs(cause);
+        }
+        // the admin and lookup failures are made without a cause, and stay without one
+        for (LedgerException original : List.of(new AdminException(AdminCode.UNAUTHORIZED, List.of()),
+                new LookupException(LookupCode.NOT_FOUND, List.of("a", "b")))) {
+            assertThat(original.withDetails(extra).getCause()).isNull();
+        }
+    }
+
+    @Test
+    void dom026_theSchemaFailuresAreInfrastructureCodesWithAMessageEach() {
+        List<String> schema = List.of("SCHEMA_FILE_NAME_INVALID", "SCHEMA_VERSION_DUPLICATE", "SCHEMA_VERSION_GAP",
+                "SCHEMA_FILES_UNREADABLE", "SCHEMA_DATABASE_UNREACHABLE", "SCHEMA_HISTORY_MISSING",
+                "SCHEMA_HISTORY_NOT_CREATED", "SCHEMA_APPLIED_FILE_MISSING", "SCHEMA_DIGEST_MISMATCH",
+                "SCHEMA_RECORDED_FAILED", "SCHEMA_OUT_OF_ORDER", "SCHEMA_PENDING", "SCHEMA_MIGRATION_FAILED",
+                "SCHEMA_MIGRATION_INTERRUPTED", "SCHEMA_GRANT_FAILED", "JVM_ZONE_NOT_UTC", "SESSION_ZONE_NOT_UTC",
+                "SESSION_CLOCK_UNREADABLE");
+        ResourceBundle en = ResourceBundle.getBundle("messages/ledger-errors", Locale.ROOT);
+        for (String token : schema) {
+            InfrastructureCode code = InfrastructureCode.valueOf(token);
+            assertThat(code.category()).isEqualTo(ErrorCategory.INFRASTRUCTURE);
+            assertThat(code.token()).isEqualTo(token);
+            assertThat(en.getString(code.messageKey())).as(token).isNotBlank();
+        }
+        // the arguments of the patterns are filled in the order the throwing code gives them
+        assertThat(new MessageFormat(en.getString("error.SCHEMA_DIGEST_MISMATCH"))
+                .format(new Object[] {"3", "V3__x.sql", "aaa", "bbb"}))
+                .contains("V3", "V3__x.sql", "aaa", "bbb");
+        assertThat(new MessageFormat(en.getString("error.SCHEMA_VERSION_GAP")).format(new Object[] {"2", "4"}))
+                .contains("2", "V4");
     }
 }

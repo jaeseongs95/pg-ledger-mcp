@@ -27,6 +27,14 @@ public sealed interface Patch<T> {
         };
     }
 
+    /** The new value when set, otherwise {@code null}: the value of a field that was not mentioned when a row is created. */
+    default T orNull() {
+        return switch (this) {
+            case Absent<T> a -> null;
+            case Set<T> s -> s.value();
+        };
+    }
+
     default <R> Patch<R> map(Function<T, R> conversion) {
         return switch (this) {
             case Absent<T> a -> absent();

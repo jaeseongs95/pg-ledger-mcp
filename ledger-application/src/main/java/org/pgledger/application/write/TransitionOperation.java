@@ -3,7 +3,6 @@ package org.pgledger.application.write;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import org.pgledger.application.gate.Lookup;
 import org.pgledger.application.gate.Resolution;
 import org.pgledger.application.gate.Target;
@@ -46,7 +45,6 @@ import org.pgledger.domain.value.DefectId;
 import org.pgledger.domain.value.EntityId;
 import org.pgledger.domain.value.Evidence;
 import org.pgledger.domain.value.ProjectId;
-import org.pgledger.domain.value.SessionKey;
 import org.pgledger.domain.value.TaskId;
 import org.pgledger.domain.value.Tokens;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -184,13 +182,17 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
         Instant now = clock.instant();
         Task row = rows.lockedTask(id, expected);
         recheck(ctx, HistoryEntity.TASK, row.projectId(), row.state(), to);
-        Optional<SessionKey> owner = Optional.ofNullable(row.ownerActorId()).map(a -> a.sessionKey());
         List<TaskTransition> transitions = historyRows.findByEntityAndEntityIdOrderById(HistoryEntity.TASK,
                 id.value()).stream().filter(h -> h.op() == HistoryOp.TRANSITION)
                 .map(h -> new TaskTransition(TaskState.valueOf(h.fromState()), TaskState.valueOf(h.toState()),
                         h.authorId())).toList();
-        row.state().requireTransitionTo(to, evidence, ctx.author().sessionKey(), owner,
-                new TaskReports(transitions));
+        TaskReports reports = new TaskReports(transitions);
+        if (row.ownerActorId() == null) {
+            row.state().requireTransitionTo(to, evidence, ctx.author().sessionKey(), reports);
+        } else {
+            row.state().requireTransitionTo(to, evidence, ctx.author().sessionKey(), row.ownerActorId().sessionKey(),
+                    reports);
+        }
         Task saved = guarded(() -> tasks.save(row.transitioned(to, now)), "task", id.value());
         long historyId = history.append(ctx, HistoryWriter.Entry.of(HistoryEntity.TASK, id.value(),
                 HistoryOp.TRANSITION, ChangeSet.empty()).withStates(row.state().name(), to.name())

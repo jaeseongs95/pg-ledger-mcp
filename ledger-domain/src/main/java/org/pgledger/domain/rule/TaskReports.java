@@ -21,4 +21,9 @@ public record TaskReports(List<TaskTransition> transitions) {
                 .findFirst()
                 .map(t -> t.author().sessionKey());
     }
+
+    /** Whether {@code session} is the latest reporter of the task. */
+    public boolean reportedBy(SessionKey session) {
+        return latestReporter().filter(session::equals).isPresent();
+    }
 }

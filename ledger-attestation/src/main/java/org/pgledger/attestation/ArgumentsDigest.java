@@ -1,9 +1,6 @@
 package org.pgledger.attestation;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -45,11 +42,7 @@ public final class ArgumentsDigest {
         Map<Object, Object> signed = new LinkedHashMap<>(arguments);
         signed.remove(ATTESTATION_MEMBER);
         byte[] canonical = JsonCanonicalizer.canonicalize(signed).getBytes(StandardCharsets.UTF_8);
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical));
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is mandatory on every JVM", failure);
-        }
+        return Sha256Hex.of(canonical);
     }
 
     /** Whether the text is a digest in the form {@link #of} writes: 64 lower-case hex characters. */

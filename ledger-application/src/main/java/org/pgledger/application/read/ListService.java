@@ -93,7 +93,7 @@ public class ListService {
                 blank(q.status()) ? null : Tokens.parse("status", q.status(), DefectStatus.values()),
                 blank(q.severity()) ? null : CodeValue.of(q.severity()),
                 blank(q.category()) ? null : CodeValue.of(q.category()), null, null, owner(q.owner()),
-                blank(q.attention()) ? null : EnumParser.parse("attention", q.attention(), DEFECT_KINDS));
+                blank(q.attention()) ? null : Tokens.parseName("attention", q.attention(), DEFECT_KINDS));
         MaxRows maxRows = cursors.maxRows(q.maxRows());
         Object criteria = List.of(project, filter);
         Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.DEFECTS, criteria);
@@ -114,7 +114,7 @@ public class ListService {
         ProjectId project = ProjectId.of(q.project());
         TaskQueryRepository.Filter filter = new TaskQueryRepository.Filter(
                 blank(q.state()) ? null : Tokens.parse("state", q.state(), TaskState.values()), owner(q.owner()),
-                blank(q.attention()) ? null : EnumParser.parse("attention", q.attention(), TASK_KINDS));
+                blank(q.attention()) ? null : Tokens.parseName("attention", q.attention(), TASK_KINDS));
         MaxRows maxRows = cursors.maxRows(q.maxRows());
         Object criteria = List.of(project, filter);
         Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.TASKS, criteria);

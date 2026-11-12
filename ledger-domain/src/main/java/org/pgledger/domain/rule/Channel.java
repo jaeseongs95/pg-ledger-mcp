@@ -14,4 +14,9 @@ public enum Channel {
     public String login() {
         return login;
     }
+
+    /** Whether a write through this channel may record a verification. */
+    public boolean mayVerify() {
+        return this == REVIEWER;
+    }
 }

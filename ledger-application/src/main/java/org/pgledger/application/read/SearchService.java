@@ -111,7 +111,7 @@ public class SearchService {
         }
         List<String> keywords = q.keywords() == null ? List.of() : q.keywords();
         KeywordMatch match = q.match() == null ? KeywordMatch.ANY
-                : EnumParser.parse("match", q.match(), KeywordMatch.values());
+                : Tokens.parseName("match", q.match(), KeywordMatch.values());
         Set<String> excluded = new LinkedHashSet<>();
         if (q.excludeStatus() != null) {
             q.excludeStatus().forEach(raw -> excluded.add(status(raw).name()));
@@ -131,7 +131,7 @@ public class SearchService {
                 throw ValidationException.invalid("cursor", ValidationReason.CURSOR_DAMAGED);
             }
             after = new SearchQueryRepository.Position(position.sortKey() == null ? Instant.EPOCH
-                    : UtcInstant.parse("cursor", position.sortKey()).value(), EnumParser.parse("cursor",
+                    : UtcInstant.parse("cursor", position.sortKey()).value(), Tokens.parseName("cursor",
                     position.id().substring(0, colon), Kind.values()), position.id().substring(colon + 1));
         }
         var page = search.page(filter, maxRows, after);

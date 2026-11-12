@@ -20,9 +20,9 @@ public record Task(@Id TaskId id, ProjectId projectId, String title, String purp
     /** A new PLANNED task from complete fields. */
     public static Task plan(TaskId id, TaskFields fields, Instant now) {
         TaskFields f = fields.requireCreatable();
-        return new Task(id, f.projectId().orElse(null), f.title().orElse(null), f.purpose().orElse(null),
-                f.successCondition().orElse(null), TaskState.PLANNED, f.ownerActorId().orElse(null),
-                f.originRef().orElse(null), f.originQuote().orElse(null), 0, now, now, null);
+        return new Task(id, f.projectId().orNull(), f.title().orNull(), f.purpose().orNull(),
+                f.successCondition().orNull(), TaskState.PLANNED, f.ownerActorId().orNull(),
+                f.originRef().orNull(), f.originQuote().orNull(), 0, now, now, null);
     }
 
     public Task edited(TaskFields f, Instant now) {

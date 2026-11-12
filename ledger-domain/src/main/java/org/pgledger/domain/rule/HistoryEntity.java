@@ -23,4 +23,17 @@ public enum HistoryEntity implements Token {
     public String token() {
         return token;
     }
+
+    /**
+     * The grant scope that writes this kind of row: the scope a session needs on the project of the row (a link or a
+     * case is written with the scope of the defect or the task it hangs on; a verification needs {@link Scope#VERIFY}
+     * on top of this, see {@link Scope#forTransition}).
+     */
+    public Scope writeScope() {
+        return switch (this) {
+            case DEFECT, DEFECT_TASK, DEFECT_RELATION, DEFECT_CASE -> Scope.DEFECT;
+            case TASK, CONDITION, CONDITION_LINK -> Scope.TASK;
+            case DEFECT_FIX -> Scope.FIX;
+        };
+    }
 }

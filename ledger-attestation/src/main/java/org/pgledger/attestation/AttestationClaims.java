@@ -3,6 +3,7 @@ package org.pgledger.attestation;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * What an attestation says and what the signature covers: who writes ({@code author}, {@code <vendor>:<host id>}),
@@ -30,6 +31,44 @@ public record AttestationClaims(String author, String tool, String requestId, St
         if (issuedAt < 0) {
             throw new IllegalArgumentException("issuedAt must not be negative");
         }
+    }
+
+    /** The fields of a call that an attestation is bound to, with the token the external contract names them by. */
+    public enum Field {
+        TOOL("tool"), REQUEST_ID("request_id"), ARGUMENTS("arguments");
+
+        private final String token;
+
+        Field(String token) {
+            this.token = token;
+        }
+
+        /** The name of the field in the error of a binding mismatch ({@code details.field}). */
+        public String token() {
+            return token;
+        }
+    }
+
+    /**
+     * The first field of the call that these claims were not signed for, checked in the order tool, request id,
+     * arguments; none when the call is what was signed. A call that has no request id (such as whoami) is one with the
+     * empty request id.
+     *
+     * @param tool            the tool being called, or {@code null} outside a tool call
+     * @param requestId       the request id of the call, or {@code null} for a call that has none
+     * @param argumentsDigest the digest of the arguments of the call, or {@code null} outside a tool call
+     */
+    public Optional<Field> firstMismatch(String tool, String requestId, String argumentsDigest) {
+        if (!Objects.equals(tool, this.tool)) {
+            return Optional.of(Field.TOOL);
+        }
+        if (!Objects.equals(requestId == null ? "" : requestId, this.requestId)) {
+            return Optional.of(Field.REQUEST_ID);
+        }
+        if (!Objects.equals(argumentsDigest, this.argumentsDigest)) {
+            return Optional.of(Field.ARGUMENTS);
+        }
+        return Optional.empty();
     }
 
     /** The bytes the signature covers. */
