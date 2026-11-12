@@ -424,6 +424,39 @@ class DocsTest {
         assertThat(language.readme().codeSpans()).contains(key);
     }
 
+    // ---- licence (DOC-033) ----
+
+    @Test
+    @DisplayName("DOC-033 LICENSE is the text of the GNU Affero General Public License version 3 and not the MIT License")
+    void licenseIsTheAgplText() {
+        String text = Repository.read("LICENSE");
+
+        assertThat(text).startsWith("                    GNU AFFERO GENERAL PUBLIC LICENSE\n                       Version 3, 19 November 2007\n");
+        assertThat(text).contains("END OF TERMS AND CONDITIONS").contains("13. Remote Network Interaction; Use with the GNU General Public License.")
+                .doesNotContain("MIT License");
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("DOC-033 the License section of the README states AGPL-3.0-or-later, the MIT License only for the published v1.0.0 and v1.1.0 and the copyright line")
+    void readmeStatesTheLicense(Language language) {
+        String heading = language == Language.EN ? "License" : "라이선스";
+        String section = language.readme().part(heading).text();
+
+        assertThat(section).contains("`AGPL-3.0-or-later`").contains("Copyright (C) 2026 Jaeseong Song").contains("](LICENSE)")
+                .contains("MIT").contains("v1.0.0").contains("v1.1.0").doesNotContain("up to 1.x").doesNotContain("1.x까지");
+        assertThat(section.lines().filter(line -> !line.isBlank()).toList()).hasSizeGreaterThan(3);
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("DOC-033 each part of the 2.0.0 note names AGPL-3.0-or-later and the MIT License")
+    void noteNamesTheLicense(Language language) {
+        String part = note().part(language.partHeading()).text();
+
+        assertThat(part).contains("`AGPL-3.0-or-later`").contains("MIT");
+    }
+
     // ---- both languages say the same ----
 
     @Test
