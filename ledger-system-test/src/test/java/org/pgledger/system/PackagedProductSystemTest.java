@@ -233,6 +233,9 @@ class PackagedProductSystemTest {
         projectId = "sysproj";
         JavaProcess.Result project = cli(true, null, "project-add", projectId, "SYSTEST", "SystemTest");
         assertThat(project.exit()).as(project.streams()).isZero();
+        // the common codes of a new installation hold no defect category: the owner sets the one the defects use
+        JavaProcess.Result code = cli(true, null, "code-set", "DEFECT_CATEGORY", "ARC", "Architecture");
+        assertThat(code.exit()).as(code.streams()).isZero();
 
         hostId = "sys" + UUID.randomUUID().toString().substring(0, 8);
         author = "claude:" + hostId;
