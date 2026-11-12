@@ -556,6 +556,7 @@ class PackagedProductSystemTest {
 
     /** The named keys of the JSON text of a before_data, as text. */
     private Map<String, String> beforeValues(String json, String... keys) {
+        assertThat(json).as("the before_data of the history row of a change").isNotNull();
         JsonNode node = mapper.readTree(json);
         Map<String, String> values = new LinkedHashMap<>();
         for (String key : keys) {
