@@ -235,6 +235,8 @@ cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-
 `--home=<path>`(Windows: 설치 디렉터리), `--java=<path>`(Java 실행 파일), `--root=<directory>`(파일을 제 경로 대신 한 디렉터리 아래에 둠. 제자리에 두기 전에
 살펴볼 때 씁니다), 그리고 `render-deploy`에만 있는 플래그 `--check`(모든 옵션을 검증하고 아무것도 바꾸지 않음. 설치기가 가장 먼저 실행하므로, 이름을 포함해
 잘못된 값은 아무것도 없을 때 설치를 멈춥니다)입니다. `prepare-host`는 `--jars=<dir>`, `--driver-jar=<file>`, Windows에서는 `--winsw=<file>`도 받습니다.
+`--root` 없이는 플랫폼이 명령을 실행하는 호스트의 플랫폼이어야 합니다. 다른 플랫폼의 경로는 이 호스트의 경로가 아니어서 작업 디렉터리 아래에 쓰이게
+되므로, 명령은 아무것도 읽거나 쓰기 전에 `--platform`을 지목해 거절합니다.
 
 ### Linux 서버
 

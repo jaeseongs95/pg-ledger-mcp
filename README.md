@@ -256,7 +256,9 @@ The options of `deploy/install.sh` are given as `--name=value`; the ones it does
 `--root=<directory>` (put the files below a directory instead of at their paths, for a look before they are put in place) and, for
 `render-deploy` only, the flag `--check` (validate every option and change nothing; the installers run it first, so that a bad value,
 the name included, stops them while nothing exists yet). `prepare-host` also takes `--jars=<dir>`, `--driver-jar=<file>` and, on
-Windows, `--winsw=<file>`.
+Windows, `--winsw=<file>`. Without `--root` the platform has to be the platform of the host that runs the command: the paths of the
+other one are no paths of this host and would end up below the working directory, so the commands refuse them (naming `--platform`)
+before anything is read or written.
 
 ### Linux server
 

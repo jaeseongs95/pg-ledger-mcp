@@ -9,9 +9,9 @@ import javax.sql.DataSource;
 
 /**
  * A DataSource whose connections do everything the real ones do except commit: a commit is refused with an {@link SQLException}
- * (the way a database refuses a transaction at its end: a serialization failure, a deferred constraint, a lost connection). The
- * statements before it run and are rolled back by the transaction manager as for any failed commit. For the test of what a
- * command leaves behind when the end of its transaction fails.
+ * (the way a database refuses a transaction at its end: a serialization failure, a deferred constraint, a lost connection) and
+ * the transaction is rolled back, as the database ends it. The statements before it run. For the test of what a command leaves
+ * behind when the end of its transaction fails.
  */
 public final class CommitRefusingDataSource {
 
@@ -33,6 +33,10 @@ public final class CommitRefusingDataSource {
         return (Connection) Proxy.newProxyInstance(CommitRefusingDataSource.class.getClassLoader(),
                 new Class<?>[] {Connection.class}, (proxy, method, arguments) -> {
                     if ("commit".equals(method.getName())) {
+                        // a database that refuses a commit has ended the transaction (the work is gone); Spring does not roll
+                        // back after a failed commit by default, and leaving the work pending would let the reset of the
+                        // auto-commit mode commit it
+                        connection.rollback();
                         throw new SQLException(REFUSAL);
                     }
                     return call(connection, method, arguments);
