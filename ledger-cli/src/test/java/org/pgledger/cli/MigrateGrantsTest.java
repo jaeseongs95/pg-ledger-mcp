@@ -4,8 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Path;
 import java.sql.SQLException;
-import java.util.Locale;
-import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,12 +25,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * INS-011: {@code migrate --app-account=<account>} applies the grant template of the application account after the schema,
- * through the account the command runs as (here the owner of the embedded H2 database, the stand-in of the DDL account).
+ * through the account the command runs as (here the owner account of the test database, the DDL account; the application
+ * account is {@code ledger.test.app-user} of the PostgreSQL of the test PC, and 42501 is the SQLState of PostgreSQL for a
+ * right that is missing).
  */
 @ExtendWith({ CliExtension.class, EnglishMessages.class })
 class MigrateGrantsTest {
 
-    private static final String PASSWORD = "pw-for-the-test";
+    /** The SQLState of PostgreSQL for an insufficient privilege. */
+    private static final String NOT_ALLOWED = "42501";
 
     @TempDir
     Path tmp;
@@ -55,11 +56,12 @@ class MigrateGrantsTest {
                 .run(tmp.resolve("secrets"), null, output, args);
     }
 
-    /** An application account as the operator makes it with the tools of the DBMS (an H2 statement, in the tests only). */
-    private String newAccount() {
-        String account = "APP_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase(Locale.ROOT);
-        database.update("CREATE USER " + account + " PASSWORD '" + PASSWORD + "'");
-        return account;
+    /**
+     * The application account as the operator made it with the tools of the DBMS: the application account of the tests (the
+     * owner account of the test database may not create roles, so the tests use the account that exists).
+     */
+    private String account() {
+        return database.appAccount();
     }
 
     /** The SQLState of the refusal of the statement, or the word "allowed". */
@@ -72,32 +74,35 @@ class MigrateGrantsTest {
         }
     }
 
+    /** Whether the schema history table exists in the test schema of this test (and only there). */
     private boolean schemaExists() {
-        return !database.rows("SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'SCHEMA_HISTORY'").isEmpty();
+        return !database.rows(
+                "SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = 'schema_history'",
+                database.schemaName()).isEmpty();
     }
 
     @Test
     @DisplayName("INS-011 migrate --app-account migrates the schema and then grants the application account what dml-grants.sql gives, nothing more, and says so")
     void ins011_theAccountGetsTheGrants(Cli cli) {
-        String account = newAccount();
+        String account = account();
         RecordingOutput output = new RecordingOutput();
 
         Outcome result = run(cli, output, "migrate", "--app-account=" + account);
 
         assertThat(result.exitCode()).isZero();
         assertThat(output.info()).contains("Applied ").contains("schema version(s)").contains(account).contains("grants");
-        JdbcTemplate app = database.asAccount(account, PASSWORD);
+        JdbcTemplate app = database.asAppAccount();
         assertThat(outcomeOf(app, "SELECT COUNT(*) FROM defect")).isEqualTo("allowed");
         assertThat(outcomeOf(app, "SELECT COUNT(*) FROM schema_history")).isEqualTo("allowed");
-        assertThat(outcomeOf(app, "DELETE FROM history")).isEqualTo("90096");
-        assertThat(outcomeOf(app, "UPDATE schema_history SET outcome = 'FAILED'")).isEqualTo("90096");
-        assertThat(outcomeOf(app, "CREATE TABLE stolen (id INTEGER)")).isEqualTo("90096");
+        assertThat(outcomeOf(app, "DELETE FROM history")).isEqualTo(NOT_ALLOWED);
+        assertThat(outcomeOf(app, "UPDATE schema_history SET outcome = 'FAILED'")).isEqualTo(NOT_ALLOWED);
+        assertThat(outcomeOf(app, "CREATE TABLE stolen (id INTEGER)")).isEqualTo(NOT_ALLOWED);
     }
 
     @Test
     @DisplayName("INS-011 a second run applies no schema file and the same grants again: the account can do the same, nothing changed")
     void ins011_aRerunGrantsAgain(Cli cli) {
-        String account = newAccount();
+        String account = account();
         run(cli, new RecordingOutput(), "migrate", "--app-account=" + account);
         RecordingOutput output = new RecordingOutput();
 
@@ -105,18 +110,16 @@ class MigrateGrantsTest {
 
         assertThat(again.exitCode()).isZero();
         assertThat(output.info()).contains("up to date").contains(account);
-        assertThat(outcomeOf(database.asAccount(account, PASSWORD), "SELECT COUNT(*) FROM defect")).isEqualTo("allowed");
+        assertThat(outcomeOf(database.asAppAccount(), "SELECT COUNT(*) FROM defect")).isEqualTo("allowed");
     }
 
     @Test
     @DisplayName("INS-011 migrate without the options is unchanged (no account is granted anything)")
     void ins011_withoutTheOptionNothingIsGranted(Cli cli) {
-        String account = newAccount();
-
         Outcome result = run(cli, new RecordingOutput(), "migrate");
 
         assertThat(result.exitCode()).isZero();
-        assertThat(outcomeOf(database.asAccount(account, PASSWORD), "SELECT COUNT(*) FROM defect")).isEqualTo("90096");
+        assertThat(outcomeOf(database.asAppAccount(), "SELECT COUNT(*) FROM defect")).isEqualTo(NOT_ALLOWED);
     }
 
     static Stream<Arguments> usageRefusals() {

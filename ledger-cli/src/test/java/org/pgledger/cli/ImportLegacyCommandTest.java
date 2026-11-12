@@ -29,8 +29,9 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 
 /**
  * CLI-013 and CLI-044 .. CLI-050: the command {@code import-legacy} on the real wiring (the real application context, the
- * real services and repositories, an embedded H2 that the real migrator built as the new schema, and a second embedded H2
- * that {@link LegacyFixtures} filled as the legacy ledger, read through its read-only account). The import itself is
+ * real services and repositories, a schema of its own in the PostgreSQL of the test PC that the real migrator built as the new
+ * schema, and a second schema of its own in the same database that {@link LegacyFixtures} filled as the legacy ledger, read
+ * through its read-only account). The import itself is
  * MIG-001 .. MIG-032 in the application module; these tests are about the command: its exit codes, what it prints, the
  * audit actor and that no secret is printed.
  */
@@ -62,7 +63,7 @@ class ImportLegacyCommandTest {
 
     private Outcome run(Cli cli, RecordingOutput output, String... args) {
         return cli.withDatabase(database.dataSource()).withLegacySource(new LegacySourceRepository(legacy.reader(),
-                LegacyLedger.SCHEMA)).asProcessUser(USER).run(tmp.resolve("secrets"), null, output, args);
+                legacy.schema())).asProcessUser(USER).run(tmp.resolve("secrets"), null, output, args);
     }
 
     private long count(String table) {
@@ -86,12 +87,12 @@ class ImportLegacyCommandTest {
             assertThat(count(table.targetName())).as(table.name()).isEqualTo(legacyRows);
         }
         assertThat(output.info()).contains("Imported " + rows + " rows of " + LegacyTable.values().length
-                + " tables from the legacy schema ledger").contains("key-register");
+                + " tables from the legacy schema " + legacy.schema()).contains("key-register");
         List<Map<String, Object>> audit = database.rows(AUDIT);
         assertThat(audit).hasSize(1);
         assertThat(audit.getFirst().get("actor")).isEqualTo("cli:" + USER);
         assertThat(audit.getFirst().get("operation")).isEqualTo("IMPORT");
-        assertThat(audit.getFirst().get("subject")).isEqualTo("legacy schema ledger");
+        assertThat(audit.getFirst().get("subject")).isEqualTo("legacy schema " + legacy.schema());
         assertThat(count("session_key")).isZero();
     }
 
@@ -138,7 +139,7 @@ class ImportLegacyCommandTest {
     void refusesAnIncompleteOrMissingSource(Cli cli) {
         try (LegacyLedger older = LegacyLedger.create(Set.of("schema"))) {
             Outcome incomplete = cli.withDatabase(database.dataSource()).withLegacySource(new LegacySourceRepository(older.reader(),
-                    LegacyLedger.SCHEMA)).asProcessUser(USER).run(tmp.resolve("secrets"), null, new RecordingOutput(),
+                    older.schema())).asProcessUser(USER).run(tmp.resolve("secrets"), null, new RecordingOutput(),
                     "import-legacy");
 
             assertThat(incomplete.exitCode()).isEqualTo(ExitStatus.FAILURE.code());

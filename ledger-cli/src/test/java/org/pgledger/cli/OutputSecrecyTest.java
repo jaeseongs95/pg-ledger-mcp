@@ -11,6 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pgledger.cli.support.CliExtension;
 import org.pgledger.cli.support.CliExtension.Cli;
 import org.pgledger.cli.support.CliExtension.Outcome;
+import org.pgledger.cli.support.PostgresDriverJar;
 import org.pgledger.cli.support.RecordingOutput;
 import org.pgledger.cli.support.TestLedgerDatabase;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -56,7 +57,7 @@ class OutputSecrecyTest {
                 new String[] { "mcp-check", "--url=http://127.0.0.1:1/mcp" },
                 new String[] { "mcp-check", "--url=http://127.0.0.1:1/mcp", "--debug" },
                 new String[] { "migrate", "--debug" }, new String[] { "driver-register", "--jar=" + tmp.resolve("none.jar"),
-                    "--class=org.h2.Driver", "--ledger.cli.driver.directory=" + tmp, "--debug" });
+                    "--class=" + PostgresDriverJar.DRIVER_CLASS, "--ledger.cli.driver.directory=" + tmp, "--debug" });
 
         for (String[] line : lines) {
             Outcome result = withSecrets(cli).run(tmp.resolve("secrets"), null, output, line);

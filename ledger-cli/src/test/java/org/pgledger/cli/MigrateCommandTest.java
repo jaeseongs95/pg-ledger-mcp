@@ -35,8 +35,8 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 /**
  * CLI-003 and CLI-004 (the schema runner through the command; the runner itself is SCH-001, SCH-002), CLI-038 (a command that
- * is not {@code migrate} on a database that is not up to date) and CLI-042 (a migration that stops). The database is the
- * embedded H2 in its default mode; the application context is the real one with that database as its DataSource.
+ * is not {@code migrate} on a database that is not up to date) and CLI-042 (a migration that stops). The database is a schema of
+ * its own in the PostgreSQL of the test PC; the application context is the real one with that database as its DataSource.
  */
 @ExtendWith({ OutputCaptureExtension.class, CliExtension.class, EnglishMessages.class })
 class MigrateCommandTest {
@@ -147,8 +147,8 @@ class MigrateCommandTest {
         assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
         assertThat(result.code()).contains(ErrorCode.SCHEMA_NOT_READY);
         assertThat(captured.getAll()).contains("migrate");
-        assertThat(database.rows("SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'SCHEMA_HISTORY'")
-                .getFirst().get("n")).isEqualTo(0L);
+        assertThat(database.rows("SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = ? "
+                + "AND table_name = 'schema_history'", database.schemaName()).getFirst().get("n")).isEqualTo(0L);
     }
 
     @Test

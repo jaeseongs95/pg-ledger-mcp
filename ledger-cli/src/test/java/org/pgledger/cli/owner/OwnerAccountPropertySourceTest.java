@@ -81,14 +81,14 @@ class OwnerAccountPropertySourceTest {
         ScriptedSecretInput input = new ScriptedSecretInput("typed-ddl-password".toCharArray());
         StandardEnvironment environment = new StandardEnvironment();
         environment.getPropertySources().addFirst(new MapPropertySource("settings-file",
-                Map.of("ledger.jdbc.url", "jdbc:h2:mem:x", "ledger.jdbc.username", "ledger_app")));
+                Map.of("ledger.jdbc.url", "jdbc:postgresql://db.example/ledger", "ledger.jdbc.username", "ledger_app")));
         environment.getPropertySources().addFirst(new OwnerAccountPropertySource("ledger_ddl", "p", input));
 
         LedgerJdbcProperties bound = Binder.get(environment).bind("ledger.jdbc", LedgerJdbcProperties.class).get();
 
         assertThat(bound.username()).as("the owner account wins over the account of the settings file").isEqualTo("ledger_ddl");
         assertThat(bound.password()).isEqualTo("typed-ddl-password");
-        assertThat(bound.url()).isEqualTo("jdbc:h2:mem:x");
+        assertThat(bound.url()).isEqualTo("jdbc:postgresql://db.example/ledger");
         assertThat(input.reads()).isEqualTo(1);
     }
 

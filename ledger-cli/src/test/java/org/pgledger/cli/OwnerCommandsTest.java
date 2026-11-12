@@ -27,8 +27,9 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 /**
  * CLI-005 .. CLI-009 and CLI-037: the owner commands {@code project-add}, {@code code-set}, {@code codes}, {@code grant},
  * {@code revoke} and {@code grants} on the real wiring: the real application context (the real services, repositories and
- * transaction manager; no mock) over an embedded H2 whose schema the real migrator built. The tests read the tables the
- * commands wrote.
+ * transaction manager; no mock) over a schema of its own in the PostgreSQL of the test PC that the real migrator built. The
+ * tests read the tables the commands wrote ({@code TIMESTAMP} columns come back as {@link java.sql.Timestamp}, whose text form
+ * the expiry assertions use).
  */
 @ExtendWith({ OutputCaptureExtension.class, CliExtension.class, EnglishMessages.class })
 class OwnerCommandsTest {

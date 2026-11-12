@@ -28,8 +28,9 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 
 /**
  * CLI-021 .. CLI-026, CLI-030, CLI-031: {@code key-register} on the real wiring. The application context is the real one
- * (the real {@code SessionKeyService}, repositories and transaction manager; no mock) over an embedded H2 whose schema the
- * real migrator built; the test reads {@code session_key} and {@code owner_audit} afterwards.
+ * (the real {@code SessionKeyService}, repositories and transaction manager; no mock) over a schema of its own in the
+ * PostgreSQL of the test PC that the real migrator built; the test reads {@code session_key} and {@code owner_audit}
+ * afterwards.
  */
 @ExtendWith({ OutputCaptureExtension.class, CliExtension.class })
 class KeyRegisterDatabaseTest {

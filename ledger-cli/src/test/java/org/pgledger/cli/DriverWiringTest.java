@@ -16,6 +16,7 @@ import org.pgledger.attestation.PublicKeys;
 import org.pgledger.cli.support.CliExtension;
 import org.pgledger.cli.support.CliExtension.Cli;
 import org.pgledger.cli.support.CliExtension.Outcome;
+import org.pgledger.cli.support.PostgresDriverJar;
 import org.pgledger.cli.support.RecordingOutput;
 import org.pgledger.cli.support.RequiresPosixPermissions;
 import org.pgledger.cli.support.ScriptedSecretInput;
@@ -53,10 +54,10 @@ class DriverWiringTest {
                   jdbc:
                     driver:
                       jar: '%s'
-                      class-name: 'org.h2.Driver'
+                      class-name: '%s'
                       sha256: '%s'
                       registered-at: '2026-11-11T00:00:00Z'
-                """.formatted(slashed(missingJar), "0".repeat(64)));
+                """.formatted(slashed(missingJar), PostgresDriverJar.DRIVER_CLASS, "0".repeat(64)));
         KeyPair pair = pair();
 
         Outcome result = cli.withArguments("--spring.config.import=optional:file:" + slashed(registration))
