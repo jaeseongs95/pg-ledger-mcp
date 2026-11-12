@@ -415,8 +415,8 @@ JDK 25와 Gradle 래퍼만 있으면 되며, 래퍼가 Gradle을 직접 내려�
   -Pledger.test.jdbc-url=jdbc:postgresql://127.0.0.1:55432/ledger_test \
   -Pledger.test.jdbc-user=ledger_test \
   -Pledger.test.app-user=ledger_test_app \
-  -Pledger.test.jdbc-password-file=<소유자 비밀번호를 한 줄로 적은 파일의 경로> \
-  -Pledger.test.app-password-file=<응용 계정 비밀번호를 한 줄로 적은 파일의 경로>
+  -Pledger.test.jdbc-password-file=<owner-password-file> \
+  -Pledger.test.app-password-file=<app-password-file>
 ```
 
 비밀번호는 속성 값으로 주지 않습니다. 두 비밀번호 파일 속성은 첫 줄이 비밀번호인 파일의 경로이며 시험 JVM만 그 파일을 읽습니다. 속성을 지정하지 않으면 드라이버에 비밀번호를 주지 않으므로

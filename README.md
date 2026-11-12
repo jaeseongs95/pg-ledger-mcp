@@ -462,8 +462,8 @@ except the two password file properties, whose defaults are the files of the tes
   -Pledger.test.jdbc-url=jdbc:postgresql://127.0.0.1:55432/ledger_test \
   -Pledger.test.jdbc-user=ledger_test \
   -Pledger.test.app-user=ledger_test_app \
-  -Pledger.test.jdbc-password-file=<path of a file with the password of the owner on one line> \
-  -Pledger.test.app-password-file=<path of a file with the password of the application account on one line>
+  -Pledger.test.jdbc-password-file=<owner-password-file> \
+  -Pledger.test.app-password-file=<app-password-file>
 ```
 
 A password is never a property value: the two password file properties name a file whose first line is the password, and only the
