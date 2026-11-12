@@ -12,6 +12,9 @@ import org.pgledger.database.repository.GrantStateRepository;
 import org.pgledger.database.repository.IdAllocator;
 import org.pgledger.database.repository.ProjectRepository;
 import org.pgledger.database.repository.SessionGrantRepository;
+import org.pgledger.database.repository.SessionKeyStateRepository;
+import org.pgledger.domain.error.ConflictCode;
+import org.pgledger.domain.error.ConflictException;
 import org.pgledger.domain.error.LookupCode;
 import org.pgledger.domain.error.LookupException;
 import org.pgledger.domain.error.ValidationException;
@@ -32,7 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Session grants, used by the admin web and the CLI (never by the MCP tools). A grant is a row per scope; granting
  * closes the live grant of the same key first and rows are never deleted. Two grants of one key at the same time
- * end with exactly one live row.
+ * end with exactly one live row. An author without a live session key is refused (SESSION_KEY_REQUIRED): the rule is
+ * here, once, for every caller.
  */
 @Service
 @Transactional
@@ -48,14 +52,16 @@ public class GrantService {
 
     private final GrantStateRepository state;
     private final SessionGrantRepository grants;
+    private final SessionKeyStateRepository keys;
     private final ProjectRepository projects;
     private final IdAllocator ids;
     private final OwnerAuditWriter audit;
     private final Clock clock;
 
-    public GrantService(GrantStateRepository state, SessionGrantRepository grants, ProjectRepository projects,
-            IdAllocator ids, OwnerAuditWriter audit, Clock clock) {
+    public GrantService(GrantStateRepository state, SessionGrantRepository grants, SessionKeyStateRepository keys,
+            ProjectRepository projects, IdAllocator ids, OwnerAuditWriter audit, Clock clock) {
         this.state = state;
+        this.keys = keys;
         this.grants = grants;
         this.projects = projects;
         this.ids = ids;
@@ -88,6 +94,7 @@ public class GrantService {
         command.scopes().forEach(token -> scopes.add(Tokens.parse("scopes", token, Scope.values())));
         Instant expiresAt = command.expiresAt() == null || command.expiresAt().isBlank() ? null
                 : UtcInstant.parse("expires_at", command.expiresAt()).value();
+        requireLiveKey(author);
         Instant now = clock.instant();
         List<Long> issued = new ArrayList<>();
         for (Scope scope : scopes) {
@@ -100,7 +107,19 @@ public class GrantService {
         return issued;
     }
 
-    private long issue(AuthorId author, ProjectId project, Scope scope, Instant now, Instant expiresAt,
+    /**
+     * A write is accepted only when it is signed with the registered key of its author, so a grant for an author without
+     * a live key could never be used: it is refused (SESSION_KEY_REQUIRED) before any row is written. The live key is
+     * held until this transaction ends, so a close of the key waits for the grant and cannot slip in between.
+     */
+    private void requireLiveKey(AuthorId author) {
+        boolean live = keys.findLive(author).map(key -> keys.holdLive(key.id())).orElse(false);
+        if (!live) {
+            throw new ConflictException(ConflictCode.SESSION_KEY_REQUIRED, List.of(author.value()));
+        }
+    }
+
+    private long issue(AuthorId author,ProjectId project, Scope scope, Instant now, Instant expiresAt,
             String note) {
         closeLive(author, project, scope, now);
         long id = ids.next(Counter.SESSION_GRANT);

@@ -16,6 +16,10 @@ import org.pgledger.application.admin.GrantService.GrantCommand;
 import org.pgledger.application.admin.GrantService.RevokeCommand;
 import org.pgledger.application.admin.ProjectService;
 import org.pgledger.application.admin.ProjectService.ProjectCommand;
+import org.pgledger.application.admin.SessionKeyService;
+import org.pgledger.application.admin.SessionKeyService.RegisterCommand;
+import org.pgledger.apptest.TestKeyRing;
+import org.pgledger.attestation.PublicKeys;
 import org.pgledger.application.support.Expect;
 import org.pgledger.application.support.LedgerServiceTest;
 import org.pgledger.application.support.Scenario;
@@ -38,6 +42,7 @@ class GrantProjectTest {
     @DisplayName("SVC-GRT-01: one row per scope, an earlier live grant of the same key is closed, nothing is deleted")
     void grt01_grant(Scenario s) {
         String author = "claude:grt01";
+        s.ctx().enroll(author);
         s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("defect"), null, "first"), TestOwners.OWNER);
         List<Long> ids = s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(),
                 List.of("defect", "task"), "2030-01-01T00:00:00Z", "second"), TestOwners.OWNER);
@@ -48,6 +53,57 @@ class GrantProjectTest {
                 + "AND revoked_at IS NULL", author)).isEqualTo(1);
         assertThat(s.count("SELECT COUNT(*) FROM session_grant WHERE author_id = ? AND granted_by = 'user:owner'",
                 author)).isEqualTo(3);
+    }
+
+    private static long rows(Scenario s, String sql, String author) {
+        return s.count(sql, author);
+    }
+
+    private static final String GRANT_ROWS = "SELECT COUNT(*) FROM session_grant WHERE author_id = ?";
+    private static final String AUDIT_ROWS = "SELECT COUNT(*) FROM owner_audit WHERE operation = 'GRANT_ISSUED' "
+            + "AND subject LIKE ? || '|%'";
+
+    @Test
+    @DisplayName("SVC-GRT-11: a grant for an author without a live session key is refused SESSION_KEY_REQUIRED; no grant row and no audit row")
+    void grt11_noKeyNoGrant(Scenario s) {
+        String author = "claude:grt11";
+        LedgerException refused = Expect.failure(() -> s.bean(GrantService.class).grant(
+                new GrantCommand(author, s.projectId(), List.of("defect", "task"), null, null), TestOwners.OWNER),
+                ConflictCode.SESSION_KEY_REQUIRED);
+        assertThat(refused.args()).containsExactly(author);
+        assertThat(rows(s, GRANT_ROWS, author)).isZero();
+        assertThat(rows(s, AUDIT_ROWS, author)).isZero();
+    }
+
+    @Test
+    @DisplayName("SVC-GRT-12: a closed key is no live key; after a key is registered again the grant is issued")
+    void grt12_closedKey(Scenario s) {
+        String author = "claude:grt12";
+        SessionKeyService keys = s.bean(SessionKeyService.class);
+        keys.register(new RegisterCommand(author, PublicKeys.encode(TestKeyRing.newPair().getPublic()), null),
+                TestOwners.OWNER);
+        keys.revoke(author, TestOwners.OWNER);
+        GrantCommand command = new GrantCommand(author, s.projectId(), List.of("defect"), null, null);
+        Expect.failure(() -> s.bean(GrantService.class).grant(command, TestOwners.OWNER),
+                ConflictCode.SESSION_KEY_REQUIRED);
+        assertThat(rows(s, GRANT_ROWS, author)).isZero();
+
+        keys.register(new RegisterCommand(author, PublicKeys.encode(TestKeyRing.newPair().getPublic()), null),
+                TestOwners.OWNER);
+        assertThat(s.bean(GrantService.class).grant(command, TestOwners.OWNER)).hasSize(1);
+        assertThat(rows(s, GRANT_ROWS, author)).isEqualTo(1);
+        assertThat(rows(s, AUDIT_ROWS, author)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("SVC-GRT-13: an unknown project and an empty scope list keep their codes for an author without a key")
+    void grt13_earlierRefusalsKeepTheirCodes(Scenario s) {
+        String author = "claude:grt13";
+        GrantService grants = s.bean(GrantService.class);
+        Expect.failure(() -> grants.grant(new GrantCommand(author, "nowhere", List.of("defect"), null, null),
+                TestOwners.OWNER), LookupCode.NOT_FOUND);
+        Expect.failure(() -> grants.grant(new GrantCommand(author, s.projectId(), List.of(), null, null),
+                TestOwners.OWNER), ValidationCode.VALIDATION_FAILED);
     }
 
     /** A grant request that must be refused, and why. */
@@ -81,6 +137,10 @@ class GrantProjectTest {
     @DisplayName("SVC-GRT-02: invalid grants are refused")
     void grt02_validation(Bad bad, Scenario s) {
         GrantCommand c = bad.command();
+        if ("claude:x".equals(c.author())) {
+            // the refusals of the content come before the key rule only for the request checks; the author has a key here
+            s.ctx().enroll(c.author());
+        }
         GrantCommand onProject = new GrantCommand(c.author(), "P".equals(c.project()) ? s.projectId() : c.project(),
                 c.scopes(), c.expiresAt(), c.note());
         assertThat(Expect.outcome(() -> s.bean(GrantService.class).grant(onProject, TestOwners.OWNER)))
@@ -91,6 +151,7 @@ class GrantProjectTest {
     @DisplayName("SVC-GRT-03: a revoke closes exactly the matching live grants and counts them")
     void grt03_revoke(Scenario s) {
         String author = "claude:grt03";
+        s.ctx().enroll(author);
         String other = s.otherProject();
         s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("defect", "task"), null,
                 null), TestOwners.OWNER);
@@ -114,6 +175,7 @@ class GrantProjectTest {
     @DisplayName("SVC-GRT-04: whoami lists the live grants only, by project and scope")
     void grt04_whoami(Scenario s) {
         String author = "claude:grt04";
+        s.ctx().enroll(author);
         String other = s.otherProject();
         s.bean(GrantService.class).grant(new GrantCommand(author, other, List.of("task"), null, null), TestOwners.OWNER);
         s.bean(GrantService.class).grant(new GrantCommand(author, s.projectId(), List.of("task", "defect"),

@@ -354,6 +354,7 @@ class GateTest {
     @DisplayName("SVC-GATE-10: expiry is judged against the clock, equality is expired")
     void gate10_expiry(Expiry expiry, Scenario s) {
         String actor = "claude:exp" + Math.abs(expiry.name().hashCode());
+        s.ctx().enroll(actor);
         s.bean(GrantService.class).grant(new GrantCommand(actor, s.projectId(), List.of("defect"),
                 expiry.expiresAt(), null), TestOwners.OWNER);
         s.ctx().clock().set(java.time.Instant.parse(expiry.at()));

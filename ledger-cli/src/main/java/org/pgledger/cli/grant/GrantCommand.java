@@ -9,7 +9,6 @@ import org.pgledger.cli.CliOptions;
 import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.Command;
 import org.pgledger.cli.ErrorCode;
-import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.cli.database.CliLedger;
 import org.pgledger.cli.database.DatabaseBeans;
@@ -22,8 +21,8 @@ import org.springframework.stereotype.Component;
  * per scope through {@code GrantService}, the service the admin web uses, and records {@code cli:<process user>} in the
  * owner's audit trail. The scopes are {@code defect}, {@code task}, {@code fix} and {@code verify}. A write is accepted only
  * when it is signed with the registered key of its author, so a grant for an author that has no live session key would never
- * be usable: the command refuses it (NO_SESSION_KEY) and says how to register the key ({@code key-register}); the admin web
- * registers the key and grants in one form. An expiry without a zone is refused by the ledger.
+ * be usable: the service refuses it (the rule is in {@code GrantService}) and the CLI shows NO_SESSION_KEY, which says how
+ * to register the key ({@code key-register}); the admin web registers the key and grants in one form. An expiry without a zone is refused by the ledger.
  */
 @Component
 public class GrantCommand implements Command {
@@ -62,13 +61,8 @@ public class GrantCommand implements Command {
         String author = operands.get(0);
         String project = operands.get(1);
         List<String> scopes = operands.subList(2, operands.size());
-        List<Long> issued = target.call(() -> {
-            if (target.keys().live(author).isEmpty()) {
-                throw new FailureException(ErrorCode.NO_SESSION_KEY, author);
-            }
-            return target.grants().grant(new GrantService.GrantCommand(author, project, scopes, expires, note),
-                    target.actor());
-        });
+        List<Long> issued = target.call(() -> target.grants()
+                .grant(new GrantService.GrantCommand(author, project, scopes, expires, note), target.actor()));
         output.info(messages.get("grant.issued", author, project, String.join(",", scopes),
                 expires == null ? messages.get("grant.never") : expires,
                 String.join(",", issued.stream().map(String::valueOf).toList())));

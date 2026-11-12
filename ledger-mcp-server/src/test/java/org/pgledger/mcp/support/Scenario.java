@@ -39,6 +39,11 @@ public final class Scenario {
 
     /** Gives the author the scopes on the project of this scenario. */
     public void grant(String author, String... scopes) {
+        // a grant needs a live key of the author: the owner registered it first
+        // (an author whose key the test registered itself, as the hook round trip does, keeps that key)
+        if (context.getBean(org.pgledger.application.admin.SessionKeyService.class).live(author).isEmpty()) {
+            context.getBean(KeyRing.class).enroll(author);
+        }
         context.getBean(GrantService.class).grant(new GrantCommand(author, projectId, List.of(scopes), null, null), TestOwners.OWNER);
     }
 

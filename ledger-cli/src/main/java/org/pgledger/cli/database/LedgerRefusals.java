@@ -111,6 +111,9 @@ public final class LedgerRefusals {
                 }
                 case GENERIC, REVOKE, IMPORT -> generic(refused);
             };
+            // the one place of the rule is the service; whatever command asked, the owner is told how to register the key
+            case SESSION_KEY_REQUIRED -> new FailureException(ErrorCode.NO_SESSION_KEY, refused,
+                    refused.args().getFirst());
             case VERSION_CONFLICT, REQUEST_CONFLICT, REQUEST_ID_LEGACY -> generic(refused);
         };
     }

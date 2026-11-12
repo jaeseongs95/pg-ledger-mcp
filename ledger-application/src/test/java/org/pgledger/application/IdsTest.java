@@ -191,6 +191,7 @@ class IdsTest {
             calls.add(() -> s.bean(SaveService.class).save(Scenario.AUTHOR, s.create("task", null,
                     s.taskFields("t"))));
             String author = "claude:grant" + i;
+            s.ctx().enroll(author);
             calls.add(() -> {
                 s.bean(GrantService.class).grant(new GrantService.GrantCommand(author, s.projectId(),
                         List.of("defect"), null, null), TestOwners.OWNER);

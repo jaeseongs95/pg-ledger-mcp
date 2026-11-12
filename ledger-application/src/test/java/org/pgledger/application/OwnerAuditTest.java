@@ -58,6 +58,7 @@ class OwnerAuditTest {
     void grt07_grantAndRevokeAreAudited(Scenario s) {
         GrantService grants = s.bean(GrantService.class);
         String author = newAuthor();
+        s.ctx().enroll(author);
         List<Long> ids = grants.grant(new GrantCommand(author, s.projectId(), List.of("defect", "task"), null, null), OWNER);
 
         assertThat(audit(s, author + "|" + s.projectId())).singleElement().satisfies(row -> assertThat(row)
@@ -67,7 +68,9 @@ class OwnerAuditTest {
         assertThat(grants.revoke(new RevokeCommand(author, null, null), OWNER)).isEqualTo(1);
         assertThat(audit(s, author + "|" + s.projectId())).hasSize(2).last().isEqualTo(
                 "GRANT_REVOKED token:owner scope=task revoked=1");
-        assertThat(audit(s, author)).singleElement().isEqualTo("GRANT_REVOKED token:owner scope=all revoked=1");
+        // the subject of a revoke of all is the author alone; the registration of its key (the grant needs one) is there too
+        assertThat(audit(s, author)).hasSize(2).first().asString().startsWith("KEY_REGISTERED ");
+        assertThat(audit(s, author)).last().isEqualTo("GRANT_REVOKED token:owner scope=all revoked=1");
         assertThat(s.count("SELECT COUNT(*) FROM session_grant WHERE author_id = ? AND granted_by = 'user:owner'", author))
                 .isEqualTo(2);
     }
@@ -77,6 +80,7 @@ class OwnerAuditTest {
     void grt07_otherOwnerAndRefused(Scenario s) {
         GrantService grants = s.bean(GrantService.class);
         String author = newAuthor();
+        s.ctx().enroll(author);
         grants.grant(new GrantCommand(author, s.projectId(), List.of("fix"), null, null), OTHER_OWNER);
         Expect.failure(() -> grants.grant(new GrantCommand(author, "nowhere", List.of("fix"), null, null), OWNER),
                 LookupCode.NOT_FOUND);

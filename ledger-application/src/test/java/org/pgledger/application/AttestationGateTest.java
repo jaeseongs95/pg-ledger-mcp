@@ -244,9 +244,9 @@ class AttestationGateTest {
     @Test
     @DisplayName("SVC-GATE-28: an author whose key was never registered is ATTESTATION_SIGNATURE_INVALID (F5: not told apart from a wrong signature), whatever grants exist; the message names the session-key command and not the author")
     void gate28_keyNotRegistered(Scenario s) {
-        String author = "claude:nokey" + UUID.randomUUID().toString().substring(0, 8);
-        s.bean(org.pgledger.application.admin.GrantService.class).grant(new org.pgledger.application.admin.GrantService
-                .GrantCommand(author, s.projectId(), List.of("defect"), null, null), TestOwners.OWNER);
+        // a grant needs a live key (SVC-GRT-11), so the author without a key is one whose key the owner closed afterwards
+        String author = s.actorWith("defect");
+        assertThat(s.bean(SessionKeyService.class).revoke(author, TestOwners.OWNER)).isTrue();
         String requestId = newRequestId();
         KeyPair unregistered = TestKeyRing.newPair();
         String token = TestKeyRing.token(unregistered, author, SAVE, requestId, s.ctx().clock().instant());
@@ -472,9 +472,8 @@ class AttestationGateTest {
     @DisplayName("SVC-GATE-39: an author with a key and an author without one cannot be told apart by a caller that cannot sign: one code, no argument, no author, the same message")
     void gate39_noOracleForRegisteredKeys(Scenario s) {
         String keyed = s.actorWith("defect");
-        String keyless = "claude:nokey" + UUID.randomUUID().toString().substring(0, 8);
-        s.bean(org.pgledger.application.admin.GrantService.class).grant(new org.pgledger.application.admin.GrantService
-                .GrantCommand(keyless, s.projectId(), List.of("defect"), null, null), TestOwners.OWNER);
+        String keyless = s.actorWith("defect");
+        assertThat(s.bean(SessionKeyService.class).revoke(keyless, TestOwners.OWNER)).isTrue();
         Instant at = s.ctx().clock().instant();
         List<LedgerException> failures = new java.util.ArrayList<>();
         for (String author : List.of(keyed, keyless)) {
