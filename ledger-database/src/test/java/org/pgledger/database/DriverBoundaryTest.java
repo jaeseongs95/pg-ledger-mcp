@@ -530,7 +530,9 @@ class DriverBoundaryTest {
         String jar = driverJar().toString();
         String sha = sha(driverJar());
         // A YAML single-quoted scalar keeps the path exactly as the file system writes it.
-        String head = "ledger:\n  jdbc:\n    url: jdbc:postgresql://127.0.0.1:1/cfg\n    driver:\n      jar: '" + jar + "'\n";
+        // the complete registration connects to the test database (the URL of the test settings); the others stop before
+        String url = TestDatabaseSettings.fromSystemProperties().url();
+        String head = "ledger:\n  jdbc:\n    url: " + url + "\n    driver:\n      jar: '" + jar + "'\n";
         return Stream.of(
                 new RegistrationFile("complete", head + "      class-name: org.postgresql.Driver\n      sha256: " + sha
                         + "\n      registered-at: 2026-11-05T10:00:00Z\n", null),
@@ -538,10 +540,10 @@ class DriverBoundaryTest {
                         InfrastructureCode.DRIVER_INVALID),
                 new RegistrationFile("without class", head + "      sha256: " + sha + "\n",
                         InfrastructureCode.DRIVER_INVALID),
-                new RegistrationFile("relative jar path", "ledger:\n  jdbc:\n    url: jdbc:postgresql://127.0.0.1:1/cfg\n    driver:\n"
+                new RegistrationFile("relative jar path", "ledger:\n  jdbc:\n    url: " + url + "\n    driver:\n"
                         + "      jar: relative/driver.jar\n      class-name: org.postgresql.Driver\n      sha256: " + sha + "\n",
                         InfrastructureCode.DRIVER_INVALID),
-                new RegistrationFile("nothing registered", "ledger:\n  jdbc:\n    url: jdbc:postgresql://127.0.0.1:1/cfg\n",
+                new RegistrationFile("nothing registered", "ledger:\n  jdbc:\n    url: " + url + "\n",
                         InfrastructureCode.DRIVER_NOT_CONFIGURED));
     }
 
@@ -550,11 +552,17 @@ class DriverBoundaryTest {
     void drv021_theRegistrationFileIsReadThroughConfigImportAndAnIncompleteOneFailsFast(RegistrationFile file)
             throws IOException {
         Path yaml = Files.writeString(temp.resolve("jdbc-driver.yaml"), file.yaml());
+        // the account of the test database; the password (when a password file is set) is handed over as a property value and
+        // appears in no message of this test; one connection is enough for the check below
+        TestDatabaseSettings settings = TestDatabaseSettings.fromSystemProperties();
+        List<String> properties = new ArrayList<>(List.of("spring.config.import=file:" + yaml.toUri().getPath(),
+                "spring.main.banner-mode=off", "logging.level.root=WARN", "ledger.jdbc.username=" + settings.user(),
+                "ledger.jdbc.pool-size=1"));
+        settings.ownerPassword().ifPresent(password -> properties.add("ledger.jdbc.password=" + password));
         Throwable failure = catchThrowableOfType(Throwable.class, () -> {
             try (ConfigurableApplicationContext context = new SpringApplicationBuilder(
                     LedgerDataSourceConfiguration.class).web(WebApplicationType.NONE)
-                    .properties("spring.config.import=file:" + yaml.toUri().getPath(), "spring.main.banner-mode=off",
-                            "logging.level.root=WARN").run()) {
+                    .properties(properties.toArray(String[]::new)).run()) {
                 DataSource dataSource = context.getBean(DataSource.class);
                 try (Connection c = dataSource.getConnection()) {
                     assertThat(c.isValid(2)).isTrue();
