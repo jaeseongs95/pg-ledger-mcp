@@ -111,6 +111,8 @@ class CatalogChangeTest {
     @Test
     @DisplayName("MCC-006: without a change there is no notification for three polls, and a write does not cause one")
     void noChangeNoNotification(McpSession session, Scenario scenario) {
+        // a change of an earlier test of the shared server may still be announced to this new session: let it arrive first
+        session.drainListChanges(THREE_POLLS);
         session.awaitNoListChange(THREE_POLLS);
 
         session.ok("ledger_save", Calls.Save.create("defect", Fields.defect(scenario.projectId(), "a write"),
