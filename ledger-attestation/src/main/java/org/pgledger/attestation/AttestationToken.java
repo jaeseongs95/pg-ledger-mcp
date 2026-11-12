@@ -12,6 +12,7 @@ import java.security.PublicKey;
 import java.security.Signature;
 import java.security.SignatureException;
 import java.util.Base64;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
@@ -157,7 +158,7 @@ public final class AttestationToken {
             throw new AttestationException(AttestationException.Reason.MALFORMED, failure);
         }
         // only the canonical text of the bytes is a token: no padding, no stray trailing bits
-        if (!part.equals(ENCODER.encodeToString(bytes))) {
+        if (!Objects.equals(part, ENCODER.encodeToString(bytes))) {
             throw new AttestationException(AttestationException.Reason.MALFORMED);
         }
         return bytes;

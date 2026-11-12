@@ -1,15 +1,12 @@
 package org.pgledger.domain.model;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
-import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
-import org.pgledger.domain.error.ValidationIssue;
 import org.pgledger.domain.error.ValidationReason;
 import org.pgledger.domain.rule.ActorAssurance;
 import org.pgledger.domain.rule.Channel;
@@ -19,9 +16,9 @@ import org.pgledger.domain.rule.LifecycleState;
 import org.pgledger.domain.value.ActorId;
 import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.JsonDocument;
+import org.pgledger.domain.value.Reason;
 import org.pgledger.domain.value.RequestId;
 import org.pgledger.domain.value.Sha256;
-import java.util.Map;
 
 /**
  * One row of the append-only history. {@code changes} is the diff of the changed fields, {@code beforeData} the
@@ -55,18 +52,19 @@ public record HistoryEntry(@Id Long id, Instant at, ActorId authorId, String log
                 ValidationReason.MUST_BE_CHARS_RANGE, "1", "300");
         require(reason != null && !reason.isBlank(), "reason", ValidationReason.REQUIRED);
         if (legacyRef == null) {
-            int length = reason.strip().codePointCount(0, reason.strip().length());
-            if (length < 10 || length > 1000) {
-                throw new ValidationException(ValidationCode.REASON_INVALID, List.of(),
-                        List.of(new ValidationIssue("reason", ValidationReason.MUST_BE_CHARS_RANGE,
-                                List.of("10", "1000"))), Map.of());
-            }
+            Reason.validated(reason);
             require(actorAssurance == ActorAssurance.DECLARED && authorId instanceof AuthorId, "actor_assurance",
                     ValidationReason.NATIVE_ENTRY_NEEDS_DECLARED_AUTHOR);
-            require(op != HistoryOp.TRANSITION || !LifecycleState.of(entity, toState).filter(LifecycleState::verification)
-                    .isPresent() || Channel.REVIEWER.login().equals(login), "login",
+            require(op != HistoryOp.TRANSITION || !LifecycleState.isVerification(entity, toState)
+                    || Channel.REVIEWER.login().equals(login), "login",
                     ValidationReason.VERIFICATION_NEEDS_REVIEWER_CHANNEL);
         }
+    }
+
+    /** Whether this entry is a transition into or out of a verification state: such a change is a verification. */
+    public boolean involvesVerification() {
+        return op == HistoryOp.TRANSITION
+                && (LifecycleState.isVerification(entity, toState) || LifecycleState.isVerification(entity, fromState));
     }
 
     private static void require(boolean condition, String path, ValidationReason reason, String... reasonArgs) {

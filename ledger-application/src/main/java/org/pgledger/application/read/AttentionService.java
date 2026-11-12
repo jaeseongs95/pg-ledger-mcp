@@ -6,6 +6,7 @@ import org.pgledger.domain.rule.AttentionKind;
 import org.pgledger.domain.value.MaxRows;
 import org.pgledger.domain.value.PageCursor;
 import org.pgledger.domain.value.ProjectId;
+import org.pgledger.domain.value.Tokens;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,12 +34,12 @@ public class AttentionService {
     public Page<Item> attention(AttentionQuery q) {
         ProjectId project = q.project() == null || q.project().isBlank() ? null : ProjectId.of(q.project());
         AttentionKind kind = q.kind() == null || q.kind().isBlank() ? null
-                : EnumParser.parse("kind", q.kind(), AttentionKind.values());
+                : Tokens.parseName("kind", q.kind(), AttentionKind.values());
         MaxRows maxRows = cursors.maxRows(q.maxRows());
         Object criteria = List.of(String.valueOf(project), String.valueOf(kind));
         Cursors.Position position = cursors.decode(q.cursor(), PageCursor.Kind.ATTENTION, criteria);
         AttentionQueryRepository.Position after = position == null ? null : new AttentionQueryRepository.Position(
-                EnumParser.parse("cursor", position.sortKey(), AttentionKind.values()), position.id());
+                Tokens.parseName("cursor", position.sortKey(), AttentionKind.values()), position.id());
         var page = attention.page(project, kind, maxRows, after);
         return cursors.page(page, PageCursor.Kind.ATTENTION, criteria,
                 i -> new Item(i.kind().name(), entity(i.kind()), i.id(), i.projectId()),

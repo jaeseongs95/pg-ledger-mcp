@@ -3,6 +3,7 @@ package org.pgledger.domain.model;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.pgledger.domain.error.ValidationCode;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationIssue;
@@ -40,9 +41,9 @@ public record CodeCatalog(CodeGroup group, List<CommonCode> entries) {
             throw new ValidationException(ValidationCode.CODE_REQUIRED, List.of(column, validText, group.name()),
                     List.of(new ValidationIssue(column, ValidationReason.REQUIRED, List.of(), valid)), Map.of("valid", valid));
         }
-        CommonCode entry = entries.stream().filter(e -> e.code().equals(candidate)).findFirst().orElse(null);
-        boolean known = entry != null;
-        boolean retired = known && !entry.active();
+        Optional<CommonCode> entry = entries.stream().filter(e -> e.code().equals(candidate)).findFirst();
+        boolean known = entry.isPresent();
+        boolean retired = entry.filter(e -> !e.active()).isPresent();
         boolean unchanged = candidate.equals(current);
         if (!known || (retired && (group.alwaysActive() || current == null || !unchanged))) {
             boolean holdsLegacyValue = group.alwaysActive() && known;

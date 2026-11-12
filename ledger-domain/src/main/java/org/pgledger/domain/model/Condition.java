@@ -24,8 +24,8 @@ public record Condition(@Id ConditionId id, ProjectId projectId, @Column("releas
     /** A new UNKNOWN condition from complete fields. */
     public static Condition open(ConditionId id, ConditionFields fields) {
         ConditionFields f = fields.requireCreatable();
-        return new Condition(id, f.projectId().orElse(null), f.release().orElse(null), f.goalLabel().orElse(null),
-                f.code().orElse(null), f.conditionText().orElse(null), ConditionState.UNKNOWN, 0, null);
+        return new Condition(id, f.projectId().orNull(), f.release().orNull(), f.goalLabel().orNull(),
+                f.code().orNull(), f.conditionText().orNull(), ConditionState.UNKNOWN, 0, null);
     }
 
     public Condition edited(ConditionFields f) {

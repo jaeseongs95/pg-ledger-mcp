@@ -38,9 +38,9 @@ public record Defect(@Id DefectId id, ProjectId projectId, String title, CodeVal
     /** A new OPEN defect from complete fields. */
     public static Defect open(DefectId id, DefectFields fields, Instant now) {
         DefectFields f = fields.requireCreatable();
-        return new Defect(id, f.projectId().orElse(null), f.title().orElse(null), f.category().orElse(null),
-                f.severity().orElse(null), DefectStatus.OPEN, null, f.behavior().orElse(null),
-                f.rootCause().orElse(null), f.ownerActorId().orElse(null), 0, 0, now, now, null);
+        return new Defect(id, f.projectId().orNull(), f.title().orNull(), f.category().orNull(),
+                f.severity().orNull(), DefectStatus.OPEN, null, f.behavior().orNull(),
+                f.rootCause().orNull(), f.ownerActorId().orNull(), 0, 0, now, now, null);
     }
 
     public Defect edited(DefectFields f, Instant now) {

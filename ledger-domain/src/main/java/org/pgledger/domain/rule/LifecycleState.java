@@ -29,4 +29,9 @@ public sealed interface LifecycleState extends Token permits DefectStatus, TaskS
             case DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE -> Optional.empty();
         };
     }
+
+    /** Whether the state text of a history row of {@code entity} is a verification state; false for any other text. */
+    static boolean isVerification(HistoryEntity entity, String stored) {
+        return of(entity, stored).map(LifecycleState::verification).orElse(false);
+    }
 }

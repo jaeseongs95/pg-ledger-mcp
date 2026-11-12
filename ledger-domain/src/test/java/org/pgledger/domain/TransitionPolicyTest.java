@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.pgledger.domain.error.TransitionCode;
 import org.pgledger.domain.model.Defect;
@@ -150,8 +149,36 @@ class TransitionPolicyTest {
 
     private static void task(TaskState from, TaskState to, Evidence evidence, AuthorId actor, AuthorId owner,
             TaskReports reports) {
-        from.requireTransitionTo(to, evidence, actor.sessionKey(), Optional.ofNullable(owner)
-                .map(AuthorId::sessionKey), reports);
+        if (owner == null) {
+            from.requireTransitionTo(to, evidence, actor.sessionKey(), reports);
+        } else {
+            from.requireTransitionTo(to, evidence, actor.sessionKey(), owner.sessionKey(), reports);
+        }
+    }
+
+    @Test
+    void dom017_aTaskWithoutOwnerAndATaskOwnedByAnotherSessionAgree() {
+        TaskReports none = new TaskReports(List.of());
+        // the owner overload takes a session, never an Optional; a different owner changes nothing
+        assertThatCode(() -> TaskState.REPORTED_DONE.requireTransitionTo(TaskState.VERIFIED, EVIDENCE,
+                OTHER.sessionKey(), ME.sessionKey(), none)).doesNotThrowAnyException();
+        assertThatCode(() -> TaskState.REPORTED_DONE.requireTransitionTo(TaskState.VERIFIED, EVIDENCE,
+                OTHER.sessionKey(), none)).doesNotThrowAnyException();
+        Expect.failsWith(TransitionCode.SAME_SESSION, () -> TaskState.REPORTED_DONE
+                .requireTransitionTo(TaskState.VERIFIED, EVIDENCE, OTHER.sessionKey(), OTHER.sessionKey(), none));
+        // the same person under the legacy prefix is the same session
+        Expect.failsWith(TransitionCode.SAME_SESSION, () -> TaskState.REPORTED_DONE.requireTransitionTo(
+                TaskState.VERIFIED, EVIDENCE, OTHER.sessionKey(), new SessionKey("agent:" + OTHER.value()), none));
+    }
+
+    @Test
+    void dom018_reportsAnswerWhetherASessionReportedTheTask() {
+        TaskReports history = new TaskReports(List.of(
+                new TaskTransition(TaskState.ACTIVE, TaskState.REPORTED_DONE, ME),
+                new TaskTransition(TaskState.REPORTED_DONE, TaskState.VERIFIED, OTHER)));
+        assertThat(history.reportedBy(ME.sessionKey())).isTrue();
+        assertThat(history.reportedBy(OTHER.sessionKey())).isFalse();
+        assertThat(new TaskReports(List.of()).reportedBy(ME.sessionKey())).isFalse();
     }
 
     @Test

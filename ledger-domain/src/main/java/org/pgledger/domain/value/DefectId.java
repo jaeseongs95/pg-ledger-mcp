@@ -6,11 +6,20 @@ import java.util.regex.Pattern;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
 
-/** {@code <PROJECT_CODE>-D-<number>}: the number is zero padded to 4 digits and grows past 9999. */
+/**
+ * {@code <PROJECT_CODE>-D-<number>}: the number is zero padded to 4 digits, grows past 9999 and has at most
+ * {@value #MAX_DIGITS} digits, so every number fits a {@code long} ({@code Long.MAX_VALUE} has 19 digits).
+ */
 public record DefectId(String value) {
 
+    /** The most digits of a number: 18 digits always fit a {@code long}. */
+    static final int MAX_DIGITS = 18;
+
+    /** The highest number an id can hold. */
+    static final long MAX_NUMBER = 999_999_999_999_999_999L;
+
     /** The format the constructor enforces (the legacy import checks it without throwing). */
-    public static final Pattern FORMAT = Pattern.compile("([A-Z][A-Z0-9_]{0,31})-D-([0-9]{4,})");
+    public static final Pattern FORMAT = Pattern.compile("([A-Z][A-Z0-9_]{0,31})-D-([0-9]{4," + MAX_DIGITS + "})");
 
     public DefectId {
         if (value == null || !FORMAT.matcher(value).matches()) {
@@ -52,9 +61,14 @@ public record DefectId(String value) {
         return m;
     }
 
+    /** The number of an id the server issues, zero padded to 4 digits; a number outside 1..{@link #MAX_NUMBER} is refused. */
     static String zeroPadded(long number) {
         if (number < 1) {
             throw ValidationException.invalid("number", ValidationReason.MUST_BE_POSITIVE);
+        }
+        if (number > MAX_NUMBER) {
+            throw ValidationException.invalid("number", ValidationReason.OUT_OF_RANGE, "1",
+                    Long.toString(MAX_NUMBER));
         }
         String digits = Long.toString(number);
         return "0".repeat(Math.max(0, 4 - digits.length())) + digits;

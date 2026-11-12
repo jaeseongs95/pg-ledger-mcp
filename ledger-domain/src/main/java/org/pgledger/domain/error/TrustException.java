@@ -23,6 +23,6 @@ public final class TrustException extends LedgerException {
 
     @Override
     protected LedgerException copyWith(Map<String, List<String>> newDetails) {
-        return new TrustException((TrustCode) code(), args(), newDetails);
+        return new TrustException((TrustCode) code(), args(), newDetails, getCause());
     }
 }

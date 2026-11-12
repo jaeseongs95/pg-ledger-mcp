@@ -8,7 +8,6 @@ import org.pgledger.application.json.LedgerJson;
 import org.pgledger.domain.error.LedgerException;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
-import org.pgledger.domain.model.Batch;
 import org.pgledger.domain.model.BatchOpKind;
 import org.pgledger.domain.rule.Channel;
 import org.pgledger.domain.value.RequestId;
@@ -51,8 +50,8 @@ public class BatchService {
     }
 
     public BatchResult batch(String actor, String requestId, List<BatchOpInput> ops) {
-        if (ops == null || ops.isEmpty() || ops.size() > Batch.MAX_OPS) {
-            throw ValidationException.invalid("ops", ValidationReason.MUST_HOLD_ITEMS, "1", String.valueOf(Batch.MAX_OPS));
+        if (ops == null || ops.isEmpty() || ops.size() > BatchOpKind.MAX_OPS_PER_BATCH) {
+            throw ValidationException.invalid("ops", ValidationReason.MUST_HOLD_ITEMS, "1", String.valueOf(BatchOpKind.MAX_OPS_PER_BATCH));
         }
         RequestId batchId = requestId == null || requestId.isBlank() ? new RequestId(UUID.randomUUID())
                 : RequestId.parse(requestId);

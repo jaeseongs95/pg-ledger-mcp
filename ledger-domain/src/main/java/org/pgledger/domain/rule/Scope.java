@@ -28,8 +28,7 @@ public enum Scope implements Token {
             return VERIFY;
         }
         return switch (entity) {
-            case DEFECT -> DEFECT;
-            case TASK, CONDITION -> TASK;
+            case DEFECT, TASK, CONDITION -> entity.writeScope();
             case DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE ->
                 throw ValidationException.invalid("entity", ValidationReason.HAS_NO_STATE, entity.token());
         };
