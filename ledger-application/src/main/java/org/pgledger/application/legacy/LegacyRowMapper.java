@@ -23,10 +23,13 @@ import org.pgledger.domain.model.SessionGrant;
 import org.pgledger.domain.rule.ActorAssurance;
 import org.pgledger.domain.rule.CiConclusion;
 import org.pgledger.domain.rule.CodeGroup;
+import org.pgledger.domain.rule.CodeState;
 import org.pgledger.domain.rule.ConditionState;
 import org.pgledger.domain.rule.DefectStatus;
+import org.pgledger.domain.rule.FixOrigin;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
+import org.pgledger.domain.rule.ReceiptOrigin;
 import org.pgledger.domain.rule.Scope;
 import org.pgledger.domain.rule.TaskState;
 import org.pgledger.domain.value.AuthorId;
@@ -39,6 +42,8 @@ import org.pgledger.domain.value.ProjectId;
 import org.pgledger.domain.value.TaskId;
 import org.pgledger.domain.value.Token;
 import org.pgledger.domain.value.Tokens;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
 
 /**
  * Turns a row of the legacy schema into the row of the new schema, or says why it cannot be. It is a pure function of the
@@ -63,6 +68,8 @@ import org.pgledger.domain.value.Tokens;
  * project is 1, and {@code before_data} and {@code last_used_at} stay NULL.</li>
  * </ul>
  */
+@Component
+@ConditionalOnProperty(prefix = "ledger.cli", name = "enabled", havingValue = "true")
 final class LegacyRowMapper {
 
     /** The row of the new schema, and everything that is wrong with it (empty when it can be written). */
@@ -76,8 +83,8 @@ final class LegacyRowMapper {
     private static final Set<String> HISTORY_OPS = names(HistoryOp.values());
     private static final Set<String> RECEIPT_OPERATIONS = names(ReceiptOperation.values());
     private static final Set<String> CODE_GROUPS = names(CodeGroup.values());
+    /** How the refusal of an author names the format (the domain has the rule, not a sentence for it). */
     private static final String AUTHOR_FORMAT = "<vendor>:<session-id>";
-    private static final String LEGACY_ORIGIN = "LEGACY";
 
     private static <E extends Enum<E>> Set<String> names(E[] values) {
         return Arrays.stream(values).map(Enum::name).collect(Collectors.toUnmodifiableSet());
@@ -194,7 +201,7 @@ final class LegacyRowMapper {
                 "created_by");
         oneOf(v, "code_group", s.text("code_group"), CODE_GROUPS);
         matches(v, "code", s.text("code"), CodeValue.FORMAT, ValidationReason.MUST_MATCH);
-        t.put("state", s.flag("active") ? "ACTIVE" : "INACTIVE");
+        t.put("state", (s.flag("active") ? CodeState.ACTIVE : CodeState.INACTIVE).name());
     }
 
     private static void task(LegacyRow s, Map<String, Object> t, Violations v) {
@@ -221,7 +228,7 @@ final class LegacyRowMapper {
         copy(s, t, "id", "defect_id", "repo", "commit_sha", "branch", "ci_ref", "ci_completed_at", "recorded_by",
                 "recorded_at");
         t.put("ci_conclusion", nameOf(v, "ci_conclusion", s.text("ci_conclusion"), CiConclusion.values()));
-        t.put("origin", s.flag("imported") ? "IMPORTED" : "NATIVE");
+        t.put("origin", (s.flag("imported") ? FixOrigin.IMPORTED : FixOrigin.NATIVE).name());
     }
 
     private static void defectRelation(LegacyRow s, Map<String, Object> t, Violations v) {
@@ -248,23 +255,27 @@ final class LegacyRowMapper {
         if (condition != null && conditionId.isEmpty()) {
             v.add("condition_id", ValidationReason.MUST_BE_UPPER_CASE_ID_MATCHING, EntityId.PATTERN.pattern());
         }
-        String linkKey = null;
-        if (conditionId.isPresent() && task != null && defect == null) {
+        // a row without a valid link has no link key: the column is NULL (and the row is reported above or below)
+        t.put("link_key", conditionId.flatMap(id -> linkKey(id, task, defect, v)).orElse(null));
+    }
+
+    /** The link key of a condition and exactly one of a task and a defect, reporting an id that is none. */
+    private static Optional<String> linkKey(ConditionId condition, String task, String defect, Violations v) {
+        if (task != null && defect == null) {
             Optional<TaskId> taskId = TaskId.parse(task);
-            if (taskId.isPresent()) {
-                linkKey = ConditionLink.toTask(conditionId.get(), taskId.get(), AuthorId.OWNER).linkKey();
-            } else {
+            if (taskId.isEmpty()) {
                 v.add("task_id", ValidationReason.MUST_BE_UPPER_CASE_ID_MATCHING, EntityId.PATTERN.pattern());
             }
-        } else if (conditionId.isPresent() && defect != null && task == null) {
+            return taskId.map(id -> ConditionLink.toTask(condition, id, AuthorId.OWNER).linkKey());
+        }
+        if (defect != null && task == null) {
             Optional<DefectId> defectId = DefectId.parse(defect);
-            if (defectId.isPresent()) {
-                linkKey = ConditionLink.toDefect(conditionId.get(), defectId.get(), AuthorId.OWNER).linkKey();
-            } else {
+            if (defectId.isEmpty()) {
                 v.add("defect_id", ValidationReason.DEFECT_ID_FORMAT);
             }
+            return defectId.map(id -> ConditionLink.toDefect(condition, id, AuthorId.OWNER).linkKey());
         }
-        t.put("link_key", linkKey);
+        return Optional.empty();
     }
 
     private static void sessionGrant(LegacyRow s, Map<String, Object> t, Violations v) {
@@ -318,7 +329,7 @@ final class LegacyRowMapper {
         String operation = s.text("operation") == null ? null : s.text("operation").toUpperCase(Locale.ROOT);
         oneOf(v, "operation", operation, RECEIPT_OPERATIONS);
         t.put("operation", operation);
-        t.put("origin", LEGACY_ORIGIN);
+        t.put("origin", ReceiptOrigin.LEGACY.name());
     }
 
     // ---------------------------------------------------------------------------------------------------- helpers
@@ -346,11 +357,11 @@ final class LegacyRowMapper {
         if (raw == null) {
             return null;
         }
-        Optional<E> found = Tokens.find(raw, values);
-        if (found.isEmpty()) {
+        Optional<String> name = Tokens.find(raw, values).map(Enum::name);
+        if (name.isEmpty()) {
             v.add(column, ValidationReason.UNKNOWN_VALUE, raw);
-            return null;
         }
-        return found.get().name();
+        // the column is NULL for a token that is none of the constants (the row is reported)
+        return name.orElse(null);
     }
 }

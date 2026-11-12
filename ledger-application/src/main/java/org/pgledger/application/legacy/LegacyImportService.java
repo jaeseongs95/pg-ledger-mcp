@@ -5,7 +5,6 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
 import org.pgledger.application.admin.OwnerAuditWriter;
 import org.pgledger.database.repository.CodeRevisionRepository;
 import org.pgledger.database.repository.ColumnRule;
@@ -81,15 +80,16 @@ public class LegacyImportService {
     private final IdAllocator ids;
     private final CodeRevisionRepository revision;
     private final OwnerAuditWriter audit;
-    private final LegacyRowMapper mapper = new LegacyRowMapper();
+    private final LegacyRowMapper mapper;
 
     public LegacyImportService(ObjectProvider<LegacySourceRepository> sources, LegacyTargetRepository target,
-            IdAllocator ids, CodeRevisionRepository revision, OwnerAuditWriter audit) {
+            IdAllocator ids, CodeRevisionRepository revision, OwnerAuditWriter audit, LegacyRowMapper mapper) {
         this.sources = sources;
         this.target = target;
         this.ids = ids;
         this.revision = revision;
         this.audit = audit;
+        this.mapper = mapper;
     }
 
     /** True when the connection to the legacy ledger is configured ({@code ledger.import.source.url}). */
@@ -127,7 +127,7 @@ public class LegacyImportService {
             }
             revision.bump();
             ImportReport report = compare(source.schema(), legacySide);
-            audit.record(actor, OwnerAction.IMPORT, "legacy schema " + source.schema(), detail(report));
+            audit.record(actor, OwnerAction.IMPORT, "legacy schema " + source.schema(), report.detail());
             return report;
         });
     }
@@ -181,7 +181,7 @@ public class LegacyImportService {
         for (LegacyTable table : LegacyTable.values()) {
             List<LegacyRow> defects = new ArrayList<>();
             source.scan(table, row -> {
-                collect(table, row, counters);
+                counters.collect(table, row);
                 LegacyRowMapper.Mapped mapped = mapper.map(table, row, rules.get(table), counters);
                 violations.addAll(mapped.violations());
                 if (table == LegacyTable.DEFECT) {
@@ -203,21 +203,6 @@ public class LegacyImportService {
             List<ValidationIssue> issues = violations.stream().map(LegacyViolation::toIssue).toList();
             throw new ValidationException(ValidationCode.VALIDATION_FAILED, List.of(VALIDATION_SUBJECT), issues,
                     Map.of());
-        }
-    }
-
-    private static void collect(LegacyTable table, LegacyRow row, ImportCounters counters) {
-        switch (table) {
-            case PROJECT -> counters.project(row.text("id"), row.text("code"));
-            case TASK -> counters.task(row.text("project_id"), row.text("id"));
-            case DEFECT -> counters.defect(row.text("project_id"), row.text("id"));
-            case DEFECT_FIX -> counters.surrogate(Counter.DEFECT_FIX, row.number("id"));
-            case DEFECT_CASE -> counters.surrogate(Counter.DEFECT_CASE, row.number("id"));
-            case SESSION_GRANT -> counters.surrogate(Counter.SESSION_GRANT, row.number("id"));
-            case HISTORY -> counters.surrogate(Counter.HISTORY, row.number("id"));
-            case COMMON_CODE, DEFECT_TASK, DEFECT_RELATION, RELEASE_CONDITION, CONDITION_LINK, REQUEST_RECEIPT -> {
-                // no counter depends on these tables
-            }
         }
     }
 
@@ -286,10 +271,5 @@ public class LegacyImportService {
             throw new InfrastructureException(InfrastructureCode.INTEGRITY_VIOLATION, differences);
         }
         return new ImportReport(schema, checks);
-    }
-
-    private static String detail(ImportReport report) {
-        return "rows=" + report.rows() + " " + report.tables().stream()
-                .map(check -> check.table().targetName() + "=" + check.targetRows()).collect(Collectors.joining(", "));
     }
 }

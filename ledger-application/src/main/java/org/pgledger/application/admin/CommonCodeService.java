@@ -1,6 +1,7 @@
 package org.pgledger.application.admin;
 
 import java.util.List;
+import java.util.Optional;
 import org.pgledger.database.repository.CodeRevisionRepository;
 import org.pgledger.database.repository.CommonCodeRepository;
 import org.pgledger.domain.model.CommonCode;
@@ -52,22 +53,24 @@ public class CommonCodeService {
         CodeValue code = CodeValue.of(command.code());
         CodeState state = command.state() == null || command.state().isBlank() ? CodeState.ACTIVE
                 : Tokens.parse("state", command.state(), CodeState.values());
-        CommonCode existing = codes.find(group, code).orElse(null);
+        Optional<CommonCode> existing = codes.find(group, code);
         int sort = command.sortOrder() != null ? command.sortOrder()
-                : existing != null ? existing.sortOrder() : DEFAULT_SORT_ORDER;
+                : existing.map(CommonCode::sortOrder).orElse(DEFAULT_SORT_ORDER);
         CommonCode wanted = new CommonCode(group, code, command.nameKo(), command.nameEn(),
                 command.descriptionKo(), command.descriptionEn(), sort, state,
-                existing != null ? existing.createdBy() : AuthorId.OWNER);
-        if (existing == null) {
-            codes.insert(wanted);
-        } else if (existing.equals(wanted)) {
-            return new CodeResult(existing, revision.current());
-        } else {
+                existing.map(CommonCode::createdBy).orElse(AuthorId.OWNER));
+        if (existing.filter(wanted::equals).isPresent()) {
+            // the code is what the owner asked for already: nothing to write, no revision, no audit row
+            return new CodeResult(wanted, revision.current());
+        }
+        if (existing.isPresent()) {
             codes.update(wanted);
+        } else {
+            codes.insert(wanted);
         }
         revision.bump();
         audit.record(actor, OwnerAction.CODE_SET, group.name() + "/" + code.value(),
-                (existing == null ? "added" : "changed") + " state=" + state.name());
+                (existing.isEmpty() ? "added" : "changed") + " state=" + state.name());
         return new CodeResult(wanted, revision.current());
     }
 

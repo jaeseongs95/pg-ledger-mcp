@@ -75,7 +75,7 @@ public class GrantService {
     }
 
     private List<Long> issueAll(GrantCommand command, OwnerIdentity actor) {
-        AuthorId author = author(command.author());
+        AuthorId author = Authors.of(command.author());
         ProjectId project = ProjectId.of(command.project());
         if (!projects.existsById(project)) {
             throw new LookupException(LookupCode.NOT_FOUND, List.of("project", project.value()));
@@ -119,7 +119,7 @@ public class GrantService {
     }
 
     private int revokeAll(RevokeCommand command, OwnerIdentity actor) {
-        AuthorId author = author(command.author());
+        AuthorId author = Authors.of(command.author());
         boolean hasProject = command.project() != null && !command.project().isBlank();
         boolean hasScope = command.scope() != null && !command.scope().isBlank();
         if (hasScope && !hasProject) {
@@ -137,19 +137,12 @@ public class GrantService {
     /** The live grants of an author now. */
     @Transactional(readOnly = true)
     public List<SessionGrant> live(String author) {
-        return state.findLive(author(author), clock.instant());
+        return state.findLive(Authors.of(author), clock.instant());
     }
 
     /** The live grants of every author now, ordered by author, project and scope (the list of the admin web). */
     @Transactional(readOnly = true)
     public List<SessionGrant> liveAll() {
         return state.findAllLive(clock.instant());
-    }
-
-    private static AuthorId author(String raw) {
-        if (raw == null) {
-            throw ValidationException.invalid("author", ValidationReason.REQUIRED);
-        }
-        return AuthorId.of(raw);
     }
 }
