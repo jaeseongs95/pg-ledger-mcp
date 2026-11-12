@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import org.pgledger.application.history.TaskHistory;
 import org.pgledger.database.repository.DefectCaseRepository;
 import org.pgledger.database.repository.DefectFixRepository;
 import org.pgledger.database.repository.HistoryQueryRepository;
@@ -20,8 +21,6 @@ import org.pgledger.domain.model.DefectFix;
 import org.pgledger.domain.model.HistoryEntry;
 import org.pgledger.domain.model.Task;
 import org.pgledger.domain.rule.HistoryEntity;
-import org.pgledger.domain.rule.HistoryOp;
-import org.pgledger.domain.rule.TaskState;
 import org.pgledger.domain.value.DefectId;
 import org.pgledger.domain.value.TaskId;
 import org.springframework.stereotype.Service;
@@ -95,7 +94,7 @@ public class DetailService {
     public DefectDetail defect(String rawId) {
         DefectId id = DefectId.of(rawId);
         Defect d = defects.findById(id).orElseThrow(() -> new LookupException(LookupCode.NOT_FOUND,
-                List.of("defect", rawId)));
+                List.of(HistoryEntity.DEFECT.token(), rawId)));
         List<DefectFix> fixRows = fixes.findByDefectIdOrderById(id);
         DefectFix lastFix = fixRows.isEmpty() ? null : fixRows.getLast();
         List<TaskRef> taskRefs = links.tasksOf(id).stream().map(link -> tasks.findById(link.taskId()))
@@ -153,12 +152,11 @@ public class DetailService {
     public TaskDetail task(String rawId) {
         TaskId id = TaskId.of(rawId);
         Task t = tasks.findById(id).orElseThrow(() -> new LookupException(LookupCode.NOT_FOUND,
-                List.of("task", rawId)));
-        String completedBy = historyRows.findByEntityAndEntityIdOrderById(HistoryEntity.TASK, rawId).reversed()
-                .stream().filter(h -> h.op() == HistoryOp.TRANSITION
-                        && TaskState.valueOf(h.toState()) == TaskState.REPORTED_DONE
-                        && TaskState.valueOf(h.fromState()) != TaskState.VERIFIED).findFirst()
-                .map(h -> h.authorId().value()).orElse(null);
+                List.of(HistoryEntity.TASK.token(), rawId)));
+        // the latest report of the task is the rule of the domain; a legacy transition with a state of no task is not one.
+        // The detail's component is a nullable JSON string, so the absence of a report ends here as null.
+        String completedBy = new TaskHistory(historyRows.findByEntityAndEntityIdOrderById(HistoryEntity.TASK, rawId))
+                .reports().latestReport().map(report -> report.author().value()).orElse(null);
         return new TaskDetail(rawId, t.projectId().value(), t.title(), t.purpose(), t.successCondition(),
                 t.originRef(), t.originQuote(), t.state().name(), t.ownerActorId() == null ? null
                         : t.ownerActorId().value(), t.version(), t.createdAt(), t.updatedAt(), t.createdBy().value(),
