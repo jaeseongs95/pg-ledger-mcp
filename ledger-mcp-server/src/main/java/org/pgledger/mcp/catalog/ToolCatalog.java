@@ -22,26 +22,31 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.mcp.annotation.spring.SyncMcpAnnotationProviders;
 import org.springframework.beans.factory.SmartInitializingSingleton;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.support.MessageSourceAccessor;
 import org.springframework.stereotype.Component;
 
 /**
  * The tools of the server as the model sees them. Once the context is up, the catalog takes the tool definitions
- * that Spring AI made from the {@code @McpTool} methods and registers each one again, built for this server: every
- * object of its input schema closed (an unknown argument is refused), the descriptions resolved from the message
- * bundle, the closed sets of the domain as enumerations, and the places that hold a common code filled with the
+ * that Spring AI makes from the {@code @McpTool} methods of the adapters and registers each one on the server, built for
+ * this server: every object of its input schema closed (an unknown argument is refused), the descriptions resolved from the
+ * message bundle, the closed sets of the domain as enumerations, and the places that hold a common code filled with the
  * active codes of the group. The handler of a registered tool binds the arguments and calls the adapter method
  * through {@link ToolBinding}, so the errors become the tool result in one place.
+ *
+ * <p>The catalog is the only one that registers a tool: the annotation scanner of Spring AI is off
+ * ({@code spring.ai.mcp.server.annotation-scanner.enabled=false} in {@code application.yml}), so the server starts with no tool
+ * and nothing is registered twice (the SDK logs a WARN, {@code Replace existing Tool}, for a tool that it replaces, and the
+ * level of that logger is left as it is so that a real problem still shows). The same call that the scanner makes,
+ * {@link SyncMcpAnnotationProviders#toolSpecifications}, gives the definitions here.
  *
  * <p>The codes live in the database and other processes change them. {@link #refreshIfChanged()} reads the
  * {@code code_revision}; when it moved, only the tools whose definition really changed are registered again, which
  * announces {@code list_changed} to the open sessions. A tool is replaced in one step, never removed first, so a
  * client that lists the tools meanwhile gets the old or the new definition and never a partial list.
  *
- * <p>{@code toolSpecs} and the server are injected lazily: a bean that asks for them while the context is still
- * being built would see the server without any annotated tool.
+ * <p>The server is injected lazily: a bean that asks for it while the context is still being built would see the server
+ * without any tool.
  */
 @Component
 public class ToolCatalog implements SmartInitializingSingleton {
@@ -49,14 +54,13 @@ public class ToolCatalog implements SmartInitializingSingleton {
     private static final Logger LOG = LoggerFactory.getLogger(ToolCatalog.class);
 
     private final McpSyncServer server;
-    private final List<SyncToolSpecification> annotatedSpecs;
     private final List<ToolAdapter> adapters;
     private final ToolBindings bindings;
     private final CommonCodeService codes;
     private final ToolResults results;
     private final MessageSourceAccessor messages;
 
-    /** The tool definitions as Spring AI made them, and how to call each tool, by tool name. */
+    /** The tool definitions as Spring AI makes them from the annotations, and how to call each tool, by tool name. */
     private final Map<String, Tool> base = new LinkedHashMap<>();
     private final Map<String, ToolBinding> bound = new LinkedHashMap<>();
 
@@ -64,12 +68,9 @@ public class ToolCatalog implements SmartInitializingSingleton {
     private final Map<String, LiveSchema> liveSchemas = new LinkedHashMap<>();
     private long registeredRevision = -1;
 
-    public ToolCatalog(@Lazy McpSyncServer server,
-            @Lazy @Qualifier("toolSpecs") List<SyncToolSpecification> annotatedSpecs, List<ToolAdapter> adapters,
-            ToolBindings bindings, CommonCodeService codes, ToolResults results,
-            MessageSourceAccessor modelMessages) {
+    public ToolCatalog(@Lazy McpSyncServer server, List<ToolAdapter> adapters, ToolBindings bindings,
+            CommonCodeService codes, ToolResults results, MessageSourceAccessor modelMessages) {
         this.server = server;
-        this.annotatedSpecs = annotatedSpecs;
         this.adapters = adapters;
         this.bindings = bindings;
         this.codes = codes;
@@ -80,19 +81,22 @@ public class ToolCatalog implements SmartInitializingSingleton {
     @Override
     public void afterSingletonsInstantiated() {
         synchronized (this) {
-            annotatedSpecs.forEach(spec -> base.put(spec.tool().name(), spec.tool()));
-            adapters.forEach(adapter -> bindings.bind(adapter).forEach(binding -> bound.put(binding.name(),
-                    binding)));
+            adapters.forEach(this::take);
             registerAll();
         }
     }
 
     /** Adds the tools of a new adapter bean to the running server (the server announces {@code list_changed}). */
     public synchronized void register(ToolAdapter adapter) {
+        take(adapter);
+        registerAll();
+    }
+
+    /** The definitions that the annotations of the adapter give, and how to call each of its tools. */
+    private void take(ToolAdapter adapter) {
         SyncMcpAnnotationProviders.toolSpecifications(List.of(adapter))
                 .forEach(spec -> base.put(spec.tool().name(), spec.tool()));
         bindings.bind(adapter).forEach(binding -> bound.put(binding.name(), binding));
-        registerAll();
     }
 
     /** Registers the tools again when the common codes changed since the last registration. */

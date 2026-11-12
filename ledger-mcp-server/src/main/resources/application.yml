@@ -15,6 +15,10 @@ spring:
         protocol: STREAMABLE
         streamable-http:
           mcp-endpoint: /mcp
+        # The catalog (ToolCatalog) is the only one that registers the tools, with the definitions built for this server. With the
+        # scanner on, Spring AI registers the annotated tools first and the catalog replaces each of them, which the SDK logs as a WARN.
+        annotation-scanner:
+          enabled: false
 server:
   # the server is reached through the reverse proxy of the host, never directly from another machine
   address: 127.0.0.1
