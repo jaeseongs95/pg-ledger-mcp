@@ -189,7 +189,8 @@ Two installers cover three targets. A **personal PC** (Windows) runs `deploy\ins
 the loopback address only, and there is no reverse proxy and no TLS. A **Windows server** runs the same script and, when it is
 reached from outside, names its public host names and puts a reverse proxy that the operator has prepared in front of it. A **Linux
 server** runs `sudo deploy/install.sh`, optionally with an nginx site. macOS is not supported; a Linux desktop that is a personal PC
-follows the Linux procedure. The build needs JDK 25 and the host needs a Java 25 runtime.
+follows the Linux procedure. The build needs JDK 25 and the host needs a Java 25 runtime at a path that every account can execute (not
+under `/home`: the service account runs it too).
 
 What every target has in common:
 
@@ -207,7 +208,7 @@ What every target has in common:
   DDL account is used only by `migrate`, `setup` and `import-legacy`; its password is typed with hidden input and is never stored. The
   session time zone of the database must be UTC, and the application account must be allowed to use the schema, a step of your DBMS
   that is not part of the product SQL: `setup` checks it and says so when it is missing (see First setup).
-- **Jars and the driver.** Build the jars with `./gradlew build` and collect the three jars of the host in one directory. The
+- **Jars and the driver.** Build the jars with `./gradlew assemble` (the jars only; `./gradlew build` also runs the tests, which need a PostgreSQL of their own, see Build and test) and collect the three jars of the host in one directory. The
   JDBC driver of your database is obtained by you, and you name its class; it is not bundled.
 
 ```sh
@@ -235,6 +236,7 @@ The options of `deploy/install.sh` are given as `--name=value`; the ones it does
 | Option | Meaning |
 |---|---|
 | `--name=<name>` | the name of the instance, default `pg-ledger-mcp`: lower-case letters, digits and hyphens, at most 23 characters, not ending with `-admin`; Java validates it before anything is created |
+| `--java=<path>` | the Java 25 runtime, default the `java` on the `PATH` of root; the service user runs it too, so it is at a path every account can execute (not under `/home`), which the script checks before it creates anything |
 | `--jars=<dir>` | the directory that holds the three jars |
 | `--driver-jar=<file>` | the JDBC driver jar |
 | `--driver-class=<class>` | the driver class, which must accept the JDBC URL |
@@ -490,7 +492,7 @@ The installation replaces the 1.x service on the same host, which stays on the 1
 import, check. Do the steps in this order; the installer stops nothing of 1.x by itself.
 
 1. **Back up.** Dump the ledger database with the dump tool of your DBMS, and copy the 1.x settings directory `/etc/pg-ledger-mcp`
-   (the file `/etc/pg-ledger-mcp/pg-ledger-mcp.env` holds the 1.x tokens and passwords) and the 1.x unit files in `/etc/systemd/system`.
+   (the file `/etc/pg-ledger-mcp/env` holds the 1.x tokens and passwords) and the 1.x unit files in `/etc/systemd/system`.
 2. **Stop the 1.x services.** On a host that runs them under the default names:
    `sudo systemctl stop pg-ledger-mcp pg-ledger-mcp-admin`. Their clients are refused until the new server runs. To keep 1.x running
    next to the new installation, give the new one its own `--name=<name>` and its own ports instead.
@@ -500,12 +502,14 @@ import, check. Do the steps in this order; the installer stops nothing of 1.x by
 4. **Install with the tokens of 1.x.** Add `--from-1x-env=<file>` to the Linux installation:
 
    ```sh
-   sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --from-1x-env=/etc/pg-ledger-mcp/pg-ledger-mcp.env
+   sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --from-1x-env=/etc/pg-ledger-mcp/env
    ```
 
    The installer opens the 1.x file as root and `secret-import-1x` moves `DBHUB_AUTH_TOKEN` to `ledger.mcp.token` and
    `ledger.admin.agent-token` and `PGLEDGER_ADMIN_TOKEN` to `ledger.admin.token`, before any token is generated: the clients and the admin
-   sign-in of 1.x keep working, and no value is printed. A secret that exists is kept. The unit files of 1.x that the new units replace are
+   sign-in of 1.x keep working, and no value is printed. A 1.0.0 installation had no admin web and so no `PGLEDGER_ADMIN_TOKEN`: then only
+   the two tokens of the agents are moved, the command says so, and the installer generates `ledger.admin.token` and shows it once.
+   A secret that exists is kept. The unit files of 1.x that the new units replace are
    kept as `<file>.1x-backup`. Without a terminal, add `--stdin` and give the passwords on standard input.
 5. As the service user, store the password of a read-only account of the 1.x database: `secret-set ledger.import.source.password`, and run
    `import-legacy --owner-account=<account> --ledger.import.source.url=<jdbc-url> --ledger.import.source.username=<account>`.
@@ -595,3 +599,6 @@ Copyright (C) 2026 Jaeseong Song
 `AGPL-3.0-or-later` applies to 2.0.0 and to every release published after it, including any later maintenance release of the 1.x line. The MIT License continues to apply only to the copies already published under it, that is v1.0.0 and v1.1.0.
 
 Under section 13 of the license, whoever runs a modified version as a network service must offer the users of that service the corresponding source code.
+The admin web shows a link to the source code in the footer of its pages; its address is the setting `ledger.source.url`, by default the
+public repository of the project. Whoever runs a modified version sets `ledger.source.url` to the place where the corresponding source of that
+modified version is offered. The setting takes an `http` or `https` address; the answers of the MCP server do not carry it.

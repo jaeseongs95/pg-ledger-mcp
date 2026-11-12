@@ -77,7 +77,9 @@ class InstallScriptsTest {
      * and the names of options ({@code --from-1x-env} is a name, not the command {@code env}).
      */
     private static String bare(String line) {
-        return line.replace("\\\"", "Q").replace("\\'", "Q").replaceAll("\\$\\{[^}]*}", "X").replaceAll("--[a-z][a-z0-9.-]*", "--O");
+        // "$JAVA" is the Java runtime of the installation (--java or the one on the PATH): it starts the Java commands
+        return line.replace("\"$JAVA\"", "java").replace("\\\"", "Q").replace("\\'", "Q").replaceAll("\\$\\{[^}]*}", "X")
+                .replaceAll("--[a-z][a-z0-9.-]*", "--O");
     }
 
     /** The words that start a command in the statements of the line (and of its command substitutions), functions defined by the script included. */
@@ -181,10 +183,10 @@ class InstallScriptsTest {
     }
 
     @Test
-    @DisplayName("INS-024 (changed by INS-046 and TLS-041) install.sh is thin: at most 135 lines in all (a third of it the header that names the documentation it follows and the comment of each step that stays) and at most 80 lines of commands (the option loop, the check of the options, one user, one prepare-host call, the secrets and tokens, one setup call, units, nginx, and the automatic certificate: the order, the second render, the reload and the timer; the directories, the copies and the modes are Java)")
+    @DisplayName("INS-024 (changed by INS-046, TLS-041 and W7) install.sh is thin: at most 150 lines in all (a third of it the header that names the documentation it follows and the comment of each step that stays) and at most 88 lines of commands (the option loop, the check of the options, the Java runtime and its check, the check of the default name, one user, one prepare-host call, the secrets and tokens, one setup call, units, nginx, and the automatic certificate: the order, the second render, the reload and the timer; the directories, the copies and the modes are Java)")
     void ins024_theLineBudget() {
-        assertThat(lines(SH)).hasSizeLessThanOrEqualTo(135);
-        assertThat(shCodeLines()).hasSizeLessThanOrEqualTo(80);
+        assertThat(lines(SH)).hasSizeLessThanOrEqualTo(150);
+        assertThat(shCodeLines()).hasSizeLessThanOrEqualTo(88);
     }
 
     @Test
@@ -199,7 +201,7 @@ class InstallScriptsTest {
                 "    --acme-email=*) EMAIL=${arg#*=} ;;", "    --agree-tos) AGREE=--agree-tos ;;");
         assertThat(text(SH).toLowerCase(Locale.ROOT)).doesNotContain("certbot", "acme.sh", "cloudflare", "lightsail");
         // the steps of an installation without --tls-acme are in the file as they were, in the same order
-        assertThat(code).containsSubsequence("java -Duser.timezone=UTC -jar \"$JARS/ledger-cli.jar\" --ledger.secrets.home=/nonexistent render-deploy --check --java=\"$JAVA\" \"$@\"",
+        assertThat(code).containsSubsequence("\"$JAVA\" -Duser.timezone=UTC -jar \"$JARS/ledger-cli.jar\" --ledger.secrets.home=/nonexistent render-deploy --check --java=\"$JAVA\" \"$@\"",
                 "useradd --system --user-group --no-create-home --shell /usr/sbin/nologin \"$SVC\" || [ $? = 9 ]",
                 "as_svc setup --owner-account=\"$OWNER\" --app-account=\"$APP_ACCOUNT\" $STDIN", "systemctl daemon-reload",
                 "systemctl enable \"$SVC\" \"$ADMIN\"", "systemctl restart \"$SVC\" \"$ADMIN\"", "if [ -n \"$NGINX\" ]; then", "if [ -n \"$ACME\" ]; then");
@@ -345,10 +347,10 @@ class InstallScriptsTest {
     }
 
     @Test
-    @DisplayName("INS-035 (changed by INS-046) install.cmd is thin: at most 80 lines in all (half of it comments that name the documentation and the reasons) and at most 40 lines of commands")
+    @DisplayName("INS-035 (changed by INS-046 and W7) install.cmd is thin: at most 95 lines in all (half of it comments that name the documentation and the reasons) and at most 46 lines of commands (the check of an install default is the one routine of the script)")
     void ins035_theLineBudget() {
-        assertThat(lines(CMD)).hasSizeLessThanOrEqualTo(80);
-        assertThat(cmdCodeLines()).hasSizeLessThanOrEqualTo(40);
+        assertThat(lines(CMD)).hasSizeLessThanOrEqualTo(95);
+        assertThat(cmdCodeLines()).hasSizeLessThanOrEqualTo(46);
     }
 
     @Test
@@ -406,7 +408,9 @@ class InstallScriptsTest {
 
         assertThat(text(CMD)).as("no fixed port in the script").doesNotContain("127.0.0.1:" + defaultPort);
         assertThat(code).as("the variable starts with the install default, which Java tells").anySatisfy(line -> assertThat(line)
-                .contains("install-default mcp-port").contains("set \"MCPPORT=%%P\""));
+                .startsWith("call :ask mcp-port MCPPORT "));
+        assertThat(code).as("the routine asks Java with install-default and stores the answer in the variable it is given")
+                .anySatisfy(line -> assertThat(line).contains("install-default %1").contains("set \"%2=%%V\""));
         assertThat(code).as("the value after %s of the render options (the ninth argument) is taken", option).anySatisfy(line -> {
             assertThat(line).startsWith("for %%P in (%~9) do ");
             assertThat(line).contains("\"%%~P\"==\"" + option + "\"").contains("set \"MCPPORT=%%~P\"");
@@ -440,7 +444,7 @@ class InstallScriptsTest {
         int check = firstIndex(code, "render-deploy --check");
 
         assertThat(code).contains("set \"NAME=%~8\"");
-        assertThat(code).anySatisfy(line -> assertThat(line).startsWith("if \"%NAME%\"==\"\" for /f ").contains("install-default instance-name"));
+        assertThat(code).anySatisfy(line -> assertThat(line).startsWith("if \"%NAME%\"==\"\" call :ask instance-name NAME "));
         // the name goes on once, quoted, in the options that the check, prepare-host and seal-host share
         assertThat(code.stream().filter(line -> line.contains("\"--name=%NAME%\"")).count()).isEqualTo(1);
         assertThat(code.stream().filter(line -> line.contains("render-deploy --check %RENDER%") || line.contains("prepare-host")
@@ -510,7 +514,7 @@ class InstallScriptsTest {
                 assertThat(explained).as("a comment above: %s", line).isTrue();
             }
         }
-        assertThat(found).as("useradd, runuser, three systemctl and the timer, four nginx (two for the automatic certificate)").isEqualTo(10);
+        assertThat(found).as("useradd, two runuser (the switch of as_svc and the check that the service user can run the Java), three systemctl and the timer, four nginx (two for the automatic certificate)").isEqualTo(11);
         Properties usage = usageTexts();
         for (String line : shCodeLines()) {
             if (line.contains(" prepare-host ")) {
@@ -581,7 +585,64 @@ class InstallScriptsTest {
                 String.valueOf(defaults.adminPort()))) {
             assertThat(code).as("a literal of the defaults: %s", literal).noneSatisfy(line -> assertThat(line).contains(literal));
         }
-        assertThat(String.join("\n", code)).contains("install-default instance-name");
+        assertThat(String.join("\n", code)).contains(SH.equals(script) ? "install-default instance-name"
+                : "call :ask instance-name NAME");
+    }
+
+    // ---- the install defaults are checked (W7-INS-01, W7-INS-02) ----
+
+    @Test
+    @DisplayName("W7-INS-01 install.sh checks the exit status of install-default and the form of the instance name (letter first, letters, digits and hyphens, no hyphen last, at most 23 characters) before it uses the value")
+    void w7ins01_theShellScriptChecksTheDefaultName() {
+        List<String> code = shCodeLines();
+        int ask = firstIndex(code, "install-default instance-name");
+        int check = firstIndex(code, "''|[!a-z]*|*[!a-z0-9-]*|*-|????????????????????????*)");
+
+        assertThat(code.get(ask)).endsWith("|| die \"install-default instance-name failed\"");
+        assertThat(check).as("the form is checked").isGreaterThan(ask);
+        assertThat(firstIndex(code, "SVC=$NAME")).as("the value is used after both checks").isGreaterThan(check);
+    }
+
+    @Test
+    @DisplayName("W7-INS-02 install.cmd checks the exit status of install-default (a failed command prints ! last) and the form of the name and of the port in one routine, and stops with exit /b 1")
+    void w7ins02_theCmdScriptChecksTheDefaults() {
+        List<String> code = cmdCodeLines();
+
+        assertThat(code).contains("if \"%NAME%\"==\"\" call :ask instance-name NAME abcdefghijklmnopqrstuvwxyz0123456789- || exit /b 1",
+                "call :ask mcp-port MCPPORT 0123456789 || exit /b 1");
+        assertThat(code).anySatisfy(line -> assertThat(line).contains("install-default %1 || echo !"));
+        assertThat(code).anySatisfy(line -> assertThat(line).startsWith("for /f \"delims=%~3\" %%X in (\"%VALUE%\") do ")
+                .endsWith("exit /b 1"));
+        assertThat(code).anySatisfy(line -> assertThat(line).startsWith("if not defined %2 ").endsWith("exit /b 1"));
+        assertThat(firstIndex(code, "call :ask instance-name")).isLessThan(firstIndex(code, "render-deploy --check"));
+        assertThat(code.indexOf("exit /b 0")).as("the routine is after the last step").isNotNegative()
+                .isLessThan(code.indexOf(":ask"));
+    }
+
+    // ---- the Java runtime (W7-INS-03) ----
+
+    @Test
+    @DisplayName("W7-INS-03 install.sh takes --java=<path> itself (it does not go on to Java), defaults to the java of the PATH, starts every Java command with \"$JAVA\" and no plain java, and checks that the service user can run it before the first command as that user")
+    void w7ins03_theJavaRuntimeIsOne() {
+        List<String> code = shCodeLines();
+
+        assertThat(code).contains("    --java=*) JAVA=${arg#*=} ;;");
+        assertThat(code.stream().filter(line -> line.contains("--java=")).filter(line -> line.contains("arg")).toList())
+                .as("the option is consumed, not put back into the options that go on").allSatisfy(line -> assertThat(line)
+                        .doesNotContain("set -- \"$@\""));
+        assertThat(code).anySatisfy(line -> assertThat(line).startsWith("[ -n \"$JAVA\" ] || JAVA=$(command -v java) || die "));
+        for (String line : code) {
+            assertThat(line.replaceAll("\"[^\"]*\"", "\"\"")).as(line).doesNotContainPattern("(^|[\\s=(|&;])java\\s+-");
+        }
+        List<String> javaCalls = code.stream().filter(line -> line.contains(" -jar ") && !line.startsWith("echo ")).toList();
+        assertThat(javaCalls).isNotEmpty().allSatisfy(line -> assertThat(line).contains("\"$JAVA\" "));
+        int check = firstIndex(code, "runuser -u \"$SVC\" -- \"$JAVA\" -version");
+        assertThat(check).as("the check is there").isNotNegative();
+        assertThat(check).as("it comes right after the user is made").isGreaterThan(firstIndex(code, "useradd"));
+        assertThat(check).as("and before the first command as that user").isLessThan(firstIndex(code, "as_svc secret"));
+        assertThat(code.get(check)).contains("|| die ").contains("outside the home directories");
+        assertThat(code.stream().filter(line -> line.contains("--java=\"$JAVA\"")).count()).as("render-deploy and prepare-host get it once")
+                .isGreaterThanOrEqualTo(3);
     }
 
     // ---- helpers ----

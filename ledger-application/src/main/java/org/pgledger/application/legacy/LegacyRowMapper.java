@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -134,7 +135,7 @@ final class LegacyRowMapper {
             case REQUEST_RECEIPT -> requestReceipt(s, t, violations);
         }
         Set<String> expected = table.targetColumns().stream().map(LegacyColumn::name).collect(Collectors.toSet());
-        if (!expected.equals(t.keySet())) {
+        if (!Objects.equals(expected, t.keySet())) {
             throw new IllegalStateException("the mapping of " + table + " fills " + t.keySet() + " but the table has "
                     + expected);
         }

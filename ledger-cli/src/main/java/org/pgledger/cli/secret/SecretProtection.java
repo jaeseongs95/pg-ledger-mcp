@@ -17,6 +17,7 @@ import java.nio.file.attribute.UserPrincipal;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.pgledger.cli.ErrorCode;
@@ -156,7 +157,7 @@ public sealed interface SecretProtection {
             }
             for (AclEntry entry : acl) {
                 // only an ALLOW entry grants anything; DENY, AUDIT and ALARM entries do not
-                boolean granting = entry.type() == AclEntryType.ALLOW && !entry.principal().equals(owner)
+                boolean granting = entry.type() == AclEntryType.ALLOW && !Objects.equals(entry.principal(), owner)
                         && !HARMLESS.containsAll(entry.permissions());
                 if (granting) {
                     return Optional.of("an ACL that allows " + entry.principal().getName());
@@ -175,7 +176,7 @@ public sealed interface SecretProtection {
             // A process with an elevated token (the installer) creates objects that the group Administrators owns, which is
             // Windows' default for its members; the owner check wants the account of the process, so it takes the ownership
             // of what it has just created (it may: the creator's entry holds the right to change the owner).
-            if (!Files.getOwner(path, LinkOption.NOFOLLOW_LINKS).equals(owner)) {
+            if (!Objects.equals(Files.getOwner(path, LinkOption.NOFOLLOW_LINKS), owner)) {
                 Files.setOwner(path, owner);
             }
             if (whatIsOpen(path).isPresent()) {

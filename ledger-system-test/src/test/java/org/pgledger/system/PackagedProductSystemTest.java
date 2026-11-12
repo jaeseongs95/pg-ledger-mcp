@@ -55,8 +55,8 @@ import tools.jackson.databind.json.JsonMapper;
  * SYS-001 .. SYS-012 (docs/testing/TEST_CASES.md section 21): the packaged product against the real DBMS along the install
  * path. Every product jar runs as a separate Java process (see {@link JavaProcess} for why); the steps depend on each other
  * and run in the order of their ids, the way an installation does, and one temporary instance home holds what the product
- * writes. The Windows layout of {@code render-deploy} is used, so the class needs drive paths and is skipped without them.
- * The {@code embedded} profile is never activated.
+ * writes. The platform of the host chooses the layout of {@code render-deploy} ({@link InstalledInstance}): on Windows it
+ * needs drive paths and is skipped without them. No test profile is activated.
  *
  * <p>Install steps that are not run here are listed in section 21 of the test cases ({@code prepare-host} and
  * {@code seal-host} need an elevated prompt for the ACLs, WinSW and {@code sc.exe} are not run).
@@ -65,7 +65,6 @@ import tools.jackson.databind.json.JsonMapper;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class PackagedProductSystemTest {
 
-    private static final Pattern DRIVE_PATH = Pattern.compile("[A-Za-z]:(?:/[A-Za-z0-9._+-]+)+");
     private static final Pattern SCHEMA_ACCOUNT = Pattern.compile("[A-Za-z][A-Za-z0-9_]{0,29}");
     private static final String REASON = "a reason that is long enough";
     /** The environment variable of the product that binds to {@code ledger.jdbc.password} (Spring relaxed binding). */
@@ -82,7 +81,7 @@ class PackagedProductSystemTest {
     private Path cliJar;
     private Path mcpJar;
     private Path hookJar;
-    private Path home;
+    private InstalledInstance instance;
     private Path etc;
     private Path runs;
     private String schema;
@@ -109,10 +108,10 @@ class PackagedProductSystemTest {
 
     @BeforeAll
     void prepare() throws IOException {
-        home = work.resolve("home");
-        assumeTrue(DRIVE_PATH.matcher(slash(home)).matches(),
-                "render-deploy --platform=windows needs a drive path without spaces for the instance home: " + home);
-        etc = home.resolve("etc");
+        // the platform of the host (Linux or Windows) decides how the instance is rendered (W7-SYS-03); the test is skipped
+        // where the temporary directory cannot hold the Windows layout
+        instance = InstalledInstance.on(work);
+        etc = instance.etc();
         runs = Files.createDirectories(work.resolve("runs"));
         database = TestDatabaseSettings.fromSystemProperties();
         owner = new OwnerDatabase(database);
@@ -149,17 +148,14 @@ class PackagedProductSystemTest {
     @Order(1)
     @DisplayName("SYS-001: render-deploy writes the settings and the service definition of an instance")
     void renderDeploy() throws IOException {
-        JavaProcess.Result result = cli(false, null, "render-deploy", "--platform=windows", "--home=" + slash(home),
-                "--java=" + slash(JavaProcess.java()), "--jdbc-url=" + database.url(),
-                "--app-account=" + database.appUser(), "--schema=" + schema, "--mcp-port=" + port);
+        List<String> command = new ArrayList<>(List.of("render-deploy"));
+        command.addAll(instance.renderArguments(slash(JavaProcess.java()), database.url(), database.appUser(), schema, port));
+        JavaProcess.Result result = cli(false, null, command.toArray(String[]::new));
         assertThat(result.exit()).as(result.streams()).isZero();
         String application = Files.readString(etc.resolve("application.yaml"));
         assertThat(application).contains(database.url()).contains(database.appUser()).contains(schema);
         assertThat(Files.readString(etc.resolve("mcp.yaml"))).contains("port: " + port);
-        String service = Files.readString(home.resolve("lib").resolve("pg-ledger-mcp.xml"));
-        Matcher arguments = Pattern.compile("<arguments>(.*?)</arguments>").matcher(service);
-        assertThat(arguments.find()).as("the arguments of the MCP service in %s", service).isTrue();
-        serverArguments = List.of(arguments.group(1).split(" "));
+        serverArguments = instance.serverArguments();
         assertThat(serverArguments).contains("-jar");
         assertThat(serverArguments.getLast()).startsWith("--spring.config.import=").contains("optional:configtree:");
     }

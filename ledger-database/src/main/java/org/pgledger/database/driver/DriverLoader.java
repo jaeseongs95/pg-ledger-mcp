@@ -150,7 +150,7 @@ public final class DriverLoader {
         if (!jar.isAbsolute()) {
             throw invalid("the jar path must be absolute: " + jar);
         }
-        if (!jar.equals(jar.normalize())) {
+        if (!Objects.equals(jar, jar.normalize())) {
             throw invalid("the jar path must not contain '..' or '.' segments: " + jar);
         }
         if (jar.toString().contains(PLACEHOLDER_START)) {

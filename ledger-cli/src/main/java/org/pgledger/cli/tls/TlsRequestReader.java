@@ -5,6 +5,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.pgledger.cli.CliOptions;
@@ -45,7 +46,7 @@ final class TlsRequestReader {
     TlsRequest read(ApplicationArguments arguments, boolean issue) {
         String mcpHost = DeployForms.requireHost(CliOptions.required(arguments, DeployOptions.MCP_HOST), DeployOptions.MCP_HOST);
         String adminHost = DeployForms.requireHost(CliOptions.required(arguments, DeployOptions.ADMIN_HOST), DeployOptions.ADMIN_HOST);
-        if (mcpHost.equals(adminHost)) {
+        if (Objects.equals(mcpHost, adminHost)) {
             // the same rule as the deployment: the two services have two public host names
             throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, DeployOptions.ADMIN_HOST);
         }
@@ -59,7 +60,9 @@ final class TlsRequestReader {
         boolean agree = false;
         int days = TlsOptions.DEFAULT_RENEW_BEFORE_DAYS;
         if (issue) {
-            email = CliOptions.value(arguments, TlsOptions.ACME_EMAIL).map(TlsRequestReader::email).orElse(null);
+            // the request says "no address" with a null component, like the command records of the application services
+            String given = CliOptions.valueOrNull(arguments, TlsOptions.ACME_EMAIL);
+            email = given == null ? null : email(given);
             agree = CliOptions.flag(arguments, TlsOptions.AGREE_TOS);
         } else {
             days = days(CliOptions.integerOrNull(arguments, TlsOptions.RENEW_BEFORE_DAYS));

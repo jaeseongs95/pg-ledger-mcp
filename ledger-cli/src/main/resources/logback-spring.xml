@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The logging of the command line tool: the log goes to the standard error, the answer of a command (CliOutput) to the standard
+  output. A script that takes the output of a command (deploy/install.sh and deploy/install.cmd ask `install-default`) then never
+  takes a line of a log, such as the report of a failed start, for the answer. Spring Boot's own defaults are kept (the pattern, the
+  character set, the levels of logging.level.*); only the target of the console appender differs, and Boot has no setting for the
+  target, so the configuration file of Logback it documents is used: https://docs.spring.io/spring-boot/reference/features/logging.html
+  (Custom Log Configuration). The MCP server and the admin web are other programs and keep the standard output.
+-->
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder>
+      <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+      <charset>${CONSOLE_LOG_CHARSET}</charset>
+    </encoder>
+  </appender>
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+  </root>
+</configuration>

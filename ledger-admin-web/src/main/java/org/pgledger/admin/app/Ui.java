@@ -7,9 +7,16 @@ import org.springframework.stereotype.Component;
 public class Ui {
 
     private final AdminMode mode;
+    private final LedgerSourceProperties source;
 
-    public Ui(AdminMode mode) {
+    public Ui(AdminMode mode, LedgerSourceProperties source) {
         this.mode = mode;
+        this.source = source;
+    }
+
+    /** Where the source code is offered (the link in the footer of every page, AGPL section 13). */
+    public String sourceUrl() {
+        return source.url();
     }
 
     public boolean console() {

@@ -1,5 +1,6 @@
 package org.pgledger.application.legacy;
 
+import java.util.Objects;
 import org.pgledger.database.repository.LegacyTable;
 import org.pgledger.domain.value.Sha256;
 
@@ -18,6 +19,6 @@ public record TableCheck(LegacyTable table, long sourceRows, long targetRows, Sh
         Sha256 targetDigest) {
 
     public boolean matches() {
-        return sourceRows == targetRows && sourceDigest.equals(targetDigest);
+        return sourceRows == targetRows && Objects.equals(sourceDigest, targetDigest);
     }
 }

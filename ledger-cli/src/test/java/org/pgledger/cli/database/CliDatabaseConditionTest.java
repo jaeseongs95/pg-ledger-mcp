@@ -73,17 +73,17 @@ class CliDatabaseConditionTest {
     }
 
     @Test
-    @DisplayName("CLI-PRN-08 the embedded profile (a test brings its own DataSource): the beans exist without a registration")
-    void embeddedProfile() {
-        runner("migrate").withPropertyValues("spring.profiles.active=embedded")
-                .run(context -> assertThat(context).hasNotFailed().hasBean("databaseBean"));
-    }
-
-    @Test
     @DisplayName("CLI-PRN-08 a usable registration and a command that uses the database: the bean exists")
     void registeredAndDatabaseCommand() {
         registered("migrate").run(context -> assertThat(context).hasNotFailed().hasBean("databaseBean"));
         registered("grant").run(context -> assertThat(context).hasBean("databaseBean"));
+    }
+
+    @Test
+    @DisplayName("W7-CLI-02 an operand that holds ${...} as text (the name of a code) does not stop the condition: the command is still a database command and the bean exists")
+    void anOperandWithAPlaceholderIsText() {
+        registered("code-set,DEFECT_CATEGORY,QUOTE,say ${x} @CODES:DEFECT_CATEGORY@")
+                .run(context -> assertThat(context).hasNotFailed().hasBean("databaseBean"));
     }
 
     @Test

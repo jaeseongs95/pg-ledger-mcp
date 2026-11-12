@@ -639,7 +639,9 @@ class ReadQueryTest {
         assertThat(view.nameEn()).isEqualTo("UI");
         assertThat(view.descriptionKo()).isEqualTo("설명");
         assertThat(view.sortOrder()).isEqualTo(33);
-        assertThat(view.state()).isEqualTo("ACTIVE");
+        assertThat(view.state()).isEqualTo(org.pgledger.domain.rule.CodeState.ACTIVE);
+        assertThat(everything.stream().filter(c -> Objects.equals(c.code(), retired)).findFirst().orElseThrow().state())
+                .isEqualTo(org.pgledger.domain.rule.CodeState.INACTIVE);
         assertThat(catalog.codes(new CodesQuery(null, true, 1000, null)).items()).extracting(
                 CatalogService.CodeView::group).containsOnly("DEFECT_CATEGORY", "DEFECT_SEVERITY", "RELATION_KIND");
         Expect.failure(() -> catalog.codes(new CodesQuery("X", null, null, null)), ValidationCode.VALIDATION_FAILED);

@@ -7,6 +7,7 @@ import java.security.cert.X509Certificate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
@@ -83,7 +84,7 @@ class TlsIssuer {
             throw new FailureException(ErrorCode.TLS_NO_ACCOUNT, files.accountKey(directory).toString());
         }
         Instant notAfter = current.getNotAfter().toInstant();
-        boolean sameNames = files.names(current).equals(new TreeSet<>(request.hosts()));
+        boolean sameNames = Objects.equals(files.names(current), new TreeSet<>(request.hosts()));
         // due: it expires within the threshold (exactly at the threshold is within), or it is for other names than the hosts
         boolean due = !sameNames || !notAfter.isAfter(clock.instant().plus(Duration.ofDays(request.renewBeforeDays())));
         if (!due) {
@@ -115,7 +116,7 @@ class TlsIssuer {
             X509Certificate certificate = files.firstCertificate(issued.chainPem()).orElseThrow(
                     () -> new FailureException(ErrorCode.TLS_ISSUE_FAILED, "certificate", "unreadable certificate"));
             Set<String> names = files.names(certificate);
-            if (!names.equals(new TreeSet<>(request.hosts()))) {
+            if (!Objects.equals(names, new TreeSet<>(request.hosts()))) {
                 throw new FailureException(ErrorCode.TLS_ISSUE_FAILED, "certificate", "names differ from the order");
             }
             files.ensureDirectory(directory);

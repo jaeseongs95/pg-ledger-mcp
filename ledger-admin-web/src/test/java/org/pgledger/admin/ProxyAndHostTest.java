@@ -22,19 +22,21 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
-import org.springframework.test.context.ActiveProfiles;
+import org.pgledger.testing.database.TestDatabaseScanFilter;
+import org.pgledger.testing.database.TestDriverRegistration;
+import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 
 /**
  * ADM-049 and ADM-051 (security audit D1, D2): what Tomcat believes of the forwarding headers, against a real server.
  * The proxy of the host is {@code 127.0.0.1}; a client that connects from another address, even another loopback
  * address, is not the proxy and chooses neither the address the lock counts nor the host the firewall checks.
  */
-@ContextConfiguration(initializers = TestSchemaInitializer.class)
+@ContextConfiguration(initializers = {TestSchemaInitializer.class, TestDriverRegistration.class})
 @SpringBootTest(classes = LedgerAdminApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {AdminTestSettings.TOKEN_PROPERTY, AdminTestSettings.AGENT_TOKEN_PROPERTY,
             AdminTestSettings.INSECURE_COOKIE, AdminTestSettings.NO_GLOBAL_CAP, AdminTestSettings.QUIET_BANNER,
             AdminTestSettings.QUIET_LOG, AdminTestSettings.NO_JMX})
-@ActiveProfiles("embedded")
+@TypeExcludeFilters(TestDatabaseScanFilter.class)
 @Import(AdminTestInfrastructure.class)
 class ProxyAndHostTest {
 

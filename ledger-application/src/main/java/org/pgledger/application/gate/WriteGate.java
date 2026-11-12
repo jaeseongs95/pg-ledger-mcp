@@ -55,8 +55,9 @@ public class WriteGate {
                 requireReviewerForVerification(channel, resolved.targets());
             }
         });
-        AuthorId author = attestation.verifyForWrite(actor, ToolScope.current(), requestId,
-                ToolScope.argumentsDigest());
+        // outside a tool call there is no tool and no digest: the contract of AttestationVerifier says null for that
+        AuthorId author = attestation.verifyForWrite(actor, ToolScope.current().orElse(null), requestId,
+                ToolScope.argumentsDigest().orElse(null));
         Resolution resolution = early.orElseGet(lookup.find());
         return switch (resolution) {
             case Resolution.Unresolved unresolved -> throw unresolved.failure();

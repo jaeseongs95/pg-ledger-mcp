@@ -32,6 +32,9 @@
 </th:block>
 
 <th:block th:fragment="footer">
+  <footer class="site-footer" th:with="source=${@ui.sourceUrl()}">
+    <a th:href="${source}" rel="noopener noreferrer" th:text="#{footer.source}">Source code</a>
+  </footer>
   <script th:src="@{/js/local-time.js}" defer></script>
 </th:block>
 

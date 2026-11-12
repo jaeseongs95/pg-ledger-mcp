@@ -195,28 +195,8 @@ class DesignRulesTest {
                 .check(hook);
     }
 
-    @Test
-    @DisplayName("HK-045 no Optional field, record component, or method parameter in the hook")
-    void noOptionalStored() {
-        List<String> problems = new ArrayList<>();
-        hook.forEach(type -> {
-            type.getFields().stream().filter(field -> field.getRawType().isEquivalentTo(Optional.class))
-                    .forEach(field -> problems.add("field " + field.getFullName()));
-            type.getCodeUnits().stream()
-                    .filter(unit -> unit.getRawParameterTypes().stream().anyMatch(parameter -> parameter.isEquivalentTo(Optional.class)))
-                    .forEach(unit -> problems.add("parameter " + unit.getFullName()));
-        });
-        assertThat(problems).isEmpty();
-    }
-
-    @Test
-    @DisplayName("HK-045 no orElse(null) in the hook sources")
-    void noOrElseNull() {
-        Pattern orElseNull = Pattern.compile("\\.orElse\\(\\s*null\\s*\\)");
-        List<String> problems = SourceRules.javaFiles(MAIN_JAVA).stream()
-                .filter(file -> orElseNull.matcher(read(file)).find()).map(Path::toString).toList();
-        assertThat(problems).isEmpty();
-    }
+    // HK-045: no Optional field, record component or parameter, and no orElse(null), are the shared rules ARC-PRN-02 and
+    // ARC-PRN-04 of ArchitectureTest (one place per rule, TEST_CASES.md section 25).
 
     // ---------------------------------------------------------------- HK-046 strings
 

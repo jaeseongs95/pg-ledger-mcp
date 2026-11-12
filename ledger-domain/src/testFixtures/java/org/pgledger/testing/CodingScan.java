@@ -94,7 +94,8 @@ public final class CodingScan {
         return directory != null && file.getParent() != null && file.getParent().endsWith(directory);
     }
 
-    private static String strip(Path file) {
+    /** The text of a source with its comments dropped and the content of every string and character literal blanked. */
+    public static String strip(Path file) {
         String source;
         try {
             source = Files.readString(file);

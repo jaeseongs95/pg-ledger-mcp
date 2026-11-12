@@ -460,6 +460,67 @@ class DocsTest {
         assertThat(part).contains("`AGPL-3.0-or-later`").contains("MIT");
     }
 
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("W7-DOC-01 the License section of the README and each part of the 2.0.0 note say that the admin web links to the source code through ledger.source.url, which a modified version points at its own source")
+    void licenseNamesTheSourceLink(Language language) {
+        String heading = language == Language.EN ? "License" : "라이선스";
+
+        assertThat(language.readme().part(heading).text()).contains("`ledger.source.url`").contains("`http`");
+        assertThat(note().part(language.partHeading()).text()).contains("`ledger.source.url`");
+    }
+
+    // ---- the 1.x environment file and the build instruction (DOC-034) ----
+
+    /** The file the 1.x installer wrote and its units read (EnvironmentFile=@ETC@/env, ETC=/etc/$NAME; tags v1.0.0 and v1.1.0). */
+    private static final String ONE_X_ENVIRONMENT_FILE = "/etc/pg-ledger-mcp/env";
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("DOC-034 the migration command of the README and of each part of the 2.0.0 note names the 1.x environment file /etc/pg-ledger-mcp/env, and no text of the docs names pg-ledger-mcp.env")
+    void migrationNamesTheOneXEnvironmentFile(Language language) {
+        String readme = language.readme().part(language == Language.EN ? "Migrating from 1.x" : "1.x에서 이전").text();
+        String part = note().part(language.partHeading()).text();
+
+        assertThat(readme).contains("--from-1x-env=" + ONE_X_ENVIRONMENT_FILE);
+        assertThat(part).contains("--from-1x-env=" + ONE_X_ENVIRONMENT_FILE);
+        assertThat(language.readme().text()).doesNotContain("pg-ledger-mcp.env");
+        assertThat(part).doesNotContain("pg-ledger-mcp.env");
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("W7-INS-03 both READMEs list --java=<path> among the options of install.sh and say that the Java runtime is at a path every account can execute, not under /home; so does each part of the 2.0.0 note")
+    void javaRuntimeIsAtAPathEveryAccountCanExecute(Language language) {
+        String installation = language.readme().part(language == Language.EN ? "Installation" : "설치").text();
+
+        assertThat(installation).contains("| `--java=<path>` |").contains("`/home`");
+        assertThat(note().part(language.partHeading()).text()).contains("`--java=<path>`").contains("`/home`");
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("W7-SEC-01 the migration text of both READMEs and of each part of the note says that a 1.0.0 installation has no admin token and that a new one is generated and shown once")
+    void oneZeroHasNoAdminToken(Language language) {
+        String readme = language.readme().part(language == Language.EN ? "Migrating from 1.x" : "1.x에서 이전").text();
+        String part = note().part(language.partHeading()).text();
+
+        assertThat(readme).contains("1.0.0").contains("`PGLEDGER_ADMIN_TOKEN`").contains("`ledger.admin.token`");
+        assertThat(part).contains("1.0.0");
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("DOC-034 the jars for an installation are built with ./gradlew assemble (no test database needed); ./gradlew build stays in Build and test")
+    void jarsAreBuiltWithAssemble(Language language) {
+        String installation = language.readme().part(language == Language.EN ? "Installation" : "설치").text();
+        String build = language.readme().part(language == Language.EN ? "Build and test" : "빌드와 시험").text();
+
+        assertThat(installation).contains("`./gradlew assemble`").doesNotContain("`./gradlew build`로").doesNotContain("with `./gradlew build`");
+        assertThat(build).contains("./gradlew build");
+        assertThat(note().part(language.partHeading()).text()).doesNotContain("pg-ledger-mcp.env");
+    }
+
     // ---- both languages say the same ----
 
     @Test

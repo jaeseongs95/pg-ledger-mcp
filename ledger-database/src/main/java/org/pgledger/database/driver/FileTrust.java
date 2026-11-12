@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
@@ -141,7 +142,7 @@ final class FileTrust {
             boolean appliesHere = entry.type() == AclEntryType.ALLOW
                     && !entry.flags().contains(AclEntryFlag.INHERIT_ONLY);
             boolean modifies = !Collections.disjoint(entry.permissions(), MODIFYING);
-            if (appliesHere && modifies && !owner.equals(entry.principal()) && !isTrusted(entry.principal())) {
+            if (appliesHere && modifies && !Objects.equals(owner, entry.principal()) && !isTrusted(entry.principal())) {
                 throw invalid(what + " can be changed by " + entry.principal().getName() + ", who is neither the process user, "
                         + "the owner nor an administrative account: " + path);
             }

@@ -208,9 +208,10 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
     private Optional<Snapshot> stored(Link link) {
         return switch (link) {
             case DefectTaskLink l -> links.tasksOf(l.defectId()).stream()
-                    .filter(x -> x.taskId().equals(l.taskId())).findFirst().<Snapshot>map(Snapshot.DefectTaskRow::of);
+                    .filter(x -> Objects.equals(x.taskId(), l.taskId())).findFirst().<Snapshot>map(Snapshot.DefectTaskRow::of);
             case DefectRelation l -> links.relationsOf(l.a()).stream()
-                    .filter(x -> x.a().equals(l.a()) && x.b().equals(l.b()) && x.relation().equals(l.relation()))
+                    .filter(x -> Objects.equals(x.a(), l.a()) && Objects.equals(x.b(), l.b())
+                            && Objects.equals(x.relation(), l.relation()))
                     .findFirst().<Snapshot>map(Snapshot.DefectRelationRow::of);
             case ConditionLink l -> links.linksOf(l.conditionId()).stream()
                     .filter(x -> Objects.equals(x.linkKey(), l.linkKey())).findFirst().<Snapshot>map(Snapshot.ConditionLinkRow::of);

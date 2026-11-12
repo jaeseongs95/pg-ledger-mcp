@@ -129,8 +129,9 @@ public class Rows {
         try {
             return defects.save(after);
         } catch (OptimisticLockingFailureException e) {
-            throw versionConflict(HistoryEntity.DEFECT.token(),after.id().value(), after.version(),
-                    defects.findById(after.id()).map(Defect::version), e);
+            throw versionConflict(HistoryEntity.DEFECT.token(), after.id().value(), after.version(), defects
+                    .findById(after.id()).map(Defect::version)
+                    .orElseThrow(() -> notFound(HistoryEntity.DEFECT.token(), after.id().value())), e);
         }
     }
 
@@ -139,8 +140,9 @@ public class Rows {
         try {
             return tasks.save(after);
         } catch (OptimisticLockingFailureException e) {
-            throw versionConflict(HistoryEntity.TASK.token(),after.id().value(), after.version(),
-                    tasks.findById(after.id()).map(Task::version), e);
+            throw versionConflict(HistoryEntity.TASK.token(), after.id().value(), after.version(), tasks
+                    .findById(after.id()).map(Task::version)
+                    .orElseThrow(() -> notFound(HistoryEntity.TASK.token(), after.id().value())), e);
         }
     }
 
@@ -149,17 +151,17 @@ public class Rows {
         try {
             return conditions.save(after);
         } catch (OptimisticLockingFailureException e) {
-            throw versionConflict(HistoryEntity.CONDITION.token(),after.id().value(), after.version(),
-                    conditions.findById(after.id()).map(Condition::version), e);
+            throw versionConflict(HistoryEntity.CONDITION.token(), after.id().value(), after.version(), conditions
+                    .findById(after.id()).map(Condition::version)
+                    .orElseThrow(() -> notFound(HistoryEntity.CONDITION.token(), after.id().value())), e);
         }
     }
 
     /** The one place that makes the VERSION_CONFLICT of a save: the arguments are the real versions, in order. */
-    private static ConflictException versionConflict(String entity, String id, long expected,
-            Optional<Long> current, Throwable cause) {
-        long now = current.orElseThrow(() -> notFound(entity, id));
+    private static ConflictException versionConflict(String entity, String id, long expected, long current,
+            Throwable cause) {
         return new ConflictException(ConflictCode.VERSION_CONFLICT,
-                List.of(entity, id, Long.toString(expected), Long.toString(now)), cause);
+                List.of(entity, id, Long.toString(expected), Long.toString(current)), cause);
     }
 
     public static LookupException notFound(String what, String id) {

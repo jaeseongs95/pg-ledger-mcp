@@ -2,6 +2,7 @@ package org.pgledger.domain.model;
 
 import java.time.Instant;
 import java.util.EnumSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.data.annotation.Id;
@@ -57,7 +58,7 @@ public record HistoryEntry(@Id Long id, @Column("occurred_at") Instant at, Actor
             require(actorAssurance == ActorAssurance.DECLARED && authorId instanceof AuthorId, "actor_assurance",
                     ValidationReason.NATIVE_ENTRY_NEEDS_DECLARED_AUTHOR);
             require(op != HistoryOp.TRANSITION || !LifecycleState.isVerification(entity, toState)
-                    || Channel.REVIEWER.login().equals(login), "login",
+                    || Objects.equals(Channel.REVIEWER.login(), login), "login",
                     ValidationReason.VERIFICATION_NEEDS_REVIEWER_CHANNEL);
         }
     }

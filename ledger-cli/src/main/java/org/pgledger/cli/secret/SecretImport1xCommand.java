@@ -31,10 +31,13 @@ import org.springframework.stereotype.Component;
  * {@code secret-import-1x (--env=<file> | --stdin)}: moves the two secrets of a 1.x installation into the secret store, so that
  * the clients of the old server and the admin sign-in keep working after the migration. {@code DBHUB_AUTH_TOKEN} (the bearer
  * token of the agents) becomes {@code ledger.mcp.token} and {@code ledger.admin.agent-token}, {@code PGLEDGER_ADMIN_TOKEN}
- * becomes {@code ledger.admin.token}. The other settings of the 1.x environment are not read.
+ * becomes {@code ledger.admin.token}. The other settings of the 1.x environment are not read. {@code PGLEDGER_ADMIN_TOKEN} is
+ * optional: a 1.0.0 installation had no admin web and its environment has no such setting; then only the two secrets of the
+ * agents are stored, one line says that {@code ledger.admin.token} was not imported, and the installer's next step
+ * ({@code token-generate ledger.admin.token --print}) creates it and shows it once.
  *
- * <p>All values are checked before anything is written (present, at least {@value #MINIMUM_LENGTH} characters, the admin
- * token different from the agent token). A secret that is stored already is kept and never replaced, so a run that stopped
+ * <p>All values are checked before anything is written ({@code DBHUB_AUTH_TOKEN} present; what is present at least
+ * {@value #MINIMUM_LENGTH} characters, the admin token different from the agent token). A secret that is stored already is kept and never replaced, so a run that stopped
  * half way is completed by the next one. Only the names of the secrets and of the 1.x settings are printed, never a value, and
  * no refusal holds a value. The command does not use the database.
  *
@@ -137,7 +140,7 @@ public class SecretImport1xCommand implements Command {
         for (OneXKey key : OneXKey.values()) {
             environment.value(key.setting()).ifPresent(value -> values.put(key, value));
         }
-        requirePresent(values);
+        requireAgentToken(values);
         requireUsable(values);
         // every secret is looked at before the first is written: a store that cannot be used refuses with nothing written
         Map<ImportedSecret, Boolean> present = new EnumMap<>(ImportedSecret.class);
@@ -150,6 +153,11 @@ public class SecretImport1xCommand implements Command {
                 output.info(messages.get("secret-import-1x.kept", name));
                 continue;
             }
+            if (!values.containsKey(imported.source())) {
+                // a 1.0.0 installation had no admin web, so its environment has no admin token: the installer generates one
+                output.info(messages.get("secret-import-1x.no-admin", imported.source().setting(), name));
+                continue;
+            }
             char[] value = values.get(imported.source()).toCharArray();
             try {
                 store.store(imported.secret(), value);
@@ -160,27 +168,23 @@ public class SecretImport1xCommand implements Command {
         }
     }
 
-    /** The settings that are missing, all of them named (their names, never a value). */
-    private static void requirePresent(Map<OneXKey, String> values) {
-        List<String> missing = new ArrayList<>();
-        for (OneXKey key : OneXKey.values()) {
-            if (!values.containsKey(key)) {
-                missing.add(key.setting());
-            }
-        }
-        if (!missing.isEmpty()) {
-            throw new FailureException(ErrorCode.ENV_KEYS_MISSING, String.join(", ", missing));
+    /** The token of the agents is required (its name is the one named, never a value); the admin token is optional. */
+    private static void requireAgentToken(Map<OneXKey, String> values) {
+        if (!values.containsKey(OneXKey.AGENT)) {
+            throw new FailureException(ErrorCode.ENV_KEYS_MISSING, OneXKey.AGENT.setting());
         }
     }
 
+    /** What is present is checked; the admin token only when the 1.x environment has one. */
     private static void requireUsable(Map<OneXKey, String> values) {
         String agent = values.get(OneXKey.AGENT);
-        String admin = values.get(OneXKey.ADMIN);
         if (agent.length() < MINIMUM_LENGTH) {
             throw new FailureException(ErrorCode.INVALID_1X_VALUE, OneXKey.AGENT.setting());
         }
-        // the two tokens guard different things (the agents, the owner's sign-in): one value for both is refused, not carried over
-        if (admin.length() < MINIMUM_LENGTH || Objects.equals(admin, agent)) {
+        // absent for a 1.0.0 installation (no admin web); the two tokens guard different things (the agents, the owner's
+        // sign-in): one value for both is refused, not carried over
+        String admin = values.get(OneXKey.ADMIN);
+        if (admin != null && (admin.length() < MINIMUM_LENGTH || Objects.equals(admin, agent))) {
             throw new FailureException(ErrorCode.INVALID_1X_VALUE, OneXKey.ADMIN.setting());
         }
     }

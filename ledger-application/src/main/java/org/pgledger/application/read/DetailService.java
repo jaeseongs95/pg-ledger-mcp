@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import org.pgledger.application.history.TaskHistory;
 import org.pgledger.database.repository.DefectCaseRepository;
 import org.pgledger.database.repository.DefectFixRepository;
@@ -101,7 +102,7 @@ public class DetailService {
                 .flatMap(java.util.Optional::stream).map(t -> new TaskRef(t.id().value(), t.state().name(),
                         t.ownerActorId() == null ? null : t.ownerActorId().value())).toList();
         List<RelationView> relations = links.relationsOf(id).stream().map(r -> new RelationView(r.relation().value(),
-                (r.a().equals(id) ? r.b() : r.a()).value())).toList();
+                (Objects.equals(r.a(), id) ? r.b() : r.a()).value())).toList();
         List<Long> newest = historyQueries.newestOfEntity(HistoryEntity.DEFECT, rawId, true, 1);
         LastChange last = newest.isEmpty() ? null : lastChange(historyRows.findById(newest.getFirst()).orElseThrow());
         List<ChangeSummary> recent = historyQueries.newestOfEntity(HistoryEntity.DEFECT, rawId, false,
@@ -128,7 +129,7 @@ public class DetailService {
                 out.add(new CaseView("case", source.value(), c.id(), c.observation(), c.evidence(), c.userQuote(),
                         c.observedAt(), c.recordedBy().value(), c.recordedAt()));
             }
-            if (!source.equals(root.id())) {
+            if (!Objects.equals(source, root.id())) {
                 Defect merged = defects.findById(source).orElseThrow();
                 out.add(new CaseView("merged_behavior", source.value(), null, merged.behavior(), null, null, null,
                         null, merged.createdAt()));

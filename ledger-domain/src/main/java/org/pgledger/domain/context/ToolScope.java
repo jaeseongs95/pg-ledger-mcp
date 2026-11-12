@@ -1,5 +1,7 @@
 package org.pgledger.domain.context;
 
+import java.util.Optional;
+
 /**
  * What the current request called, carried by {@link ScopedValue}s like {@link ActorScope}: the tool binding of the MCP
  * server binds them around the call of the tool method, and the write gate compares them with what the author
@@ -21,13 +23,16 @@ public final class ToolScope {
     private ToolScope() {
     }
 
-    /** The name of the tool being called, or {@code null} outside a tool call. */
-    public static String current() {
-        return CURRENT.isBound() ? CURRENT.get() : null;
+    /** The name of the tool being called; empty outside a tool call. */
+    public static Optional<String> current() {
+        return CURRENT.isBound() ? Optional.ofNullable(CURRENT.get()) : Optional.empty();
     }
 
-    /** The digest of the arguments of the call being made, or {@code null} outside a tool call. */
-    public static String argumentsDigest() {
-        return ARGUMENTS_DIGEST.isBound() ? ARGUMENTS_DIGEST.get() : null;
+    /**
+     * The digest of the arguments of the call being made; empty outside a tool call and in a call that has none (a call without
+     * attestation has nothing signed, so the binding of the tool binds no digest).
+     */
+    public static Optional<String> argumentsDigest() {
+        return ARGUMENTS_DIGEST.isBound() ? Optional.ofNullable(ARGUMENTS_DIGEST.get()) : Optional.empty();
     }
 }

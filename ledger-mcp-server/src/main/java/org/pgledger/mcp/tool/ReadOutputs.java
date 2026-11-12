@@ -283,6 +283,6 @@ public final class ReadOutputs {
 
     public static CodeRow codeRow(CatalogService.CodeView c) {
         return new CodeRow(c.group(), c.code(), c.nameKo(), c.nameEn(), c.descriptionKo(), c.descriptionEn(),
-                c.sortOrder(), c.state());
+                c.sortOrder(), c.state().token());
     }
 }

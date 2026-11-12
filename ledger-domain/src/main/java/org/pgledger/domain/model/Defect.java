@@ -1,6 +1,7 @@
 package org.pgledger.domain.model;
 
 import java.time.Instant;
+import java.util.Objects;
 import org.springframework.data.annotation.CreatedBy;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.ReadOnlyProperty;
@@ -30,7 +31,7 @@ public record Defect(@Id DefectId id, ProjectId projectId, String title, CodeVal
         if ((status == DefectStatus.MERGED) != (mergedInto != null)) {
             throw ValidationException.invalid("merged_into", ValidationReason.SET_EXACTLY_WHEN_STATUS_IS, "MERGED");
         }
-        if (id.equals(mergedInto)) {
+        if (Objects.equals(id, mergedInto)) {
             throw ValidationException.invalid("merged_into", ValidationReason.MUST_NOT_BE_THE_DEFECT_ITSELF);
         }
     }

@@ -112,7 +112,7 @@ public class SessionKeyService {
 
     /** The key is live already: for this author it is the answer of a repeated registration, for another one it is refused. */
     private static Registered sameAuthor(SessionPublicKey holder, AuthorId author, String fingerprint) {
-        if (holder.authorId().equals(author)) {
+        if (Objects.equals(holder.authorId(), author)) {
             return registered(holder);
         }
         throw new ConflictException(ConflictCode.DUPLICATE_KEY, List.of("public key " + fingerprint));

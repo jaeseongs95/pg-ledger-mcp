@@ -20,7 +20,9 @@ import org.pgledger.application.history.HistoryWriter;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.testing.ArchitectureRules;
 import org.pgledger.testing.CodingScan;
+import org.pgledger.testing.PrincipleRules;
 import org.pgledger.testing.SourceRules;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +31,39 @@ class ArchitectureTest {
 
     private static final JavaClasses MAIN = ArchitectureRules.productionClasses("org.pgledger.application");
     private static final Path MAIN_JAVA = Path.of("src", "main", "java");
+
+    /** ARC-PRN-01 .. 06 (TEST_CASES.md section 25): what this module allows of each rule (key to reason). */
+    private static final String KEYSET_POSITION = "the position of a keyset query is a nullable argument of the repository method, "
+            + "null being the first page: an Optional parameter is not allowed (ARC-PRN-02), and an overload per method would "
+            + "only hold the same null one level down";
+    private static final String OUTSIDE_A_TOOL_CALL = "ToolScope answers an Optional, and the contract of AttestationVerifier "
+            + "(a parameter may not be an Optional, ARC-PRN-02, and the attestation module and its test doubles read null as "
+            + "'outside a tool call') takes the tool and the digest as text, null when there is none";
+    private static final String NULLABLE_COMPONENT = "the value goes into a component of a response record that is nullable on the "
+            + "wire; a record component may not be an Optional (ARC-PRN-02), so the Optional of the lookup ends here";
+
+    private static final Map<String, Map<String, String>> PRINCIPLE_ALLOWED = Map.of(
+            PrincipleRules.OR_ELSE_NULL, Map.of(
+                    "AttentionService.java", KEYSET_POSITION,
+                    "ListService.java", KEYSET_POSITION,
+                    "SearchService.java", KEYSET_POSITION,
+                    "WriteGate.java", OUTSIDE_A_TOOL_CALL,
+                    "WhoamiService.java", OUTSIDE_A_TOOL_CALL,
+                    "DetailService.java", NULLABLE_COMPONENT + " (TaskDetail.completedBy)",
+                    "HistoryService.java", NULLABLE_COMPONENT + " (HistoryView.vendor)",
+                    "LegacyRowMapper.java", "a mapped row of a legacy table is a map from column to value in which SQL NULL is the "
+                            + "value null (the link key of a link without a valid condition, a token column that holds no constant "
+                            + "of the new schema): the row is written to a nullable column"));
+
+    static Stream<PrincipleRules.Rule> principleRules() {
+        return PrincipleRules.all(MAIN, MAIN_JAVA, PRINCIPLE_ALLOWED).stream();
+    }
+
+    @ParameterizedTest
+    @MethodSource("principleRules")
+    void thePrincipleRuleHolds(PrincipleRules.Rule rule) {
+        assertThat(rule.problems()).isEmpty();
+    }
     private static final Path TEST_JAVA = Path.of("src", "test", "java");
 
     /** One rule of the catalogue under its ID. */

@@ -5,19 +5,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import java.util.Comparator;
+import java.util.List;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.pgledger.database.support.DatabaseTest;
+import org.pgledger.database.repository.AttentionQueryRepository;
+import org.pgledger.database.repository.Counter;
 import org.pgledger.database.repository.DefectFixRepository;
 import org.pgledger.database.repository.DefectQueryRepository;
 import org.pgledger.database.repository.DefectQueryRepository.Filter;
@@ -26,40 +24,77 @@ import org.pgledger.database.repository.DefectQueryRepository.Position;
 import org.pgledger.database.repository.DefectRepository;
 import org.pgledger.database.repository.DefectSummary;
 import org.pgledger.database.repository.IdAllocator;
-import org.pgledger.database.repository.Counter;
 import org.pgledger.database.repository.KeysetPage;
 import org.pgledger.database.repository.KeywordMatch;
 import org.pgledger.database.repository.MergeChainRepository;
-import org.pgledger.database.repository.AttentionQueryRepository;
 import org.pgledger.database.repository.StatsQueryRepository;
+import org.pgledger.database.repository.TaskRepository;
+import org.pgledger.database.support.LedgerDataJdbcTest;
 import org.pgledger.database.support.LedgerTestContext;
+import org.pgledger.database.support.RecordingDataSource;
 import org.pgledger.database.support.Seed;
 import org.pgledger.domain.model.Defect;
 import org.pgledger.domain.model.DefectFix;
 import org.pgledger.domain.model.Project;
 import org.pgledger.domain.rule.AttentionKind;
 import org.pgledger.domain.rule.DefectStatus;
+import org.pgledger.domain.rule.TaskState;
 import org.pgledger.domain.value.CommitSha;
 import org.pgledger.domain.value.DefectId;
 import org.pgledger.domain.value.MaxRows;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/** REPO-025 .. REPO-028, REPO-034, REPO-036: row limits, keyset pages, search, day ranges, counts, merge chains. */
-@DatabaseTest
+/**
+ * REPO-025 .. REPO-028, REPO-034, REPO-036: row limits, keyset pages, search, day ranges, counts, merge chains, as a
+ * {@code @DataJdbcTest} slice (W7-SLICE-01, principle 7.2): every test runs in a transaction that Spring rolls back, with a
+ * project of its own.
+ */
+@LedgerDataJdbcTest
 class QueryRepositoryTest {
 
     private static final java.util.regex.Pattern ROW_LIMIT_KEYWORD = java.util.regex.Pattern.compile(
             "\\b(LIMIT|FETCH|TOP|ROWNUM|OFFSET)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
 
-    private LedgerTestContext ctx;
-    private Seed seed;
+    @Autowired
+    private ApplicationContext context;
+
+    @Autowired
+    private RecordingDataSource spy;
+
+    @Autowired
+    private JdbcClient jdbc;
+
+    @Autowired
     private DefectQueryRepository queries;
 
+    @Autowired
+    private DefectRepository defects;
+
+    @Autowired
+    private DefectFixRepository fixes;
+
+    @Autowired
+    private TaskRepository tasks;
+
+    @Autowired
+    private IdAllocator ids;
+
+    @Autowired
+    private StatsQueryRepository stats;
+
+    @Autowired
+    private AttentionQueryRepository attentionQueries;
+
+    @Autowired
+    private MergeChainRepository mergeChains;
+
+    private Seed seed;
+
     @BeforeEach
-    void setUp(LedgerTestContext context) {
-        ctx = context;
-        seed = new Seed(ctx);
-        queries = ctx.bean(DefectQueryRepository.class);
+    void setUp() {
+        seed = new Seed(context);
     }
 
     private Project projectWithDefects(int count, boolean distinctTimes) {
@@ -82,12 +117,12 @@ class QueryRepositoryTest {
     @MethodSource("pageSizes")
     void repo025_oneRowMoreThanTheLimitTellsTheListContinuesWithoutVendorSql(PageSize size) {
         Project project = projectWithDefects(30, true);
-        ctx.spy().clear();
+        spy.clear();
         KeysetPage<DefectSummary> page = queries.page(project.id(), Filter.NONE, new MaxRows(size.max()),
                 Order.NEWEST_FIRST, null);
         assertThat(page.rows()).hasSize(size.rows());
         assertThat(page.truncated()).isEqualTo(size.truncated());
-        assertThat(ctx.spy().statements()).isNotEmpty().noneMatch(s -> ROW_LIMIT_KEYWORD.matcher(s).find());
+        assertThat(spy.statements()).isNotEmpty().noneMatch(s -> ROW_LIMIT_KEYWORD.matcher(s).find());
     }
 
     /** All ids of a list, two rows per page, following the position of each page's last row. */
@@ -144,7 +179,7 @@ class QueryRepositoryTest {
                 LedgerTestContext.START.plusSeconds(i + 1)));
         assertThat(queries.search(project.id(), search.keywords(), search.match(), MaxRows.DEFAULT).rows())
                 .extracting(DefectSummary::title).containsExactlyElementsOf(search.titles());
-        assertThat(JdbcClient.create(ctx.pool()).sql("SELECT COUNT(*) FROM project").query(Integer.class).single())
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM project").query(Integer.class).single())
                 .as("injection text is data: the table survives").isPositive();
     }
 
@@ -190,34 +225,29 @@ class QueryRepositoryTest {
     @Test
     void repo034_countsAndTheFiveAttentionKinds() {
         Project project = seed.project();
-        DefectRepository defects = ctx.bean(DefectRepository.class);
-        IdAllocator ids = ctx.bean(IdAllocator.class);
         Defect openWithFix = seed.defect(project, 1, "open with fix", LedgerTestContext.START);
         Defect openNoOwner = seed.defect(project, 2, "open no owner", LedgerTestContext.START);
-        Defect fixedNoCommit = LedgerTestContext.as(Seed.ALICE, () -> ctx.tx(() -> defects.save(
+        Defect fixedNoCommit = LedgerTestContext.as(Seed.ALICE, () -> defects.save(
                 seed.defect(project, 3, "fixed", LedgerTestContext.START)
-                        .transitioned(DefectStatus.SOURCE_FIXED, null, LedgerTestContext.START))));
-        Defect verifiedWithFix = LedgerTestContext.as(Seed.ALICE, () -> ctx.tx(() -> defects.save(
+                        .transitioned(DefectStatus.SOURCE_FIXED, null, LedgerTestContext.START)));
+        Defect verifiedWithFix = LedgerTestContext.as(Seed.ALICE, () -> defects.save(
                 seed.defect(project, 4, "verified", LedgerTestContext.START)
-                        .transitioned(DefectStatus.VERIFIED, null, LedgerTestContext.START))));
-        ctx.tx(() -> ctx.bean(DefectFixRepository.class).insert(DefectFix.record(ids.next(Counter.DEFECT_FIX),
-                openWithFix.id(), "repo", CommitSha.of("d".repeat(40)), null, null, null, null, Seed.ALICE,
-                LedgerTestContext.START)));
-        ctx.tx(() -> ctx.bean(DefectFixRepository.class).insert(DefectFix.record(ids.next(Counter.DEFECT_FIX),
-                verifiedWithFix.id(), "repo", CommitSha.of("e".repeat(40)), null, null, null, null, Seed.ALICE,
-                LedgerTestContext.START)));
+                        .transitioned(DefectStatus.VERIFIED, null, LedgerTestContext.START)));
+        fixes.insert(DefectFix.record(ids.next(Counter.DEFECT_FIX), openWithFix.id(), "repo",
+                CommitSha.of("d".repeat(40)), null, null, null, null, Seed.ALICE, LedgerTestContext.START));
+        fixes.insert(DefectFix.record(ids.next(Counter.DEFECT_FIX), verifiedWithFix.id(), "repo",
+                CommitSha.of("e".repeat(40)), null, null, null, null, Seed.ALICE, LedgerTestContext.START));
         var unknownTask = seed.task(project, 1, "unknown task");
-        LedgerTestContext.as(Seed.ALICE, () -> ctx.tx(() -> ctx.bean(org.pgledger.database.repository.TaskRepository.class)
-                .save(unknownTask.transitioned(org.pgledger.domain.rule.TaskState.UNKNOWN, LedgerTestContext.START))));
+        LedgerTestContext.as(Seed.ALICE, () -> tasks.save(unknownTask.transitioned(TaskState.UNKNOWN,
+                LedgerTestContext.START)));
         var doneTask = seed.task(project, 2, "done task");
-        LedgerTestContext.as(Seed.ALICE, () -> ctx.tx(() -> ctx.bean(org.pgledger.database.repository.TaskRepository.class)
-                .save(doneTask.transitioned(org.pgledger.domain.rule.TaskState.REPORTED_DONE, LedgerTestContext.START))));
+        LedgerTestContext.as(Seed.ALICE, () -> tasks.save(doneTask.transitioned(TaskState.REPORTED_DONE,
+                LedgerTestContext.START)));
 
-        StatsQueryRepository stats = ctx.bean(StatsQueryRepository.class);
         assertThat(stats.defectsByStatus(project.id())).containsEntry(DefectStatus.OPEN.name(), 2L)
                 .containsEntry(DefectStatus.SOURCE_FIXED.name(), 1L).containsEntry(DefectStatus.VERIFIED.name(), 1L);
         assertThat(stats.defectsBySeverity(project.id())).containsEntry("P2", 4L);
-        List<AttentionQueryRepository.Item> attention = ctx.bean(AttentionQueryRepository.class)
+        List<AttentionQueryRepository.Item> attention = attentionQueries
                 .page(project.id(), null, MaxRows.DEFAULT, null).rows();
         assertThat(attention).extracting(AttentionQueryRepository.Item::kind, AttentionQueryRepository.Item::id)
                 .contains(tuple(AttentionKind.OPEN_WITH_FIX, openWithFix.id().value()),
@@ -229,11 +259,11 @@ class QueryRepositoryTest {
         assertThat(attention).extracting(AttentionQueryRepository.Item::id).doesNotContain(verifiedWithFix.id().value());
         assertThat(attention).hasSize(6);
         // the same meaning in the filter of the list: a kind selects the rows the attention list names for it
-        assertThat(ctx.bean(DefectQueryRepository.class).page(project.id(), new Filter(null, null, null, null, null,
+        assertThat(queries.page(project.id(), new Filter(null, null, null, null, null,
                 null, AttentionKind.FIXED_WITHOUT_COMMIT), MaxRows.DEFAULT, Order.OLDEST_FIRST, null).rows())
                 .extracting(DefectSummary::id).containsExactly(fixedNoCommit.id());
         // a kind of the other entity is a mistake of the caller
-        assertThatThrownBy(() -> ctx.bean(DefectQueryRepository.class).page(project.id(), new Filter(null, null, null,
+        assertThatThrownBy(() -> queries.page(project.id(), new Filter(null, null, null,
                 null, null, null, AttentionKind.TASK_UNKNOWN), MaxRows.DEFAULT, Order.OLDEST_FIRST, null))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("defect attention kind");
     }
@@ -241,21 +271,19 @@ class QueryRepositoryTest {
     @Test
     void repo036_aMergeChainOfDepth50IsWalkedWithoutRecursiveSql() {
         Project project = seed.project();
-        DefectRepository defects = ctx.bean(DefectRepository.class);
         Defect root = seed.defect(project, 1, "root", LedgerTestContext.START);
         // the chain runs root <- 2 <- 3 ... <- 51: every defect is merged into the one before it
         List<DefectId> chain = IntStream.rangeClosed(2, 51).mapToObj(i -> DefectId.of(project.code(), i)).toList();
         chain.stream().reduce(root.id(), (target, id) -> {
             Defect child = seed.defect(project, DefectId.of(id.value()).number(), "link " + id.value(),
                     LedgerTestContext.START);
-            LedgerTestContext.as(Seed.ALICE, () -> ctx.tx(() -> defects.save(
-                    child.transitioned(DefectStatus.MERGED, target, LedgerTestContext.START))));
+            LedgerTestContext.as(Seed.ALICE, () -> defects.save(
+                    child.transitioned(DefectStatus.MERGED, target, LedgerTestContext.START)));
             return id;
         });
-        ctx.spy().clear();
-        assertThat(ctx.bean(MergeChainRepository.class).mergedInto(root.id()))
-                .containsExactlyInAnyOrderElementsOf(chain);
-        assertThat(ctx.spy().statements()).noneMatch(s -> s.toUpperCase().contains("RECURSIVE"));
-        assertThat(ctx.bean(MergeChainRepository.class).mergedInto(chain.getLast())).isEmpty();
+        spy.clear();
+        assertThat(mergeChains.mergedInto(root.id())).containsExactlyInAnyOrderElementsOf(chain);
+        assertThat(spy.statements()).noneMatch(s -> s.toUpperCase().contains("RECURSIVE"));
+        assertThat(mergeChains.mergedInto(chain.getLast())).isEmpty();
     }
 }

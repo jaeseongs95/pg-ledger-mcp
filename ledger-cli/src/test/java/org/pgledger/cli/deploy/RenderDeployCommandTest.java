@@ -164,7 +164,7 @@ class RenderDeployCommandTest {
         assertThat(Files.exists(root)).as("--check writes nothing").isFalse();
     }
 
-    private static final String ONE_X_UNIT = "[Unit]\nDescription=pg-ledger-mcp 1.x (DBHub)\n[Service]\nEnvironmentFile=/etc/pg-ledger-mcp/pg-ledger-mcp.env\n";
+    private static final String ONE_X_UNIT = "[Unit]\nDescription=pg-ledger-mcp 1.x (DBHub)\n[Service]\nEnvironmentFile=/etc/pg-ledger-mcp/env\n";
 
     @Test
     @DisplayName("INS-042 a file of that name that this command did not render (the unit of 1.x) is kept as <file>.1x-backup before it is replaced, once, and the output says so")
