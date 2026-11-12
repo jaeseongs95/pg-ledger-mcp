@@ -37,6 +37,10 @@ set "JAVA=%JAVA:\=/%"
 set RENDER=--platform=windows "--home=%HOME%" "--name=%NAME%" "--java=%JAVA%" "--jdbc-url=%~7" "--app-account=%~6" %~9
 set JARCMD="%JAVA%" -Duser.timezone=UTC -jar "%WHOME%\lib\ledger-cli.jar"
 set CLI=%JARCMD% --ledger.secrets.home=%HOME%/etc
+rem The hint at the end names the port of the MCP server: the value after --mcp-port in the render options (cmd splits it at the
+rem equals sign), 8765 (the default of render-deploy) when there is none. Java validates the option itself before anything is changed.
+set "MCPPORT=8765"
+for %%P in (%~9) do if defined TAKE (set "MCPPORT=%%~P" & set "TAKE=") else if /i "%%~P"=="--mcp-port" set "TAKE=1"
 rem Every option, the name included, is validated by Java before anything is created (the name is only ever used in quotes until then).
 "%JAVA%" -Duser.timezone=UTC -jar "%~1\ledger-cli.jar" --ledger.secrets.home=C:/nonexistent render-deploy --check %RENDER% || exit /b 1
 
@@ -70,4 +74,4 @@ rem The service account gets its access and the secrets are handed over to it (J
 %JARCMD% --ledger.secrets.home=C:/nonexistent seal-host %RENDER% || exit /b 1
 
 for %%S in (%SVC% %ADMIN%) do "%WHOME%\lib\%%S.exe" start || exit /b 1
-echo install.cmd: done. Check the MCP server with: %CLI% mcp-check --url=http://127.0.0.1:8765/mcp
+echo install.cmd: done. Check the MCP server with: %CLI% mcp-check --url=http://127.0.0.1:%MCPPORT%/mcp

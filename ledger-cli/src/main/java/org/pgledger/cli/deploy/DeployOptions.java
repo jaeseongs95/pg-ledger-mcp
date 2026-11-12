@@ -34,6 +34,8 @@ public final class DeployOptions {
     public static final String NAME = "name";
     /** Not rendered into any file: a directory the files are written below instead of at their own paths. */
     public static final String ROOT = "root";
+    /** {@code prepare-host} on Windows: the WinSW executable, copied once for each of the two services; no value on Linux. */
+    public static final String WINSW = "winsw";
     /** A flag, not a value: validate every option as a run does, write nothing (the installers call it before they change anything). */
     public static final String CHECK = "check";
 

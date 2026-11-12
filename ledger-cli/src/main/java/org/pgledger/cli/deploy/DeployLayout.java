@@ -1,5 +1,9 @@
 package org.pgledger.cli.deploy;
 
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Pattern;
+import java.util.Locale;
+
 /**
  * Where an installation puts its files, and the names of it. An installation is an <em>instance</em> with a name (default
  * {@link #DEFAULT_NAME}): the product runs as two services, the MCP server (named {@code <name>}) and the admin web (named
@@ -20,11 +24,42 @@ package org.pgledger.cli.deploy;
  * @param etc      the settings, the driver registration, the driver jars and the secret directory
  * @param logs     where the service wrapper writes its logs (Windows; null on Linux, where systemd keeps the journal)
  */
-public record DeployLayout(Platform platform, String name, String lib, String etc, String logs) {
+public record DeployLayout(Platform platform,
+        @Pattern(regexp = DeployForms.NAME, message = DeployOptions.NAME) String name, String lib, String etc,
+        String logs) {
 
-    /** The operating system families an installation is rendered for; the one thing a render option decides. */
+    /**
+     * The operating system families an installation is rendered for; the one thing a render option decides. What each family
+     * does (its service definitions, the host preparation) is its {@code ServicePlatform}; this holds what is plain data of it.
+     */
     public enum Platform {
-        LINUX, WINDOWS
+        /** A Linux server: systemd units; may have the nginx site. */
+        LINUX(DeployForms.POSIX_PATH, true),
+        /** A personal PC or a Windows server: WinSW services; nginx is not part of it. */
+        WINDOWS(DeployForms.WINDOWS_JAVA, false);
+
+        private final String javaPathForm;
+        private final boolean servesNginx;
+
+        Platform(String javaPathForm, boolean servesNginx) {
+            this.javaPathForm = javaPathForm;
+            this.servesNginx = servesNginx;
+        }
+
+        /** The value of {@code --platform} that names it. */
+        public String option() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+
+        /** The form of the path of the Java runtime on this platform (a regular expression). */
+        String javaPathForm() {
+            return javaPathForm;
+        }
+
+        /** Whether an installation may have the nginx site. */
+        boolean servesNginx() {
+            return servesNginx;
+        }
     }
 
     /** The name of an instance that is not given another one. */
@@ -66,5 +101,11 @@ public record DeployLayout(Platform platform, String name, String lib, String et
     /** The one service account on Linux: the system user of the name of the instance (no login, not root). */
     public String serviceUser() {
         return name;
+    }
+
+    /** A name that ends with {@code -admin} would collide with the admin service of the instance without that ending. */
+    @AssertTrue(message = DeployOptions.NAME)
+    public boolean isNotAnAdminName() {
+        return name == null || !name.endsWith("-admin");
     }
 }

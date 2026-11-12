@@ -17,7 +17,9 @@ import org.springframework.stereotype.Component;
  * {@code render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [...]}: writes the definition of the two
  * services (systemd units, or WinSW configurations), the settings files and, with {@code --nginx-conf}, the nginx site of the
  * two public host names, from the parameters ({@link DeployParameters}, {@link DeployRenderer}). It needs no database and writes no secret.
- * All parameters are validated before the first file is written, so a refused value leaves nothing written. {@code --root}
+ * All parameters are validated before the first file is written, so a refused value leaves nothing written; so is a platform
+ * whose paths are not paths of this host (without {@code --root}, the files of the other platform would be written below the
+ * working directory: that is refused, naming {@code --platform}). {@code --root}
  * writes below a directory instead of at the paths of the files (a test, or a look at the files before they are put in
  * place). The command is the one {@code deploy/install.sh} (Linux) and {@code deploy/install.cmd} (Windows,
  * {@code --platform=windows}) call; they run it as root or as an administrator, which is the only reason the files can be
@@ -31,10 +33,17 @@ public class RenderDeployCommand implements Command {
     /** The options of the command; the documentation test reads this set, so an option cannot be added undocumented. */
     public static final Set<String> OPTIONS = DeployOptions.NAMES;
 
+    private final DeployInputReader inputs;
+    private final DeployRenderer renderer;
+    private final DeployFiles files;
     private final CliOutput output;
     private final CliMessages messages;
 
-    RenderDeployCommand(CliOutput output, CliMessages messages) {
+    RenderDeployCommand(DeployInputReader inputs, DeployRenderer renderer, DeployFiles files, CliOutput output,
+            CliMessages messages) {
+        this.inputs = inputs;
+        this.renderer = renderer;
+        this.files = files;
         this.output = output;
         this.messages = messages;
     }
@@ -55,15 +64,16 @@ public class RenderDeployCommand implements Command {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
         boolean check = CliOptions.flag(arguments, DeployOptions.CHECK);
-        DeployInput input = DeployInput.read(arguments);
+        DeployInput input = inputs.read(arguments);
         DeployParameters parameters = input.parameters();
         Path root = input.root();
+        files.requireReachable(root, parameters.layout());
         if (check) {
             // the installers run this before they change anything: a bad option stops them while nothing exists yet
             output.info(messages.get("render-deploy.checked", parameters.layout().name()));
             return;
         }
-        for (Path file : DeployFiles.write(root, DeployRenderer.render(parameters),
+        for (Path file : files.write(root, renderer.render(parameters),
                 backup -> output.info(messages.get("render-deploy.kept", backup.toString())))) {
             output.info(messages.get("render-deploy.written", file.toString()));
         }

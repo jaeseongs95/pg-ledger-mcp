@@ -22,6 +22,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.deploy.DeployLayout;
 import org.pgledger.cli.deploy.DeployLayout.Platform;
+import org.pgledger.cli.deploy.DeployOptions;
+import org.pgledger.cli.deploy.DeployParameters;
 import org.springframework.core.io.ClassPathResource;
 
 /**
@@ -337,6 +339,23 @@ class InstallScriptsTest {
         }
         assertThat(code).contains("sc.exe config %%S obj= \"%ACCOUNT%\"", "prepare-host", "seal-host",
                 "token-generate ledger.admin.token --print", "token-generate ledger.mcp.token --print \"--copy-to=ledger.admin.agent-token\"");
+    }
+
+    @Test
+    @DisplayName("CLI-PRN-04 (plan 2, F9) install.cmd names the port of --mcp-port in its last hint: the variable starts with the default of render-deploy, takes the value after --mcp-port from the render options, and the hint holds no fixed port")
+    void prn04_theHintFollowsTheMcpPort() {
+        List<String> code = cmdCodeLines();
+        String option = "--" + DeployOptions.MCP_PORT;
+
+        assertThat(text(CMD)).as("no fixed port in the script").doesNotContain("127.0.0.1:" + DeployParameters.DEFAULT_MCP_PORT);
+        assertThat(code).contains("set \"MCPPORT=" + DeployParameters.DEFAULT_MCP_PORT + "\"");
+        assertThat(code).as("the value after %s of the render options (the ninth argument) is taken", option).anySatisfy(line -> {
+            assertThat(line).startsWith("for %%P in (%~9) do ");
+            assertThat(line).contains("\"%%~P\"==\"" + option + "\"").contains("set \"MCPPORT=%%~P\"");
+        });
+        assertThat(code.stream().filter(line -> line.contains("mcp-check")).toList()).hasSize(1).allSatisfy(
+                line -> assertThat(line).endsWith("mcp-check --url=http://127.0.0.1:%MCPPORT%/mcp"));
+        assertThat(firstIndex(code, "set \"MCPPORT=")).as("the port is known before the hint").isLessThan(firstIndex(code, "mcp-check"));
     }
 
     // ---- the name of the instance (INS-041) ----

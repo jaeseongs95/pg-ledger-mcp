@@ -88,7 +88,7 @@ class DeployRendererTest {
     }
 
     private static List<RenderedFile> render(Map<String, String> values) {
-        return DeployRenderer.render(DeployParameters.of(values));
+        return DeployTestBeans.render(values);
     }
 
     // ---- INS-015: the Linux units ----
@@ -252,7 +252,7 @@ class DeployRendererTest {
         Map<String, String> values = withSite();
         values.put(option, value);
 
-        assertThatThrownBy(() -> DeployParameters.of(values)).isInstanceOfSatisfying(UsageException.class, e -> {
+        assertThatThrownBy(() -> DeployTestBeans.parameters(values)).isInstanceOfSatisfying(UsageException.class, e -> {
             assertThat(e.code()).isEqualTo(ErrorCode.INVALID_DEPLOY_VALUE);
             assertThat(e.arguments()).containsExactly(option);
         });
@@ -280,7 +280,7 @@ class DeployRendererTest {
             values.put(DeployOptions.TLS_KEY, "/etc/ssl/k.pem");
         }
 
-        assertThatThrownBy(() -> DeployParameters.of(values)).isInstanceOfSatisfying(UsageException.class, e -> {
+        assertThatThrownBy(() -> DeployTestBeans.parameters(values)).isInstanceOfSatisfying(UsageException.class, e -> {
             assertThat(e.code()).isEqualTo(ErrorCode.INVALID_DEPLOY_VALUE);
             assertThat(e.arguments()).containsExactly(option);
         });
@@ -291,29 +291,29 @@ class DeployRendererTest {
     void ins019_incompleteParametersAreRefused() {
         Map<String, String> noHost = withSite();
         noHost.remove(DeployOptions.ADMIN_HOST);
-        assertThatThrownBy(() -> DeployParameters.of(noHost)).isInstanceOfSatisfying(UsageException.class,
+        assertThatThrownBy(() -> DeployTestBeans.parameters(noHost)).isInstanceOfSatisfying(UsageException.class,
                 e -> assertThat(e.code()).isEqualTo(ErrorCode.INVALID_DEPLOY_VALUE));
 
         Map<String, String> noKey = withSite();
         noKey.remove(DeployOptions.TLS_KEY);
-        assertThatThrownBy(() -> DeployParameters.of(noKey)).isInstanceOfSatisfying(UsageException.class,
+        assertThatThrownBy(() -> DeployTestBeans.parameters(noKey)).isInstanceOfSatisfying(UsageException.class,
                 e -> assertThat(e.code()).isEqualTo(ErrorCode.MISSING_ARGUMENT));
 
         Map<String, String> orphan = values();
         orphan.put(DeployOptions.TLS_KEY, "/etc/ssl/ledger/privkey.pem");
-        assertThatThrownBy(() -> DeployParameters.of(orphan)).isInstanceOfSatisfying(UsageException.class,
+        assertThatThrownBy(() -> DeployTestBeans.parameters(orphan)).isInstanceOfSatisfying(UsageException.class,
                 e -> assertThat(e.code()).isEqualTo(ErrorCode.MISSING_ARGUMENT));
 
         for (String required : List.of(DeployOptions.JAVA, DeployOptions.JDBC_URL, DeployOptions.APP_ACCOUNT)) {
             Map<String, String> missing = values();
             missing.remove(required);
-            assertThatThrownBy(() -> DeployParameters.of(missing)).isInstanceOfSatisfying(UsageException.class,
+            assertThatThrownBy(() -> DeployTestBeans.parameters(missing)).isInstanceOfSatisfying(UsageException.class,
                     e -> assertThat(e.code()).isEqualTo(ErrorCode.MISSING_ARGUMENT));
         }
 
         Map<String, String> noHome = personalPc();
         noHome.remove(DeployOptions.HOME);
-        assertThatThrownBy(() -> DeployParameters.of(noHome)).isInstanceOfSatisfying(UsageException.class,
+        assertThatThrownBy(() -> DeployTestBeans.parameters(noHome)).isInstanceOfSatisfying(UsageException.class,
                 e -> assertThat(e.code()).isEqualTo(ErrorCode.MISSING_ARGUMENT));
     }
 
@@ -485,7 +485,7 @@ class DeployRendererTest {
     void ins040_aBadNameIsRefused(String name) {
         Map<String, String> values = named(withSite(), name);
 
-        assertThatThrownBy(() -> DeployParameters.of(values)).isInstanceOfSatisfying(UsageException.class, e -> {
+        assertThatThrownBy(() -> DeployTestBeans.parameters(values)).isInstanceOfSatisfying(UsageException.class, e -> {
             assertThat(e.code()).isEqualTo(ErrorCode.INVALID_DEPLOY_VALUE);
             assertThat(e.arguments()).containsExactly(DeployOptions.NAME);
         });
