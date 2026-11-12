@@ -51,7 +51,14 @@ public enum ErrorCode {
     IMPORT_VERIFY_FAILED,
     INVALID_DEPLOY_VALUE,
     DEPLOY_WRITE_FAILED,
-    GRANT_FAILED;
+    GRANT_FAILED,
+    SECRET_TOO_LONG,
+    STDIN_FAILED,
+    ENV_FILE_FAILED,
+    ENV_KEYS_MISSING,
+    INVALID_1X_VALUE,
+    HOST_FAILED,
+    HOST_UNSUPPORTED;
 
     public String messageKey() {
         return "error." + name();

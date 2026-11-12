@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.secret.ConsoleSecretInput;
+import org.pgledger.cli.secret.StdinSecretInput;
 import org.pgledger.cli.support.ScriptedSecretInput;
 import org.pgledger.database.driver.LedgerJdbcProperties;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -122,5 +123,37 @@ class OwnerAccountPropertySourceTest {
         fromEnvironment.getPropertySources().addLast(new MapPropertySource("systemEnvironment", Map.of("OWNER_ACCOUNT", "x")));
         processor.postProcessEnvironment(fromEnvironment, null);
         assertThat(fromEnvironment.getPropertySources().stream()).noneMatch(OwnerAccountPropertySource.class::isInstance);
+    }
+
+    @Test
+    @DisplayName("SEC-025 --stdin on the command line makes standard input the source of the password, without --stdin it is the console; nothing is read while the source is made")
+    void sec025_theInputOfThePassword() {
+        OwnerAccountEnvironmentPostProcessor processor = new OwnerAccountEnvironmentPostProcessor();
+
+        for (String command : new String[] { "migrate", "import-legacy" }) {
+            StandardEnvironment piped = new StandardEnvironment();
+            piped.getPropertySources().addFirst(new SimpleCommandLinePropertySource("--owner-account=ledger_ddl", "--stdin", command));
+            processor.postProcessEnvironment(piped, null);
+            assertThat(piped.getPropertySources().get(OwnerAccountPropertySource.NAME).getSource())
+                    .as(command + " --stdin").isInstanceOf(StdinSecretInput.class);
+
+            StandardEnvironment typed = new StandardEnvironment();
+            typed.getPropertySources().addFirst(new SimpleCommandLinePropertySource("--owner-account=ledger_ddl", command));
+            processor.postProcessEnvironment(typed, null);
+            assertThat(typed.getPropertySources().get(OwnerAccountPropertySource.NAME).getSource())
+                    .as(command + " without --stdin").isInstanceOf(ConsoleSecretInput.class);
+        }
+    }
+
+    @Test
+    @DisplayName("SEC-025 --stdin alone does not make a source: the password is of an account, and a command that does not declare the option refuses it")
+    void sec025_noAccountNoSource() {
+        OwnerAccountEnvironmentPostProcessor processor = new OwnerAccountEnvironmentPostProcessor();
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.getPropertySources().addFirst(new SimpleCommandLinePropertySource("--stdin", "migrate"));
+
+        processor.postProcessEnvironment(environment, null);
+
+        assertThat(environment.getPropertySources().stream()).noneMatch(OwnerAccountPropertySource.class::isInstance);
     }
 }

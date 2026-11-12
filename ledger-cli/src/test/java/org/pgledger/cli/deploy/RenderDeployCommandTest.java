@@ -164,6 +164,70 @@ class RenderDeployCommandTest {
         assertThat(Files.exists(root)).as("--check writes nothing").isFalse();
     }
 
+    private static final String ONE_X_UNIT = "[Unit]\nDescription=pg-ledger-mcp 1.x (DBHub)\n[Service]\nEnvironmentFile=/etc/pg-ledger-mcp/pg-ledger-mcp.env\n";
+
+    @Test
+    @DisplayName("INS-042 a file of that name that this command did not render (the unit of 1.x) is kept as <file>.1x-backup before it is replaced, once, and the output says so")
+    void ins042_aForeignFileIsKept(Cli cli) throws IOException {
+        Path root = tmp.resolve("root");
+        Path unit = root.resolve("etc/systemd/system/pg-ledger-mcp.service");
+        Files.createDirectories(unit.getParent());
+        Files.writeString(unit, ONE_X_UNIT, StandardCharsets.UTF_8);
+        RecordingOutput output = new RecordingOutput();
+
+        Outcome result = run(cli, output, root, LINUX);
+
+        Path backup = unit.resolveSibling("pg-ledger-mcp.service.1x-backup");
+        assertThat(result.code()).isEmpty();
+        assertThat(Files.readString(backup, StandardCharsets.UTF_8)).as("the old unit is kept as it was").isEqualTo(ONE_X_UNIT);
+        assertThat(Files.readString(unit, StandardCharsets.UTF_8)).as("the unit of 2.0 is in its place")
+                .contains("Rendered by `ledger-cli render-deploy`").doesNotContain("DBHub");
+        assertThat(output.info()).contains(backup.toString());
+        assertThat(files(root).stream().filter(p -> p.getFileName().toString().endsWith(".1x-backup"))).as("only the one that existed")
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("INS-042 a file that this command rendered is replaced without a backup, also on every later run, and the backup of the first run stays as it was")
+    void ins042_ourOwnFileIsNotKept(Cli cli) throws IOException {
+        Path root = tmp.resolve("root");
+        Path unit = root.resolve("etc/systemd/system/pg-ledger-mcp.service");
+        Files.createDirectories(unit.getParent());
+        Files.writeString(unit, ONE_X_UNIT, StandardCharsets.UTF_8);
+        run(cli, new RecordingOutput(), root, LINUX);
+
+        Outcome again = run(cli, new RecordingOutput(), root, LINUX);
+
+        assertThat(again.code()).isEmpty();
+        assertThat(Files.readString(unit.resolveSibling("pg-ledger-mcp.service.1x-backup"), StandardCharsets.UTF_8))
+                .isEqualTo(ONE_X_UNIT);
+        assertThat(files(root).stream().filter(p -> p.getFileName().toString().endsWith(".1x-backup"))).hasSize(1);
+
+        // every kind of file the command renders carries the marker: the WinSW configurations and the settings of Windows as well
+        Path windows = tmp.resolve("windows");
+        run(cli, new RecordingOutput(), windows, WINDOWS);
+        run(cli, new RecordingOutput(), windows, WINDOWS);
+        assertThat(files(windows).stream().filter(p -> p.getFileName().toString().endsWith(".1x-backup"))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("INS-042 a foreign file and a backup of that name both there: DEPLOY_WRITE_FAILED (exit 1), nothing of either is overwritten")
+    void ins042_aBackupIsNeverOverwritten(Cli cli) throws IOException {
+        Path root = tmp.resolve("root");
+        Path unit = root.resolve("etc/systemd/system/pg-ledger-mcp.service");
+        Files.createDirectories(unit.getParent());
+        Files.writeString(unit, ONE_X_UNIT + "# second\n", StandardCharsets.UTF_8);
+        Path backup = unit.resolveSibling("pg-ledger-mcp.service.1x-backup");
+        Files.writeString(backup, ONE_X_UNIT, StandardCharsets.UTF_8);
+
+        Outcome result = run(cli, new RecordingOutput(), root, LINUX);
+
+        assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
+        assertThat(result.code()).contains(ErrorCode.DEPLOY_WRITE_FAILED);
+        assertThat(Files.readString(unit, StandardCharsets.UTF_8)).isEqualTo(ONE_X_UNIT + "# second\n");
+        assertThat(Files.readString(backup, StandardCharsets.UTF_8)).isEqualTo(ONE_X_UNIT);
+    }
+
     private static final String JAVA = "--java=/usr/bin/java";
     private static final String URL = "--jdbc-url=jdbc:postgresql://h/db";
     private static final String ACCOUNT = "--app-account=ledger_app";

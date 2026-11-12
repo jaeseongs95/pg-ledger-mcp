@@ -8,6 +8,7 @@ public enum CliCommand {
 
     SECRET_SET("secret-set"),
     TOKEN_GENERATE("token-generate"),
+    SECRET_IMPORT_1X("secret-import-1x"),
     DRIVER_REGISTER("driver-register"),
     MIGRATE("migrate"),
     IMPORT_LEGACY("import-legacy"),
@@ -20,7 +21,9 @@ public enum CliCommand {
     REVOKE("revoke"),
     GRANTS("grants"),
     MCP_CHECK("mcp-check"),
-    RENDER_DEPLOY("render-deploy");
+    RENDER_DEPLOY("render-deploy"),
+    PREPARE_HOST("prepare-host"),
+    SEAL_HOST("seal-host");
 
     private final String cliName;
 
@@ -39,7 +42,7 @@ public enum CliCommand {
      */
     public boolean usesDatabase() {
         return switch (this) {
-            case SECRET_SET, TOKEN_GENERATE, MCP_CHECK, RENDER_DEPLOY -> false;
+            case SECRET_SET, TOKEN_GENERATE, SECRET_IMPORT_1X, MCP_CHECK, RENDER_DEPLOY, PREPARE_HOST, SEAL_HOST -> false;
             default -> true;
         };
     }

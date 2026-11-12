@@ -3,6 +3,7 @@ package org.pgledger.cli.token;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.CliMessages;
@@ -28,6 +29,8 @@ import org.springframework.stereotype.Component;
 public class TokenGenerateCommand implements Command {
 
     static final String PRINT = "print";
+    /** A second name for the same token: the admin web has to know the token of the agents to refuse it. */
+    static final String COPY_TO = "copy-to";
 
     private final SecretStore store;
     private final TokenGenerator generator;
@@ -48,7 +51,7 @@ public class TokenGenerateCommand implements Command {
 
     @Override
     public Set<String> options() {
-        return Set.of(PRINT);
+        return Set.of(PRINT, COPY_TO);
     }
 
     @Override
@@ -61,19 +64,40 @@ public class TokenGenerateCommand implements Command {
         }
         boolean print = CliOptions.flag(arguments, PRINT);
         SecretName name = new SecretName(operands.getFirst());
-        if (store.exists(name)) {
-            output.info(messages.get("token-generate.kept", name.value()));
-            return;
+        Optional<SecretName> copy = CliOptions.value(arguments, COPY_TO).map(SecretName::new);
+        if (copy.isPresent() && copy.get().equals(name)) {
+            throw new UsageException(ErrorCode.INVALID_OPTION_VALUE);
         }
-        char[] token = generator.generate();
-        try {
-            Path file = store.store(name, token);
-            output.info(messages.get("token-generate.created", name.value(), file.toString()));
-            if (print) {
-                output.info(messages.get("token-generate.printed", name.value(), String.valueOf(token)));
+        // both names are looked at before anything is written: a store that cannot be used refuses with nothing stored
+        boolean present = store.exists(name);
+        boolean copyPresent = copy.isPresent() && store.exists(copy.get());
+        if (present) {
+            output.info(messages.get("token-generate.kept", name.value()));
+        } else {
+            char[] token = generator.generate();
+            try {
+                Path file = store.store(name, token);
+                output.info(messages.get("token-generate.created", name.value(), file.toString()));
+                if (print) {
+                    output.info(messages.get("token-generate.printed", name.value(), String.valueOf(token)));
+                }
+            } finally {
+                Arrays.fill(token, '\0');
             }
+        }
+        if (copy.isPresent() && !copyPresent) {
+            copyTo(name, copy.get());
+        }
+    }
+
+    /** The same value under a second name, once: a copy that exists is never replaced (a re-run, or a token of 1.x carried over). */
+    private void copyTo(SecretName source, SecretName target) {
+        char[] value = store.load(source);
+        try {
+            Path file = store.store(target, value);
+            output.info(messages.get("token-generate.copied", source.value(), target.value(), file.toString()));
         } finally {
-            Arrays.fill(token, '\0');
+            Arrays.fill(value, '\0');
         }
     }
 }

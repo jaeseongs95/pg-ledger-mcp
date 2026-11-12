@@ -22,7 +22,7 @@ final class WinswServices {
 
     static String configuration(DeployParameters p, Service service) {
         StringBuilder xml = new StringBuilder();
-        Text.line(xml, "<!-- Rendered by `ledger-cli render-deploy` (deploy/install.cmd). Do not edit: the next run replaces this file. -->");
+        Text.line(xml, "<!-- " + Text.MARKER + " (deploy/install.cmd). Do not edit: the next run replaces this file. -->");
         Text.line(xml, "<service>");
         Text.line(xml, "  <id>" + service.name() + "</id>");
         Text.line(xml, "  <name>" + service.name() + "</name>");

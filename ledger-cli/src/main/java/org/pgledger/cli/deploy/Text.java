@@ -3,7 +3,9 @@ package org.pgledger.cli.deploy;
 /** What the renderers of the deployment files share: the generated-file notice and how a line is written. */
 final class Text {
 
-    static final String GENERATED = "# Rendered by `ledger-cli render-deploy` (deploy/install.sh). Do not edit: the next run replaces this file.";
+    /** Every file the command renders says so with these words (a comment in the format of the file); {@link DeployFiles} knows its own files by them. */
+    static final String MARKER = "Rendered by `ledger-cli render-deploy`";
+    static final String GENERATED = "# " + MARKER + " (deploy/install.sh). Do not edit: the next run replaces this file.";
 
     private Text() {
     }

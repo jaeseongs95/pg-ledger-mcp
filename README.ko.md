@@ -196,10 +196,13 @@ mkdir dist
 cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-server.jar ledger-admin-web/build/libs/ledger-admin-web.jar dist/
 ```
 
-- **설치기가 하는 일.** Java 버전을 확인하고, 폴더를 만들어 소유자를 정하고, jar와 드라이버 jar를 복사하고, `ledger-cli render-deploy`로 서비스 정의와 설정을
-  쓰게 하고(`application.yaml`과 서비스별 파일 하나씩이 한 디렉터리에 놓입니다. 운영자의 설정은 그곳의 `local.yaml`에 두며, 마지막에 읽고 교체하지 않습니다),
-  앱 계정의 데이터베이스 비밀번호를 저장하고(숨김 입력), `ledger.admin.token`과 `ledger.mcp.token`을 만들고(그 단계의 끝에 한 번만 표시),
-  복사본 `ledger.admin.agent-token`을 저장하고, 드라이버를 등록하고, DDL 계정으로 `migrate`를 실행하고, 두 서비스를 시작합니다. 내려받거나 설치하는 것은
+- **설치기가 하는 일.** 설치기는 얇습니다. Java가 할 수 없는 것만 직접 실행하고, 나머지는 모두 `ledger-cli`의 명령입니다. 호스트의 파일 작업은 Java가
+  합니다. `render-deploy --check`가 모든 옵션을 먼저 검증하고, `prepare-host`가 폴더를 소유자·모드·ACL과 함께 만들고, jar와 드라이버 jar를 복사하고, 서비스 정의와
+  설정을 씁니다(`application.yaml`과 서비스별 파일 하나씩이 한 디렉터리에 놓입니다. 운영자의 설정은 그곳의 `local.yaml`에 두며, 마지막에 읽고 교체하지 않습니다).
+  이어서 설치기는 `ledger-cli`로 비밀을 저장합니다. 앱 계정의 데이터베이스 비밀번호(숨김 입력), `ledger.admin.token`과 `ledger.mcp.token`(생성하며 그 단계의 끝에
+  한 번만 표시), 복사본 `ledger.admin.agent-token`입니다. 그리고 드라이버를 등록하고, DDL 계정으로 `migrate`를 실행하고, 두 서비스를 시작합니다. Java가 할 수 없어
+  스크립트에 남는 것은 운영체제 사용자 생성(`useradd`), 그 사용자로 명령 시작(`runuser`), 서비스 관리자(`systemctl`, WinSW, `sc.exe`), `nginx -t`와 다시 읽기입니다.
+  Java 25 확인은 JVM이 합니다. jar는 Java 25용으로 컴파일되어 다른 런타임은 읽지 못합니다. 내려받거나 설치하는 것은
   없습니다. 더 새로운 jar로 다시 실행하면 업그레이드입니다. 파일과 서비스는 교체되고, 스키마와 권한은 다시 적용되며, 비밀·토큰·데이터는 유지됩니다. 중간에 멈춘 실행도 같은 방법으로 고칩니다. 같은 옵션으로 다시 실행하면 됩니다(비밀을 저장하는 명령은
   데이터베이스를 쓰지 않습니다).
   설정 디렉터리는 도구의 `ledger.secrets.home`이며, 서비스는 같은 출처를 `spring.config.import`로 읽습니다.
@@ -224,15 +227,19 @@ cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-
 | `--nginx-conf=<path>` | Linux: 이 파일에 nginx 사이트를 씁니다. 두 호스트 이름, `--tls-certificate=<path>`, `--tls-key=<path>`가 필요합니다 |
 | `--tls-certificate=<path>` | 운영자의 TLS 인증서. 인증서를 발급하거나 갱신하는 것은 없습니다 |
 | `--tls-key=<path>` | 운영자의 TLS 키 |
+| `--from-1x-env=<file>` | 1.x에서 이전: 1.x 환경 파일. 그 안의 토큰 두 개를 어떤 토큰이든 만들기 전에 비밀로 옮깁니다(1.x에서 이전 참조) |
+| `--stdin` | 비밀번호를 터미널 대신 표준 입력에서 읽음. 먼저 앱 계정의 비밀번호(아직 저장되어 있지 않을 때만), 그다음 DDL 계정의 비밀번호. `docker login --password-stdin`과 같은 관례입니다 |
 
-`render-deploy`에는 설치기가 스스로 정하는 옵션이 다섯 더 있습니다. `--platform=<platform>`(`linux`가 기본값, 또는 `windows`),
-`--home=<path>`(Windows: 설치 디렉터리), `--java=<path>`(Java 실행 파일), `--root=<directory>`(파일을 제 경로 대신 한 디렉터리 아래에 씀. 제자리에 두기 전에
-살펴볼 때 씁니다), 그리고 플래그 `--check`(모든 옵션을 검증하고 아무것도 쓰지 않음. 설치기가 가장 먼저 실행하므로, 이름을 포함해 잘못된 값은 아무것도 없을
-때 설치를 멈춥니다)입니다.
+`render-deploy`, `prepare-host`, `seal-host`에는 설치기가 스스로 정하는 옵션이 다섯 더 있습니다. `--platform=<platform>`(`linux`가 기본값, 또는 `windows`),
+`--home=<path>`(Windows: 설치 디렉터리), `--java=<path>`(Java 실행 파일), `--root=<directory>`(파일을 제 경로 대신 한 디렉터리 아래에 둠. 제자리에 두기 전에
+살펴볼 때 씁니다), 그리고 `render-deploy`에만 있는 플래그 `--check`(모든 옵션을 검증하고 아무것도 바꾸지 않음. 설치기가 가장 먼저 실행하므로, 이름을 포함해
+잘못된 값은 아무것도 없을 때 설치를 멈춥니다)입니다. `prepare-host`는 `--jars=<dir>`, `--driver-jar=<file>`, Windows에서는 `--winsw=<file>`도 받습니다.
 
 ### Linux 서버
 
-root로 실행합니다. 사용자 `pg-ledger-mcp`가 없으면 만들고, 유닛은 `/etc/systemd/system`에 렌더해 활성화하며, 비밀은 서비스 사용자가 저장합니다.
+root로 실행합니다. 사용자 `pg-ledger-mcp`가 없으면 만들고, `prepare-host`(Java)가 `/opt/<name>`(root, 0755), `/etc/<name>`(서비스 사용자, 0750), 그 아래
+`drivers` 폴더(root, 0755)와 `secrets` 폴더(서비스 사용자, 0700)를 만들고, jar와 드라이버를 복사하고, 유닛을 `/etc/systemd/system`에 렌더하며, 유닛은 이어서 활성화합니다.
+비밀은 서비스 사용자가 저장합니다. 렌더한 유닛이 대체하는 1.x의 유닛 파일은 `<file>.1x-backup`으로 보관합니다.
 
 ```sh
 sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url>
@@ -274,7 +281,8 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 ```
 
 모든 것은 `C:\ProgramData\<name>`에 놓입니다. 두 서비스는 LocalService로 실행하고, 실패하면 다시 시작하며(WinSW 설정), 로그는 `logs` 폴더에 씁니다.
-비밀은 설치 끝에 LocalService에 넘기며, 설치한 사용자는 파일이 있다는 것만 볼 수 있고 스크립트는 다시 실행하는 동안만 이를 되가져옵니다. 그래서 그 뒤에는
+`prepare-host`는 폴더를 SYSTEM과 Administrators 외 모든 계정에게 닫고, `seal-host`는 설치 끝에 비밀을 LocalService에 넘깁니다(Java가 ACL로 하며 `icacls`는 쓰지 않습니다).
+설치한 사용자는 파일이 있다는 것만 볼 수 있고, `prepare-host`는 다시 실행하는 동안만 이를 되가져옵니다. 그래서 그 뒤에는
 `ledger-cli`의 소유자 명령이 비밀을 읽지 못합니다. 소유자 작업(프로젝트, 공통코드, 부여, 키)은 `ledger.admin.token`으로 로그인하는 관리 웹의 화면에서
 합니다. 개인 PC에서는 관리 웹을 `http://localhost:8865`로 엽니다(포트는 `--admin-port=<n>`입니다). 관리 웹은 `Secure` 세션 쿠키를 설정하는데, 주요 브라우저는
 `localhost`를 보안 컨텍스트로 취급하므로 이를 받아들입니다.
@@ -297,11 +305,12 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 
 | 명령 | 구문 | 내용 |
 |---|---|---|
-| `secret-set` | `secret-set <name>` | 숨김 입력으로 비밀을 저장합니다 |
+| `secret-set` | `secret-set <name> [--stdin] [--if-absent]` | 숨김 입력으로 비밀을 저장합니다. `--stdin`이면 표준 입력의 첫 줄에서 받으며(인수나 환경 변수로는 받지 않습니다), `--if-absent`이면 이미 있는 비밀을 그대로 두고 아무것도 묻지 않습니다 |
 | `driver-register` | `driver-register --jar=<path> --class=<driver-class>` | JDBC 드라이버를 등록합니다. 데이터베이스가 필요하지 않습니다 |
-| `token-generate` | `token-generate <name> [--print]` | 무작위 토큰(`SecureRandom` 32바이트)을 비밀로 저장합니다. 이미 있는 비밀은 그대로 두며, `--print`는 방금 만든 토큰을 한 번만 보여 줍니다 |
-| `migrate` | `migrate [--owner-account=<account>] [--app-account=<account>]` | 아직 적용하지 않은 스키마 파일을 적용하며(`--owner-account`를 주면 DDL 계정으로 실행하고 그 비밀번호는 입력받고 저장하지 않습니다), 이어서 `dml-grants.sql`의 권한을 앱 계정에 부여합니다 |
-| `import-legacy` | `import-legacy [--verify-only] [--owner-account=<account>]` | 1.x 장부를 새 스키마로 복사하고 모든 표를 대조합니다. 장부 전체를 쓰므로 DDL 계정으로 실행합니다 |
+| `token-generate` | `token-generate <name> [--print] [--copy-to=<name>]` | 무작위 토큰(`SecureRandom` 32바이트)을 비밀로 저장합니다. 이미 있는 비밀은 그대로 두며, `--print`는 방금 만든 토큰을 한 번만 보여 줍니다. `--copy-to`는 같은 토큰을 두 번째 이름으로도 한 번 저장합니다 |
+| `secret-import-1x` | `secret-import-1x [--env=<file>] [--stdin]` | 1.x 설치의 토큰 두 개를(`DBHUB_AUTH_TOKEN`은 `ledger.mcp.token`과 `ledger.admin.agent-token`으로, `PGLEDGER_ADMIN_TOKEN`은 `ledger.admin.token`으로) 파일 또는 표준 입력으로 준 환경 파일에서 비밀 저장소로 옮깁니다. 이미 있는 비밀은 그대로 두며 값은 출력하지 않습니다 |
+| `migrate` | `migrate [--owner-account=<account>] [--app-account=<account>] [--stdin]` | 아직 적용하지 않은 스키마 파일을 적용하며(`--owner-account`를 주면 DDL 계정으로 실행하고 그 비밀번호는 입력받거나 `--stdin`이면 표준 입력에서 읽으며 저장하지 않습니다), 이어서 `dml-grants.sql`의 권한을 앱 계정에 부여합니다 |
+| `import-legacy` | `import-legacy [--verify-only] [--owner-account=<account>] [--stdin]` | 1.x 장부를 새 스키마로 복사하고 모든 표를 대조합니다. 장부 전체를 쓰므로 DDL 계정으로 실행합니다 |
 | `key-register` | `key-register <author> <public-key-or-block> <fingerprint> [--replace=<current-fingerprint>]` | 세션이 출력한 공개 키를 작성자에 묶습니다. 유효한 키는 `--replace`가 있어야 교체합니다 |
 | `key-revoke` | `key-revoke <author> --fingerprint=<fingerprint>` | 작성자의 유효한 키를 닫습니다 |
 | `project-add` | `project-add <id> <code> <title>` | 프로젝트를 추가합니다 |
@@ -312,6 +321,8 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 | `grants` | `grants [<author>]` | 유효한 부여를 나열합니다 |
 | `mcp-check` | `mcp-check [--url=<url>] [--ledger.mcp.token=<token>]` | 실행 중인 MCP 서버에 연결해 도구를 확인합니다 |
 | `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>] [--check]` | 서비스 정의(systemd 유닛, Windows에서는 WinSW 설정)와 설정, 선택적 nginx 사이트를 씁니다. 설치기가 호출합니다 |
+| `prepare-host` | `prepare-host --jars=<dir> --driver-jar=<file> [--winsw=<file>] --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | 호스트의 파일을 준비합니다(root로, Windows에서는 관리자 권한으로 실행). 폴더를 소유자·모드 또는 ACL과 함께 만들고, jar와 드라이버(Windows에서는 WinSW도)를 복사하고, `render-deploy`가 쓰는 것을 씁니다. 설치기가 호출합니다 |
+| `seal-host` | `seal-host --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | Windows, 마지막 단계: LocalService에 필요한 접근을 주고 비밀을 넘깁니다. 설치기가 호출합니다 |
 
 ## 관리 웹
 
@@ -349,14 +360,33 @@ SHA-256, 시각에 대한 Ed25519 서명입니다. 가로챈 토큰으로 다른
 1.x는 PostgreSQL 함수 위에서 동작하던 DBHub와 Node 구현이었고, 2.0.0은 그 전부를 대체합니다. 기존 데이터는 제자리에서 변환하지 않고 옮깁니다.
 1.x 스키마는 그대로 남으므로 되돌릴 때 쓸 수 있습니다. 계약 변경은 [릴리스 노트](docs/release-notes/2.0.0.md)를 참조합니다.
 
-1. Linux 호스트에서 위와 같이 설치합니다. 새 스키마를 1.x 장부와 같은 데이터베이스에 둘 때는 `ledger.schema.name`을
-   1.x 스키마 `ledger`가 아닌 스키마로 지정합니다.
-2. 서비스 사용자로 1.x 데이터베이스의 읽기 전용 계정 비밀번호를 `secret-set ledger.import.source.password`로 저장하고,
+설치는 같은 호스트의 1.x 서비스를 대체합니다. 1.x 서비스는 전환할 때까지 1.x 데이터베이스를 쓰므로, 멈추고, 설치하고, 가져오고, 확인하는 순서로 진행합니다.
+설치기는 1.x의 어떤 것도 스스로 멈추지 않습니다.
+
+1. **백업.** DBMS의 덤프 도구로 장부 데이터베이스를 덤프하고, 1.x 설정 디렉터리 `/etc/pg-ledger-mcp`(파일 `/etc/pg-ledger-mcp/pg-ledger-mcp.env`에 1.x의
+   토큰과 비밀번호가 있습니다)와 `/etc/systemd/system`의 1.x 유닛 파일을 복사해 둡니다.
+2. **1.x 서비스 중지.** 기본 이름으로 실행 중인 호스트에서는 `sudo systemctl stop pg-ledger-mcp pg-ledger-mcp-admin`입니다. 새 서버가 실행될 때까지 1.x의
+   클라이언트는 거부됩니다. 1.x를 새 설치와 나란히 두려면 새 설치에 자체 `--name=<name>`과 포트를 주십시오.
+3. **데이터베이스 계정 두 개 생성.** 새 설치의 앱 계정과 DDL 계정을 DBMS 도구로 만듭니다(위 참조). 1.x의 계정은 그대로 둡니다. 새 스키마를 1.x 장부와 같은
+   데이터베이스에 둘 때는 `ledger.schema.name`을 1.x 스키마 `ledger`가 아닌 스키마로 지정합니다.
+4. **1.x의 토큰과 함께 설치.** Linux 설치에 `--from-1x-env=<file>`을 더합니다.
+
+   ```sh
+   sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --from-1x-env=/etc/pg-ledger-mcp/pg-ledger-mcp.env
+   ```
+
+   설치기가 1.x 파일을 root로 열고, `secret-import-1x`가 `DBHUB_AUTH_TOKEN`을 `ledger.mcp.token`과 `ledger.admin.agent-token`으로,
+   `PGLEDGER_ADMIN_TOKEN`을 `ledger.admin.token`으로 옮깁니다. 어떤 토큰이든 만들기 전에 하므로 1.x의 클라이언트와 관리 웹 로그인이 그대로 동작하며 값은 출력하지 않습니다.
+   이미 있는 비밀은 그대로 둡니다. 새 유닛이 대체하는 1.x의 유닛 파일은 `<file>.1x-backup`으로 보관합니다. 터미널이 없으면 `--stdin`을 더하고 비밀번호를 표준 입력으로 줍니다.
+5. 서비스 사용자로 1.x 데이터베이스의 읽기 전용 계정 비밀번호를 `secret-set ledger.import.source.password`로 저장하고,
    `import-legacy --owner-account=<account> --ledger.import.source.url=<jdbc-url> --ledger.import.source.username=<account>`를 실행합니다.
-3. 가져오기는 1.x 스키마를 읽기 전용으로 읽어 모든 행을 한 트랜잭션으로 복사하고, 하나라도 실패하면 되돌립니다. 이어서 모든 표의 행 수와 SHA-256 다이제스트를 대조합니다
+6. 가져오기는 1.x 스키마를 읽기 전용으로 읽어 모든 행을 한 트랜잭션으로 복사하고, 하나라도 실패하면 되돌립니다. 이어서 모든 표의 행 수와 SHA-256 다이제스트를 대조합니다
    (`--verify-only`는 대조만 다시 합니다). 새 스키마에 이미 데이터가 있으면 거부하며, 옛 데이터 중 새 스키마가 담을 수 없는 값은 모두 나열하고 값을 지어내지 않습니다.
-4. 옛 부여는 세션 키 없이 복사됩니다. 모든 작성자는 `key-register`로 세션 키를 등록해야 하며, 그 뒤에 부여가 동작합니다.
-5. 클라이언트: `execute_sql_reader`와 `search_objects_reader` 도구는 제거되었으며 읽기 도구가 대체합니다. 쓰기 도구의 결과는 `rows[0].result` 감싸기 없이 키를 그대로 유지합니다.
+7. 옛 부여는 세션 키 없이 복사됩니다. 모든 작성자는 `key-register`로 세션 키를 등록해야 하며, 그 뒤에 부여가 동작합니다.
+8. **확인.** `ledger-cli mcp-check --url=<its public URL>`와 `import-legacy --verify-only`를 실행하고, 관리 웹을 열어 1.x의 관리 토큰으로 로그인합니다.
+9. **되돌리기.** 확인이 실패하면 새 서비스를 멈추고, 새 유닛 파일 자리에 `<file>.1x-backup` 유닛 파일을 되돌리고, `sudo systemctl daemon-reload`를 실행한 뒤 1.x 서비스를
+   시작합니다. 1.x 스키마와 데이터는 읽기만 했으므로 1.x는 그대로 이어집니다.
+10. 클라이언트: `execute_sql_reader`와 `search_objects_reader` 도구는 제거되었으며 읽기 도구가 대체합니다. 쓰기 도구의 결과는 `rows[0].result` 감싸기 없이 키를 그대로 유지합니다.
    서버를 전환하기 전에 훅 jar(Java 25 런타임)를 설치합니다.
 
 ## 빌드와 시험

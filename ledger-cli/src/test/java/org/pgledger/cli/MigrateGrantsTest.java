@@ -126,6 +126,9 @@ class MigrateGrantsTest {
                 Arguments.of(new String[] { "migrate", "--app-account=1abc" }, ErrorCode.INVALID_OPTION_VALUE),
                 Arguments.of(new String[] { "migrate", "--app-account" }, ErrorCode.MISSING_OPTION_VALUE),
                 Arguments.of(new String[] { "migrate", "--owner-account" }, ErrorCode.MISSING_OPTION_VALUE),
+                // SEC-025: --stdin gives the password of the owner account, so it needs the account and takes no value
+                Arguments.of(new String[] { "migrate", "--stdin" }, ErrorCode.INVALID_OPTION_VALUE),
+                Arguments.of(new String[] { "migrate", "--app-account=APP_X", "--stdin" }, ErrorCode.INVALID_OPTION_VALUE),
                 Arguments.of(new String[] { "migrate", "--mcp-account=a" }, ErrorCode.UNKNOWN_OPTION));
     }
 

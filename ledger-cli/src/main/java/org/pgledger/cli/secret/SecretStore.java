@@ -71,6 +71,31 @@ public class SecretStore {
         return Files.exists(directory.resolve(name.value()), LinkOption.NOFOLLOW_LINKS);
     }
 
+    /**
+     * The stored value, to store it under a second name ({@code token-generate --copy-to}); the caller wipes it. It is read
+     * only from a file that passed the checks of {@link #check} (owner, owner-only access), and never printed.
+     */
+    public char[] load(SecretName name) {
+        check(name);
+        try {
+            byte[] bytes = Files.readAllBytes(directory.resolve(name.value()));
+            try {
+                CharBuffer chars = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes));
+                char[] value = new char[chars.remaining()];
+                chars.get(value);
+                Arrays.fill(chars.array(), '\0');
+                return value;
+            } finally {
+                Arrays.fill(bytes, (byte) 0);
+            }
+        } catch (CharacterCodingException e) {
+            throw new FailureException(ErrorCode.INVALID_ENCODING, e);
+        } catch (IOException e) {
+            throw new FailureException(ErrorCode.IO_FAILED, e, directory.toString(), reason(e));
+        }
+    }
+
     /** Writes the value (UTF-8, no trailing newline) and returns the file. The caller wipes {@code value}. */
     public Path store(SecretName name, char[] value) {
         SecretProtection protection = protection();

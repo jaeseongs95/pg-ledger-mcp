@@ -39,6 +39,8 @@ public class MigrateCommand implements Command {
 
     /** Read by {@code OwnerAccountEnvironmentPostProcessor}: the run connects as this account, its password is typed. */
     static final String OWNER_ACCOUNT = "owner-account";
+    /** Read by {@code OwnerAccountEnvironmentPostProcessor}: the password of the owner account is the next line of standard input. */
+    static final String STDIN = "stdin";
     /** The application account (one, shared by the MCP server, the admin web and the owner commands) that gets the grants. */
     static final String APP_ACCOUNT = "app-account";
 
@@ -62,7 +64,7 @@ public class MigrateCommand implements Command {
 
     @Override
     public Set<String> options() {
-        return Set.of(OWNER_ACCOUNT, APP_ACCOUNT);
+        return Set.of(OWNER_ACCOUNT, APP_ACCOUNT, STDIN);
     }
 
     @Override
@@ -71,7 +73,11 @@ public class MigrateCommand implements Command {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
         // a value without a name of its own would be a blank account: refused here, before anything is changed
-        CliOptions.value(arguments, OWNER_ACCOUNT);
+        Optional<String> ownerAccount = CliOptions.value(arguments, OWNER_ACCOUNT);
+        // --stdin gives the password of the DDL account (the next line of standard input): with no such account it has no use
+        if (CliOptions.flag(arguments, STDIN) && ownerAccount.isEmpty()) {
+            throw new UsageException(ErrorCode.INVALID_OPTION_VALUE);
+        }
         Optional<String> appAccount = CliOptions.value(arguments, APP_ACCOUNT);
         // a plain account name only: no SQL is made from anything else
         if (appAccount.isPresent() && !GrantApplier.isAccountName(appAccount.get())) {

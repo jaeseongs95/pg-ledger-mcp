@@ -37,8 +37,7 @@ class InstallScriptsTest {
     private static final String CMD = "deploy/install.cmd";
 
     /** What install.sh may start besides the shell's own commands (the brief of the installer). */
-    private static final Set<String> EXTERNAL = Set.of("id", "useradd", "install", "mkdir", "chown", "chmod", "cp", "java",
-            "runuser", "systemctl", "nginx");
+    private static final Set<String> EXTERNAL = Set.of("useradd", "java", "runuser", "systemctl", "nginx");
     private static final Set<String> BUILTIN = Set.of("set", "umask", "echo", "exit", "shift", "command", "case", "esac", "for",
             "done", "fi", "[", "return", "}");
     /** An option that carries a secret value; {@code --ledger.secrets.home=} is a directory, not a secret. */
@@ -49,7 +48,7 @@ class InstallScriptsTest {
                     + "bash|eval|export|env|read|exec|ssh|scp|tar|unzip)\\b");
     private static final Pattern FORBIDDEN_CMD = Pattern.compile(
             "(?i)\\b(powershell|pwsh|curl|wget|bitsadmin|certutil|msiexec|winget|choco|scoop|schtasks|reg|wmic|net|net1|"
-                    + "takeown|xcopy|robocopy|move|del|erase|rd|rmdir|ren|ftp|tftp|cscript|wscript|mshta|git)\\b");
+                    + "takeown|xcopy|robocopy|move|del|erase|rd|rmdir|ren|ftp|tftp|cscript|wscript|mshta|git|icacls|cacls|mkdir|md|copy|attrib)\\b");
 
     private static String text(String script) {
         return Repository.read(script);
@@ -70,9 +69,12 @@ class InstallScriptsTest {
         return lines(SH).stream().filter(line -> !line.isBlank() && !isComment(line)).toList();
     }
 
-    /** The shell text of a line with what cannot start a command taken out: quoted text, parameter expansions, escaped quotes. */
+    /**
+     * The shell text of a line with what cannot start a command taken out: quoted text, parameter expansions, escaped quotes
+     * and the names of options ({@code --from-1x-env} is a name, not the command {@code env}).
+     */
     private static String bare(String line) {
-        return line.replace("\\\"", "Q").replace("\\'", "Q").replaceAll("\\$\\{[^}]*}", "X");
+        return line.replace("\\\"", "Q").replace("\\'", "Q").replaceAll("\\$\\{[^}]*}", "X").replaceAll("--[a-z][a-z0-9.-]*", "--O");
     }
 
     /** The words that start a command in the statements of the line (and of its command substitutions), functions defined by the script included. */
@@ -136,14 +138,14 @@ class InstallScriptsTest {
     }
 
     @Test
-    @DisplayName("INS-021 every command install.sh starts is a shell builtin or one of id, useradd, install, mkdir, chown, chmod, cp, java, runuser, systemctl, nginx")
+    @DisplayName("INS-021 (changed by INS-046) every command install.sh starts is a shell builtin or one of useradd, java, runuser, systemctl, nginx: what Java cannot do (create the operating system user, switch to it, the service manager, the web server) and the Java commands")
     void ins021_onlyTheAllowedCommands() {
         Set<String> allowed = new TreeSet<>(EXTERNAL);
         allowed.addAll(BUILTIN);
 
         assertThat(shCommandWords()).isNotEmpty().allSatisfy(word -> assertThat(allowed).as("command %s", word).contains(word));
-        assertThat(new TreeSet<>(shCommandWords())).as("the steps the plan lists are all there").contains("useradd", "install",
-                "runuser", "systemctl", "nginx", "java", "id");
+        assertThat(new TreeSet<>(shCommandWords())).as("the steps that stay in the script are all there").contains("useradd",
+                "runuser", "systemctl", "nginx", "java");
     }
 
     @Test
@@ -156,8 +158,9 @@ class InstallScriptsTest {
         for (String line : shCodeLines()) {
             assertThat(line).as(line).doesNotContainPattern(SECRET_OPTION);
             if (line.contains("secret-set") || line.contains("token-generate")) {
+                // SEC-024: --stdin is the flag (passed on as $STDIN) that makes Java read the secret from standard input
                 assertThat(line).as("only the name of the secret follows the command").matches(
-                        ".*(secret-set|token-generate) ledger\\.[a-z.-]+( --print)?");
+                        ".*(secret-set|token-generate) ledger\\.[a-z.-]+( --print| --if-absent| \\$STDIN| --copy-to=ledger\\.[a-z.-]+)*");
             }
         }
         assertThat(shCodeLines().stream().map(InstallScriptsTest::bare).map(line -> line.replaceAll("\"[^\"]*\"", "\"\"")))
@@ -175,10 +178,10 @@ class InstallScriptsTest {
     }
 
     @Test
-    @DisplayName("INS-024 install.sh is thin: at most 100 lines in all (a third of it the header that names the documentation it follows) and at most 64 lines of commands (the budget is the steps of the plan: java check, the check of the options, one user, directories and jars, one render call, secrets and tokens, one migrate call, units, nginx; the name of the instance added four lines of composition)")
+    @DisplayName("INS-024 (changed by INS-046) install.sh is thin: at most 100 lines in all (a third of it the header that names the documentation it follows and the comment of each step that stays) and at most 55 lines of commands (the option loop, the check of the options, one user, one prepare-host call, the secrets and tokens, one migrate call, units, nginx; the directories, the copies and the modes are Java now)")
     void ins024_theLineBudget() {
         assertThat(lines(SH)).hasSizeLessThanOrEqualTo(100);
-        assertThat(shCodeLines()).hasSizeLessThanOrEqualTo(64);
+        assertThat(shCodeLines()).hasSizeLessThanOrEqualTo(55);
     }
 
     @Test
@@ -194,12 +197,11 @@ class InstallScriptsTest {
         assertThat(layout.adminName()).isEqualTo("x-admin");
         assertThat(layout.lib()).isEqualTo("/opt/x");
         assertThat(layout.etc()).isEqualTo("/etc/x");
-        for (String jar : List.of(DeployLayout.CLI_JAR, DeployLayout.MCP_JAR, DeployLayout.ADMIN_JAR)) {
-            assertThat(script).contains(jar.replace(".jar", ""));
-        }
+        // the script names the jar of the CLI only; the other jars are copied by prepare-host
+        assertThat(script).contains(DeployLayout.CLI_JAR);
         Properties usage = usageTexts();
         Set<String> known = new TreeSet<>(Stream.of(CliCommand.values()).map(CliCommand::cliName).toList());
-        Pattern call = Pattern.compile("(?<![\\w-])(?:as_svc|cli)\\s+(?:--\\S+\\s+)*([a-z][a-z-]+)(.*)");
+        Pattern call = Pattern.compile("(?<![\\w-])(?:as_svc|cli)\\s+(?:--\\S+\\s+)*([a-z][a-z0-9-]+)(.*)");
         int calls = 0;
         for (String line : shCodeLines()) {
             Matcher matcher = call.matcher(line);
@@ -213,16 +215,19 @@ class InstallScriptsTest {
     }
 
     @Test
-    @DisplayName("INS-026 a re-run keeps what exists: secret-set only when the file is absent, the copy of the agent token only when absent, the user only when it does not exist, no deletion")
+    @DisplayName("INS-026 (changed by INS-046) a re-run keeps what exists: secret-set only with --if-absent, the agent token as a copy (--copy-to, made once by Java), the user only when it does not exist (useradd status 9), no deletion")
     void ins026_aRerunKeepsWhatExists() {
         for (String line : shCodeLines()) {
-            if (line.contains("secret-set") || line.contains("useradd")) {
-                assertThat(line).as(line).containsPattern("(\\[ -e |id -u )");
+            if (line.contains("secret-set")) {
+                assertThat(line).as(line).contains(" --if-absent");
+            }
+            if (line.contains("useradd")) {
+                assertThat(line).as(line).endsWith("|| [ $? = 9 ]");
             }
         }
         assertThat(text(SH)).contains("token-generate ledger.admin.token --print", "token-generate ledger.mcp.token --print");
         assertThat(shCodeLines().stream().filter(line -> line.contains("ledger.admin.agent-token"))).allMatch(
-                line -> line.contains("[ -e "));
+                line -> line.contains("token-generate ledger.mcp.token --print --copy-to=ledger.admin.agent-token"));
     }
 
     @Test
@@ -249,7 +254,7 @@ class InstallScriptsTest {
     }
 
     @Test
-    @DisplayName("INS-033 install.cmd starts no PowerShell, no download, no package installer, no network or registry tool, no deletion: only java, WinSW, sc.exe, icacls, mkdir and copy beside the cmd.exe commands")
+    @DisplayName("INS-033 (changed by INS-046) install.cmd starts no PowerShell, no download, no package installer, no network or registry tool, no deletion, and no icacls, mkdir or copy (Java does that now): only java, WinSW and sc.exe beside the cmd.exe commands")
     void ins033_onlyTheAllowedCommands() {
         for (String line : cmdCodeLines()) {
             String code = line.replaceAll("\"[^\"]*\"", "\"\"");
@@ -265,7 +270,7 @@ class InstallScriptsTest {
         }
         assertThat(found).allSatisfy(exe -> assertThat("java.exe".equals(exe) || "sc.exe".equals(exe)
                 || exe.endsWith("%SVC%.exe") || exe.endsWith("%ADMIN%.exe") || exe.endsWith("%%S.exe")).as(exe).isTrue());
-        assertThat(String.join("\n", cmdCodeLines())).contains("icacls ", "mkdir ", "copy ", "sc.exe config", "java -version");
+        assertThat(String.join("\n", cmdCodeLines())).contains("sc.exe config", "stop /stopwait", "uninstall", "install ");
         assertThat(text(CMD).toLowerCase(Locale.ROOT)).doesNotContain("cloudflare");
     }
 
@@ -276,16 +281,16 @@ class InstallScriptsTest {
             assertThat(line).as(line).doesNotContainPattern(SECRET_OPTION);
             if (line.contains("secret-set") || line.contains("token-generate")) {
                 assertThat(line).as("only the name of the secret follows the command").matches(
-                        ".*(secret-set|token-generate) ledger\\.[a-z.-]+( --print)?( \\|\\| exit /b 1)?");
+                        ".*(secret-set|token-generate) ledger\\.[a-z.-]+( --print| --if-absent| \"--copy-to=ledger\\.[a-z.-]+\")*( \\|\\| exit /b 1)?");
             }
         }
     }
 
     @Test
-    @DisplayName("INS-035 install.cmd is thin: at most 100 lines in all (a quarter of it comments that name the documentation and the reasons) and at most 60 lines of commands")
+    @DisplayName("INS-035 (changed by INS-046) install.cmd is thin: at most 80 lines in all (half of it comments that name the documentation and the reasons) and at most 40 lines of commands")
     void ins035_theLineBudget() {
-        assertThat(lines(CMD)).hasSizeLessThanOrEqualTo(100);
-        assertThat(cmdCodeLines()).hasSizeLessThanOrEqualTo(60);
+        assertThat(lines(CMD)).hasSizeLessThanOrEqualTo(80);
+        assertThat(cmdCodeLines()).hasSizeLessThanOrEqualTo(40);
     }
 
     @Test
@@ -303,9 +308,8 @@ class InstallScriptsTest {
                 "set \"HOME=" + home.replace("/x", "/%NAME%") + "\"",
                 "--platform=" + Platform.WINDOWS.name().toLowerCase(Locale.ROOT), "--home=%HOME%",
                 "--ledger.secrets.home=%HOME%" + layout.etc().substring(home.length()));
-        for (String jar : List.of(DeployLayout.CLI_JAR, DeployLayout.MCP_JAR, DeployLayout.ADMIN_JAR)) {
-            assertThat(script).contains(jar.replace(".jar", ""));
-        }
+        // the script names the jar of the CLI only; the other jars, WinSW and the driver are copied by prepare-host
+        assertThat(script).contains(DeployLayout.CLI_JAR);
         Properties usage = usageTexts();
         Set<String> known = new TreeSet<>(Stream.of(CliCommand.values()).map(CliCommand::cliName).toList());
         Pattern call = Pattern.compile("(?:%CLI%|--ledger\\.secrets\\.home=\\S+)\\s+(?:--\\S+\\s+)*([a-z][a-z-]+)(.*)");
@@ -322,19 +326,17 @@ class InstallScriptsTest {
     }
 
     @Test
-    @DisplayName("INS-037 install.cmd keeps what exists on a re-run (the secret and the agent token only when absent, no deletion), closes the home to everybody but SYSTEM and Administrators, and hands the secrets to the one service account")
+    @DisplayName("INS-037 (changed by INS-046) install.cmd keeps what exists on a re-run (secret-set only with --if-absent, the agent token as a copy made once by Java, no deletion); the folders, ACLs and the hand-over of the secrets are prepare-host and seal-host, and sc.exe sets the one service account")
     void ins037_aRerunKeepsWhatExistsAndTheSecretsAreSealed() {
         String code = String.join("\n", cmdCodeLines());
 
         for (String line : cmdCodeLines()) {
-            if (line.contains("secret-set") || line.contains("copy \"%SECRETS%\\ledger.mcp.token\"")) {
-                assertThat(line).as(line).startsWith("if not exist ");
+            if (line.contains("secret-set")) {
+                assertThat(line).as(line).contains(" --if-absent");
             }
         }
-        // the well-known SIDs of SYSTEM and Administrators (language independent), then the hand-over of the secrets
-        assertThat(code).contains("*S-1-5-18", "*S-1-5-32-544", "/inheritance:r", "/setowner \"%ACCOUNT%\"",
-                "sc.exe config %%S obj= \"%ACCOUNT%\"");
-        assertThat(code).contains("token-generate ledger.admin.token --print", "token-generate ledger.mcp.token --print");
+        assertThat(code).contains("sc.exe config %%S obj= \"%ACCOUNT%\"", "prepare-host", "seal-host",
+                "token-generate ledger.admin.token --print", "token-generate ledger.mcp.token --print \"--copy-to=ledger.admin.agent-token\"");
     }
 
     // ---- the name of the instance (INS-041) ----
@@ -349,7 +351,7 @@ class InstallScriptsTest {
         assertThat(code).contains("    --name=*) NAME=${arg#*=}; set -- \"$@\" \"$arg\" ;;");
         assertThat(check).as("the check is there").isNotNegative();
         assertThat(check).as("the check comes before the first operating system step").isLessThan(firstStep);
-        assertThat(check).isLessThan(firstIndex(code, "install -d"));
+        assertThat(check).isLessThan(firstIndex(code, "prepare-host"));
         assertThat(code.stream().filter(line -> line.contains("pg-ledger")).toList()).containsExactly("NAME=pg-ledger-mcp");
     }
 
@@ -360,13 +362,98 @@ class InstallScriptsTest {
         int check = firstIndex(code, "render-deploy --check");
 
         assertThat(code).contains("set \"NAME=%~8\"", "if \"%NAME%\"==\"\" set \"NAME=pg-ledger-mcp\"");
-        assertThat(code.stream().filter(line -> line.contains("\"--name=%NAME%\"")).count()).isGreaterThanOrEqualTo(2);
+        // the name goes on once, quoted, in the options that the check, prepare-host and seal-host share
+        assertThat(code.stream().filter(line -> line.contains("\"--name=%NAME%\"")).count()).isEqualTo(1);
+        assertThat(code.stream().filter(line -> line.contains("render-deploy --check %RENDER%") || line.contains("prepare-host")
+                || line.contains("seal-host")).allMatch(line -> line.contains("%RENDER%"))).isTrue();
         assertThat(check).as("the check is there").isNotNegative();
-        assertThat(check).as("the check comes before the first operating system step").isLessThan(firstIndex(code, "mkdir "));
-        assertThat(check).isLessThan(firstIndex(code, "icacls \"%WHOME%\""));
+        assertThat(check).as("the check comes before the first operating system step").isLessThan(firstIndex(code, "stop /stopwait"));
+        assertThat(check).isLessThan(firstIndex(code, "prepare-host"));
         assertThat(code.stream().filter(line -> line.contains("pg-ledger")).toList())
                 .containsExactly("if \"%NAME%\"==\"\" set \"NAME=pg-ledger-mcp\"");
         assertThat(code.stream().filter(line -> line.contains("--check")).count()).isEqualTo(1);
+    }
+
+    // ---- the migration from 1.x and the passwords on standard input (INS-043, SEC-024) ----
+
+    @Test
+    @DisplayName("INS-043 install.sh takes --from-1x-env=<file> and --stdin itself (neither goes on to render-deploy), checks that the file can be read before the first operating system step, and imports it before any token is generated")
+    void ins043_theMigrationOptionsAndTheirOrder() {
+        List<String> code = shCodeLines();
+        int imported = firstIndex(code, "secret-import-1x");
+        int firstToken = firstIndex(code, "token-generate");
+
+        assertThat(code).contains("    --from-1x-env=*) FROM_ENV=${arg#*=} ;;", "    --stdin) STDIN=--stdin ;;");
+        assertThat(firstIndex(code, "[ -r \"$FROM_ENV\" ]")).as("the file is checked").isNotNegative()
+                .isLessThan(firstIndex(code, "useradd"));
+        assertThat(imported).as("the import is there").isNotNegative();
+        assertThat(imported).as("the tokens of 1.x are in the store before a token is generated").isLessThan(firstToken);
+        assertThat(code.get(imported)).as("root opens the file of root, Java reads standard input, the file is no argument")
+                .isEqualTo("[ -z \"$FROM_ENV\" ] || as_svc secret-import-1x --stdin < \"$FROM_ENV\"");
+        assertThat(code.stream().filter(line -> line.contains("FROM_ENV") && line.contains("render-deploy"))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("INS-043 install.sh stops, disables and removes nothing of another installation: no systemctl stop, disable, mask or rm, and the only unit it enables or restarts are its own two")
+    void ins043_the1xServicesAreNotTouched() {
+        for (String line : shCodeLines()) {
+            if (line.contains("systemctl")) {
+                assertThat(line).as(line).containsPattern("systemctl (daemon-reload|enable \"\\$SVC\" \"\\$ADMIN\"|restart \"\\$SVC\" \"\\$ADMIN\")$");
+            }
+        }
+        assertThat(text(SH)).doesNotContain("pg-ledger-mcp.service");
+    }
+
+    @Test
+    @DisplayName("SEC-024 the passwords of install.sh go on standard input only through the flag --stdin of the Java commands: $STDIN follows secret-set and migrate, nothing else reads it, and no secret is an argument")
+    void sec024_stdinIsOnlyAFlagForJava() {
+        List<String> uses = shCodeLines().stream().filter(line -> line.contains("$STDIN")).toList();
+
+        assertThat(uses).hasSize(2);
+        assertThat(uses).anySatisfy(line -> assertThat(line).endsWith("as_svc secret-set ledger.jdbc.password --if-absent $STDIN"));
+        assertThat(uses).anySatisfy(line -> assertThat(line).endsWith("--app-account=\"$APP_ACCOUNT\" $STDIN"));
+        assertThat(shCodeLines().stream().filter(line -> line.matches(".*\\s<\\s.*")).toList()).as("the one redirect is the 1.x file")
+                .hasSize(1);
+    }
+
+    // ---- what stays in the scripts, and why (INS-046) ----
+
+    @Test
+    @DisplayName("INS-046 install.sh: each step that stays in the script has a comment above it that says why Java cannot do it (useradd, runuser, systemctl, nginx), and prepare-host takes the options it is given: all of them are declared in its usage")
+    void ins046_everyStepThatStaysSaysWhy() throws IOException {
+        List<String> all = lines(SH);
+        Pattern stays = Pattern.compile("(?:^|[{;&|]\\s*)(useradd|runuser|systemctl|nginx)\\s");
+        int found = 0;
+        for (int i = 0; i < all.size(); i++) {
+            String line = all.get(i).strip();
+            if (!isComment(line) && stays.matcher(line).find()) {
+                found++;
+                boolean explained = all.subList(Math.max(0, i - 3), i).stream().anyMatch(InstallScriptsTest::isComment);
+                assertThat(explained).as("a comment above: %s", line).isTrue();
+            }
+        }
+        assertThat(found).as("useradd, runuser, three systemctl, two nginx").isEqualTo(7);
+        Properties usage = usageTexts();
+        for (String line : shCodeLines()) {
+            if (line.contains(" prepare-host ")) {
+                assertOptionsAreDeclared(line, "prepare-host", usage);
+            }
+            if (line.contains(" render-deploy ")) {
+                assertOptionsAreDeclared(line, "render-deploy", usage);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("INS-046 install.cmd: the order is the check, the stop of what runs, prepare-host, the secrets, driver-register, migrate, the services (WinSW, sc.exe), seal-host, the start; it starts no icacls, mkdir or copy and its secrets are never copied or given on a command line")
+    void ins046_theOrderOfTheWindowsInstaller() {
+        List<String> code = cmdCodeLines();
+        List<Integer> order = Stream.of("render-deploy --check", "stop /stopwait", "prepare-host", "secret-set", "driver-register",
+                " migrate ", "sc.exe config", "seal-host", "\" start ").map(fragment -> firstIndex(code, fragment)).toList();
+
+        assertThat(order).doesNotContain(-1).isSorted();
+        assertThat(String.join("\n", code).toLowerCase(Locale.ROOT)).doesNotContain("icacls", "mkdir", "copy ", "java -version");
+        assertThat(code.stream().filter(line -> line.contains("secret-set"))).allMatch(line -> line.contains(" --if-absent"));
     }
 
     private static int firstIndex(List<String> lines, String fragment) {

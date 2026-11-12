@@ -1,10 +1,7 @@
 package org.pgledger.cli.deploy;
 
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.CliMessages;
@@ -57,24 +54,17 @@ public class RenderDeployCommand implements Command {
         if (!operands.isEmpty()) {
             throw new UsageException(ErrorCode.TOO_MANY_ARGUMENTS);
         }
-        Map<String, String> values = new HashMap<>();
-        for (String option : DeployOptions.ALL) {
-            CliOptions.value(arguments, option).ifPresent(value -> values.put(option, value));
-        }
         boolean check = CliOptions.flag(arguments, DeployOptions.CHECK);
-        DeployParameters parameters = DeployParameters.of(values);
-        Path root;
-        try {
-            root = values.containsKey(DeployOptions.ROOT) ? Path.of(values.get(DeployOptions.ROOT)) : null;
-        } catch (InvalidPathException e) {
-            throw new UsageException(ErrorCode.INVALID_DEPLOY_VALUE, e, DeployOptions.ROOT);
-        }
+        DeployInput input = DeployInput.read(arguments);
+        DeployParameters parameters = input.parameters();
+        Path root = input.root();
         if (check) {
             // the installers run this before they change anything: a bad option stops them while nothing exists yet
             output.info(messages.get("render-deploy.checked", parameters.layout().name()));
             return;
         }
-        for (Path file : DeployFiles.write(root, DeployRenderer.render(parameters))) {
+        for (Path file : DeployFiles.write(root, DeployRenderer.render(parameters),
+                backup -> output.info(messages.get("render-deploy.kept", backup.toString())))) {
             output.info(messages.get("render-deploy.written", file.toString()));
         }
     }

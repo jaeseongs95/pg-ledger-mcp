@@ -7,6 +7,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.library.GeneralCodingRules.ACCESS_STANDARD_STREAMS;
 
+import java.io.FileDescriptor;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -16,6 +17,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.pgledger.cli.secret.ConsoleSecretInput;
 import org.pgledger.cli.secret.SecretInput;
+import org.pgledger.cli.secret.StandardInput;
+import org.pgledger.cli.secret.StdinSecretInput;
 import org.pgledger.testing.ArchitectureRules;
 import org.pgledger.testing.CodingScan;
 import org.pgledger.testing.SourceRules;
@@ -52,20 +55,29 @@ class ArchitectureTest {
     }
 
     @Test
-    @DisplayName("SEC-003 no code reads the environment, starts a process or reads a value from standard input")
-    void sec003_noEnvironmentProcessOrStdin() {
+    @DisplayName("SEC-003 no code reads the environment or starts a process")
+    void sec003_noEnvironmentOrProcess() {
         noClasses().should().callMethod(System.class, "getenv")
                 .orShould().callMethod(System.class, "getenv", String.class)
                 .orShould().dependOnClassesThat().areAssignableTo(ProcessBuilder.class)
                 .orShould().callMethod(Runtime.class, "exec", String.class)
-                .orShould().accessField(System.class, "in")
                 .check(MAIN);
     }
 
     @Test
-    @DisplayName("SEC-003 Console input is the only SecretInput implementation")
-    void sec003_consoleIsTheOnlyInput() {
-        classes().that().implement(SecretInput.class).should().haveFullyQualifiedName(ConsoleSecretInput.class.getName()).check(MAIN);
+    @DisplayName("SEC-003 (changed by install, SEC-023) standard input is touched by one class only, StandardInput: the command line option --stdin is the one opt-in way to give a secret without a terminal")
+    void sec003_onlyStandardInputTouchesStandardInput() {
+        noClasses().that().doNotHaveFullyQualifiedName(StandardInput.class.getName()).should()
+                .accessField(System.class, "in").orShould().accessField(FileDescriptor.class, "in")
+                .orShould().callMethod(System.class, "setIn", java.io.InputStream.class)
+                .check(MAIN);
+    }
+
+    @Test
+    @DisplayName("SEC-003 (changed by install, SEC-023) the console and the standard input are the only SecretInput implementations")
+    void sec003_consoleAndStdinAreTheOnlyInputs() {
+        classes().that().implement(SecretInput.class).should().haveFullyQualifiedName(ConsoleSecretInput.class.getName())
+                .orShould().haveFullyQualifiedName(StdinSecretInput.class.getName()).check(MAIN);
     }
 
     @Test

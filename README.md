@@ -212,15 +212,20 @@ mkdir dist
 cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-server.jar ledger-admin-web/build/libs/ledger-admin-web.jar dist/
 ```
 
-- **What an installer does.** It checks the Java version, creates the folders and sets their owners, copies the jars and the driver
-  jar, lets `ledger-cli render-deploy` write the service definitions and the settings (`application.yaml` and one file per service in
-  one directory; your own settings belong in `local.yaml` there, which is read last and never replaced), stores the database password
-  of the application account (hidden input), generates `ledger.admin.token` and `ledger.mcp.token` (shown once, at the end of
-  their step), stores the copy `ledger.admin.agent-token`, registers the driver, runs `migrate` with the DDL account and starts the
-  two services. Nothing is downloaded or installed. Running it again with newer jars is the upgrade: files and services are replaced,
-  the schema and the grants are applied again, and secrets, tokens and data are kept. A run that stopped half way is repaired the same
-  way: run it again with the same options (the commands that store secrets do not need the database). The settings directory is `ledger.secrets.home`
-  of the tool; the services read the same sources through `spring.config.import`.
+- **What an installer does.** The installers are thin: they start only what Java cannot do, and everything else is a command of
+  `ledger-cli`. Java does the work on the files of the host: `render-deploy --check` validates every option first, and
+  `prepare-host` creates the folders with their owners, modes and ACLs, copies the jars and the driver jar and writes the service
+  definitions and the settings (`application.yaml` and one file per service in one directory; your own settings belong in
+  `local.yaml` there, which is read last and never replaced). The installer then has the secrets stored by `ledger-cli`: the
+  database password of the application account (hidden input), `ledger.admin.token` and `ledger.mcp.token` (generated, shown once,
+  at the end of their step) and the copy `ledger.admin.agent-token`; it registers the driver, runs `migrate` with the DDL account and
+  starts the two services. What stays in the scripts, because Java cannot do it, is creating the operating system user (`useradd`),
+  starting a command as that user (`runuser`), the service managers (`systemctl`, WinSW and `sc.exe`) and `nginx -t` with the reload.
+  The Java 25 check is the JVM's own: the jars are compiled for Java 25, and no other runtime loads them. Nothing is downloaded or
+  installed. Running it again with newer jars is the upgrade: files and services are replaced, the schema and the grants are applied
+  again, and secrets, tokens and data are kept. A run that stopped half way is repaired the same way: run it again with the same
+  options (the commands that store secrets do not need the database). The settings directory is `ledger.secrets.home` of the tool; the
+  services read the same sources through `spring.config.import`.
 
 The options of `deploy/install.sh` are given as `--name=value`; the ones it does not read itself go on to `render-deploy`:
 
@@ -242,16 +247,22 @@ The options of `deploy/install.sh` are given as `--name=value`; the ones it does
 | `--nginx-conf=<path>` | Linux: write the nginx site to this file; needs both host names, `--tls-certificate=<path>` and `--tls-key=<path>` |
 | `--tls-certificate=<path>` | the TLS certificate of the operator; nothing issues or renews one |
 | `--tls-key=<path>` | the TLS key of the operator |
+| `--from-1x-env=<file>` | migration from 1.x: the 1.x environment file; its two tokens become secrets before any token is generated (see Migrating from 1.x) |
+| `--stdin` | read the passwords from standard input instead of the terminal: first the one of the application account (only while it is not stored), then the DDL one; the convention of `docker login --password-stdin` |
 
-`render-deploy` takes five more options that the installers set themselves: `--platform=<platform>` (`linux`, the default, or `windows`),
-`--home=<path>` (Windows: the installation directory), `--java=<path>` (the Java executable), `--root=<directory>` (write the
-files below a directory instead of at their paths, for a look before they are put in place) and the flag `--check` (validate every option
-and write nothing; the installers run it first, so that a bad value, the name included, stops them while nothing exists yet).
+`render-deploy`, `prepare-host` and `seal-host` take five more options that the installers set themselves: `--platform=<platform>`
+(`linux`, the default, or `windows`), `--home=<path>` (Windows: the installation directory), `--java=<path>` (the Java executable),
+`--root=<directory>` (put the files below a directory instead of at their paths, for a look before they are put in place) and, for
+`render-deploy` only, the flag `--check` (validate every option and change nothing; the installers run it first, so that a bad value,
+the name included, stops them while nothing exists yet). `prepare-host` also takes `--jars=<dir>`, `--driver-jar=<file>` and, on
+Windows, `--winsw=<file>`.
 
 ### Linux server
 
-Run as root; the user `pg-ledger-mcp` is created when it is missing, the units are rendered into `/etc/systemd/system` and enabled,
-and the secrets are stored by the service user.
+Run as root; the user `pg-ledger-mcp` is created when it is missing, `prepare-host` (Java) creates `/opt/<name>` (root, 0755),
+`/etc/<name>` (the service user, 0750), its `drivers` folder (root, 0755) and its `secrets` folder (the service user, 0700), copies the
+jars and the driver and renders the units into `/etc/systemd/system`, which are then enabled; the secrets are stored by the service
+user. A unit file of 1.x that a rendered unit replaces is kept as `<file>.1x-backup`.
 
 ```sh
 sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url>
@@ -294,8 +305,9 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 ```
 
 Everything lives in `C:\ProgramData\<name>`. Both services run as LocalService, restart after a failure (the WinSW
-configuration), and write their logs to the `logs` folder. The secrets are handed over to LocalService at the end of the
-installation; the installing user can only see that a file exists, and the script takes them back for the duration of a re-run. So the
+configuration), and write their logs to the `logs` folder. `prepare-host` closes the folders to every account but SYSTEM and
+Administrators; `seal-host` hands the secrets over to LocalService at the end of the installation (Java, with ACLs, no `icacls`): the
+installing user can only see that a file exists, and `prepare-host` takes them back for the duration of a re-run. So the
 owner commands of `ledger-cli` cannot read them afterwards: do the owner work (projects, common codes, grants, keys) on the pages of
 the admin web, which sign in with `ledger.admin.token`. On a personal PC open the admin web at `http://localhost:8865` (the port is
 `--admin-port=<n>`): the admin web sets a `Secure` session cookie, which the major browsers accept from `localhost` because they treat it
@@ -320,11 +332,12 @@ service user), and every owner operation is recorded with that user.
 
 | Command | Syntax | What |
 |---|---|---|
-| `secret-set` | `secret-set <name>` | store a secret from hidden input |
+| `secret-set` | `secret-set <name> [--stdin] [--if-absent]` | store a secret from hidden input, or with `--stdin` from the first line of standard input (never from an argument or the environment); `--if-absent` keeps an existing secret and asks for nothing |
 | `driver-register` | `driver-register --jar=<path> --class=<driver-class>` | register the JDBC driver; needs no database |
-| `token-generate` | `token-generate <name> [--print]` | store a random token (32 bytes from `SecureRandom`) as a secret; an existing secret is kept; `--print` shows a token that was just created, once |
-| `migrate` | `migrate [--owner-account=<account>] [--app-account=<account>]` | apply the pending schema files, as the DDL account when `--owner-account` is given (its password is typed and not stored), and then the grants of `dml-grants.sql` to the application account |
-| `import-legacy` | `import-legacy [--verify-only] [--owner-account=<account>]` | copy the 1.x ledger into the new schema and compare every table; it writes the whole ledger, so it runs as the DDL account |
+| `token-generate` | `token-generate <name> [--print] [--copy-to=<name>]` | store a random token (32 bytes from `SecureRandom`) as a secret; an existing secret is kept; `--print` shows a token that was just created, once; `--copy-to` stores the same token under a second name, once |
+| `secret-import-1x` | `secret-import-1x [--env=<file>] [--stdin]` | move the two tokens of a 1.x installation (`DBHUB_AUTH_TOKEN` to `ledger.mcp.token` and `ledger.admin.agent-token`, `PGLEDGER_ADMIN_TOKEN` to `ledger.admin.token`) from its environment file, given as a file or on standard input, into the secret store; an existing secret is kept, no value is printed |
+| `migrate` | `migrate [--owner-account=<account>] [--app-account=<account>] [--stdin]` | apply the pending schema files, as the DDL account when `--owner-account` is given (its password is typed, or with `--stdin` read from standard input, and not stored), and then the grants of `dml-grants.sql` to the application account |
+| `import-legacy` | `import-legacy [--verify-only] [--owner-account=<account>] [--stdin]` | copy the 1.x ledger into the new schema and compare every table; it writes the whole ledger, so it runs as the DDL account |
 | `key-register` | `key-register <author> <public-key-or-block> <fingerprint> [--replace=<current-fingerprint>]` | bind the public key a session printed to its author; a live key is replaced only with `--replace` |
 | `key-revoke` | `key-revoke <author> --fingerprint=<fingerprint>` | close the live key of an author |
 | `project-add` | `project-add <id> <code> <title>` | add a project |
@@ -335,6 +348,8 @@ service user), and every owner operation is recorded with that user.
 | `grants` | `grants [<author>]` | list live grants |
 | `mcp-check` | `mcp-check [--url=<url>] [--ledger.mcp.token=<token>]` | connect to a running MCP server and check its tools |
 | `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>] [--check]` | write the service definitions (systemd units, or WinSW configurations on Windows), the settings and the optional nginx site; the installers call it |
+| `prepare-host` | `prepare-host --jars=<dir> --driver-jar=<file> [--winsw=<file>] --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | prepare the files of the host (run as root, or elevated on Windows): the folders with owner and mode, or their ACLs, the copies of the jars and the driver (on Windows also of WinSW), and what `render-deploy` writes; the installers call it |
+| `seal-host` | `seal-host --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | Windows, last: give LocalService its access and hand the secrets over to it; the installer calls it |
 
 ## Admin web
 
@@ -382,15 +397,38 @@ content, its order and its request id) and the time. A captured token cannot car
 1.x was a DBHub and Node implementation on PostgreSQL functions; 2.0.0 replaces all of it. Existing data is moved, not converted in
 place. The 1.x schema stays and can be used to go back. See the [release notes](docs/release-notes/2.0.0.md) for the contract changes.
 
-1. Install as above, on the Linux host. When the new schema lives in the database of the 1.x ledger,
-   set `ledger.schema.name` to a schema other than the 1.x schema `ledger`.
-2. As the service user, store the password of a read-only account of the 1.x database: `secret-set ledger.import.source.password`, and run
+The installation replaces the 1.x service on the same host, which stays on the 1.x database until it is switched: stop it, install,
+import, check. Do the steps in this order; the installer stops nothing of 1.x by itself.
+
+1. **Back up.** Dump the ledger database with the dump tool of your DBMS, and copy the 1.x settings directory `/etc/pg-ledger-mcp`
+   (the file `/etc/pg-ledger-mcp/pg-ledger-mcp.env` holds the 1.x tokens and passwords) and the 1.x unit files in `/etc/systemd/system`.
+2. **Stop the 1.x services.** On a host that runs them under the default names:
+   `sudo systemctl stop pg-ledger-mcp pg-ledger-mcp-admin`. Their clients are refused until the new server runs. To keep 1.x running
+   next to the new installation, give the new one its own `--name=<name>` and its own ports instead.
+3. **Create the two database accounts** of the new installation with the tools of your DBMS (see above: the application account and
+   the DDL account); the 1.x accounts stay as they are. When the new schema lives in the database of the 1.x ledger, set
+   `ledger.schema.name` to a schema other than the 1.x schema `ledger`.
+4. **Install with the tokens of 1.x.** Add `--from-1x-env=<file>` to the Linux installation:
+
+   ```sh
+   sudo deploy/install.sh --jars=dist --driver-jar=<driver-jar> --driver-class=<driver-class> --owner-account=<ddl-account> --app-account=<app-account> --jdbc-url=<jdbc-url> --from-1x-env=/etc/pg-ledger-mcp/pg-ledger-mcp.env
+   ```
+
+   The installer opens the 1.x file as root and `secret-import-1x` moves `DBHUB_AUTH_TOKEN` to `ledger.mcp.token` and
+   `ledger.admin.agent-token` and `PGLEDGER_ADMIN_TOKEN` to `ledger.admin.token`, before any token is generated: the clients and the admin
+   sign-in of 1.x keep working, and no value is printed. A secret that exists is kept. The unit files of 1.x that the new units replace are
+   kept as `<file>.1x-backup`. Without a terminal, add `--stdin` and give the passwords on standard input.
+5. As the service user, store the password of a read-only account of the 1.x database: `secret-set ledger.import.source.password`, and run
    `import-legacy --owner-account=<account> --ledger.import.source.url=<jdbc-url> --ledger.import.source.username=<account>`.
-3. The import reads the 1.x schema read only, copies everything in one transaction and rolls back on any failure; then it compares the
+6. The import reads the 1.x schema read only, copies everything in one transaction and rolls back on any failure; then it compares the
    number of rows and the SHA-256 digest of every table (`--verify-only` repeats the comparison). It refuses when the new schema
    already holds data, and it lists every value of the old data that the new schema cannot hold; it never invents a value.
-4. The old grants are copied without a session key. Every author registers a session key with `key-register`; then its grants work.
-5. Clients: the tools `execute_sql_reader` and `search_objects_reader` were removed; the read tools replace them. The results of the write
+7. The old grants are copied without a session key. Every author registers a session key with `key-register`; then its grants work.
+8. **Check.** `ledger-cli mcp-check --url=<its public URL>` and `import-legacy --verify-only`; open the admin web and sign in with the
+   admin token of 1.x.
+9. **Roll back** if the check fails: stop the new services, put the `<file>.1x-backup` unit files back in place of the new ones, run
+   `sudo systemctl daemon-reload` and start the 1.x services. The 1.x schema and data were only read, so 1.x continues as it was.
+10. Clients: the tools `execute_sql_reader` and `search_objects_reader` were removed; the read tools replace them. The results of the write
    tools keep their keys without the `rows[0].result` wrapping. Install the hook jar (a Java 25 runtime) before the server is switched.
 
 ## Build and test

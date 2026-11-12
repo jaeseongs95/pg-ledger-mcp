@@ -3,6 +3,9 @@ package org.pgledger.cli.owner;
 import java.util.Set;
 import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.secret.ConsoleSecretInput;
+import org.pgledger.cli.secret.SecretInput;
+import org.pgledger.cli.secret.StandardInput;
+import org.pgledger.cli.secret.StdinSecretInput;
 import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.i18n.LocaleContextHolder;
@@ -27,6 +30,8 @@ public final class OwnerAccountEnvironmentPostProcessor implements EnvironmentPo
 
     /** The option, as the command line property source names it. */
     public static final String OPTION = "owner-account";
+    /** The flag that takes the password from standard input instead of the terminal. */
+    public static final String STDIN = "stdin";
 
     /** The commands that declare the option: the schema migration and the legacy import ({@code CliCommand.cliName}). */
     private static final Set<String> COMMANDS = Set.of(CliCommand.MIGRATE.cliName(), CliCommand.IMPORT_LEGACY.cliName());
@@ -42,8 +47,10 @@ public final class OwnerAccountEnvironmentPostProcessor implements EnvironmentPo
         // declare the option ask for the password, any other command refuses the option without having prompted
         if (account instanceof String text && !text.isBlank() && operands instanceof String words
                 && COMMANDS.contains(words.split(",")[0])) {
-            environment.getPropertySources()
-                    .addFirst(new OwnerAccountPropertySource(text, prompt(text), new ConsoleSecretInput()));
+            // --stdin: the password is the next line of standard input (an installation without a terminal), else it is typed
+            SecretInput input = commandLine.containsProperty(STDIN) ? new StdinSecretInput(StandardInput.ofProcess())
+                    : new ConsoleSecretInput();
+            environment.getPropertySources().addFirst(new OwnerAccountPropertySource(text, prompt(text), input));
         }
     }
 

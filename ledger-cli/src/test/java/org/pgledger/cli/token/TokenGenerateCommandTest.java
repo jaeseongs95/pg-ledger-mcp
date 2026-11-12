@@ -94,6 +94,48 @@ class TokenGenerateCommandTest {
         assertThat(mcp).as("the agent token differs from the admin token").isNotEqualTo(admin);
     }
 
+    @Test
+    @RequiresOwnerOnlyStorage
+    @DisplayName("INS-047 --copy-to: the same token is stored under a second name once (the admin web has to know the token of the agents); a copy that exists is never replaced, a missing copy of a kept token is made; the value is never printed")
+    void ins047_copyTo(Cli cli, CapturedOutput captured) throws IOException {
+        RecordingOutput first = new RecordingOutput();
+        Outcome created = run(cli, first, "token-generate", "ledger.mcp.token", "--copy-to=ledger.admin.agent-token");
+
+        assertThat(created.exitCode()).isZero();
+        String token = Files.readString(directory().resolve("ledger.mcp.token"));
+        assertThat(Files.readString(directory().resolve("ledger.admin.agent-token"))).isEqualTo(token);
+        assertThat(first.info()).contains("ledger.admin.agent-token").doesNotContain(token);
+
+        Files.delete(directory().resolve("ledger.admin.agent-token"));
+        RecordingOutput second = new RecordingOutput();
+        Outcome repaired = run(cli, second, "token-generate", "ledger.mcp.token", "--copy-to=ledger.admin.agent-token");
+
+        assertThat(repaired.exitCode()).isZero();
+        assertThat(second.info()).contains("already exists");
+        assertThat(Files.readString(directory().resolve("ledger.mcp.token"))).as("the token is kept").isEqualTo(token);
+        assertThat(Files.readString(directory().resolve("ledger.admin.agent-token"))).as("the copy is made again").isEqualTo(token);
+
+        Files.writeString(directory().resolve("ledger.admin.agent-token"), "a-different-token-0123456789");
+        run(cli, new RecordingOutput(), "token-generate", "ledger.mcp.token", "--copy-to=ledger.admin.agent-token");
+        assertThat(Files.readString(directory().resolve("ledger.admin.agent-token"))).as("a copy that exists is not replaced")
+                .isEqualTo("a-different-token-0123456789");
+        assertThat(captured.getAll()).doesNotContain(token);
+    }
+
+    @Test
+    @DisplayName("INS-047 --copy-to needs a name that is not the token itself, and a value: a usage error that stores nothing")
+    void ins047_copyToRefusals(Cli cli) {
+        Outcome same = run(cli, new RecordingOutput(), "token-generate", "ledger.mcp.token", "--copy-to=ledger.mcp.token");
+        Outcome blank = run(cli, new RecordingOutput(), "token-generate", "ledger.mcp.token", "--copy-to");
+        Outcome bad = run(cli, new RecordingOutput(), "token-generate", "ledger.mcp.token", "--copy-to=../x");
+
+        assertThat(same.code()).contains(ErrorCode.INVALID_OPTION_VALUE);
+        assertThat(same.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+        assertThat(blank.code()).contains(ErrorCode.MISSING_OPTION_VALUE);
+        assertThat(bad.code()).contains(ErrorCode.INVALID_SECRET_NAME);
+        assertThat(Files.exists(directory())).isFalse();
+    }
+
     static Stream<Arguments> refusals() {
         return Stream.of(
                 Arguments.of(new String[] { "token-generate" }, ErrorCode.MISSING_ARGUMENT, ExitStatus.USAGE),

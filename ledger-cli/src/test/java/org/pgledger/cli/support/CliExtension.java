@@ -17,9 +17,11 @@ import org.pgledger.cli.CliException;
 import org.pgledger.cli.CliOutput;
 import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.LedgerCliApplication;
+import org.pgledger.cli.deploy.HostAccounts;
 import org.pgledger.cli.key.SessionKeyRegistry;
 import org.pgledger.cli.secret.ProcessUser;
 import org.pgledger.cli.secret.SecretInput;
+import org.pgledger.cli.secret.StandardInput;
 import org.pgledger.database.repository.LegacySourceRepository;
 import org.springframework.boot.ExitCodeEvent;
 import org.springframework.boot.SpringApplication;
@@ -62,16 +64,32 @@ public final class CliExtension implements ParameterResolver {
         private final String processUser;
         private final List<String> extraArguments;
         private final LegacySourceRepository legacySource;
+        private final byte[] standardInput;
+        private final HostAccounts hostAccounts;
 
         Cli() {
-            this(null, null, List.of(), null);
+            this(null, null, List.of(), null, null, null);
         }
 
-        private Cli(DataSource database, String processUser, List<String> extraArguments, LegacySourceRepository legacySource) {
+        private Cli(DataSource database, String processUser, List<String> extraArguments, LegacySourceRepository legacySource,
+                byte[] standardInput, HostAccounts hostAccounts) {
+            this.hostAccounts = hostAccounts;
             this.database = database;
             this.processUser = processUser;
             this.extraArguments = extraArguments;
             this.legacySource = legacySource;
+            this.standardInput = standardInput;
+        }
+
+        /** A Cli whose standard input holds these bytes (what a pipe would give {@code --stdin}); without it the input is empty. */
+        public Cli withStandardInput(String text) {
+            return new Cli(database, processUser, extraArguments, legacySource, text.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    hostAccounts);
+        }
+
+        /** A Cli whose host commands ({@code prepare-host}, {@code seal-host}) find the accounts of the host in these (a test plays them). */
+        public Cli withHostAccounts(HostAccounts accounts) {
+            return new Cli(database, processUser, extraArguments, legacySource, standardInput, accounts);
         }
 
         /**
@@ -81,24 +99,24 @@ public final class CliExtension implements ParameterResolver {
          * in without a close method, so it is still open when the run has closed the context and the test reads the rows.
          */
         public Cli withDatabase(DataSource dataSource) {
-            return new Cli(dataSource, processUser, extraArguments, legacySource);
+            return new Cli(dataSource, processUser, extraArguments, legacySource, standardInput, hostAccounts);
         }
 
         /** A Cli that runs as this process user (the account name that the audit trail records as {@code cli:<name>}). */
         public Cli asProcessUser(String name) {
-            return new Cli(database, name, extraArguments, legacySource);
+            return new Cli(database, name, extraArguments, legacySource, standardInput, hostAccounts);
         }
 
         /** A Cli whose application has this legacy ledger as the source of {@code import-legacy} (the way the settings {@code ledger.import.source.*} would configure it). */
         public Cli withLegacySource(LegacySourceRepository source) {
-            return new Cli(database, processUser, extraArguments, source);
+            return new Cli(database, processUser, extraArguments, source, standardInput, hostAccounts);
         }
 
         /** A Cli that also gets these command line arguments (for example {@code --spring.config.import=...}). */
         public Cli withArguments(String... arguments) {
             List<String> all = new ArrayList<>(extraArguments);
             all.addAll(List.of(arguments));
-            return new Cli(database, processUser, List.copyOf(all), legacySource);
+            return new Cli(database, processUser, List.copyOf(all), legacySource, standardInput, hostAccounts);
         }
 
         /** @param input null keeps the product Console input; @param output null keeps the product stream output */
@@ -128,6 +146,14 @@ public final class CliExtension implements ParameterResolver {
                         if (processUser != null) {
                             UserPrincipal principal = () -> processUser;
                             generic.registerBean("testProcessUser", ProcessUser.class, () -> fileSystem -> principal,
+                                    bd -> bd.setPrimary(true));
+                        }
+                        if (standardInput != null) {
+                            generic.registerBean("testStandardInput", StandardInput.class,
+                                    () -> new StandardInput(new java.io.ByteArrayInputStream(standardInput)), bd -> bd.setPrimary(true));
+                        }
+                        if (hostAccounts != null) {
+                            generic.registerBean("testHostAccounts", HostAccounts.class, () -> hostAccounts,
                                     bd -> bd.setPrimary(true));
                         }
                         if (input != null) {

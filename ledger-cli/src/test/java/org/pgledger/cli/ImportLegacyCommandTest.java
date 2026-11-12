@@ -191,7 +191,9 @@ class ImportLegacyCommandTest {
         assertThat(run(cli, new RecordingOutput(), "import-legacy", "--verify-only=yes").code())
                 .contains(ErrorCode.INVALID_OPTION_VALUE);
         assertThat(run(cli, new RecordingOutput(), "import-legacy", "--force").code()).contains(ErrorCode.UNKNOWN_OPTION);
-        for (String line : List.of("extra", "--verify-only=yes", "--force")) {
+        // SEC-025: --stdin gives the password of --owner-account; without the account it is refused
+        assertThat(run(cli, new RecordingOutput(), "import-legacy", "--stdin").code()).contains(ErrorCode.INVALID_OPTION_VALUE);
+        for (String line : List.of("extra", "--verify-only=yes", "--force", "--stdin")) {
             assertThat(run(cli, new RecordingOutput(), "import-legacy", line).exitCode()).isEqualTo(ExitStatus.USAGE.code());
         }
         assertThat(count("project")).isZero();
