@@ -28,7 +28,7 @@ final class JavaProcess {
 
     /** The limits of every child JVM of the system test (the resources of the test PC are shared). */
     private static final List<String> LIMITS = List.of("-Xmx512m", "-XX:ActiveProcessorCount=1", "-Duser.timezone=UTC",
-            "-Dfile.encoding=UTF-8");
+            "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8");
 
     /** What a finished process wrote and how it ended. */
     record Result(int exit, String out, String err) {
@@ -83,8 +83,7 @@ final class JavaProcess {
             Thread.currentThread().interrupt();
             throw new AssertionError("interrupted while waiting for " + jar.getFileName(), interrupted);
         }
-        return new Result(process.exitValue(), Files.readString(out, StandardCharsets.UTF_8),
-                Files.readString(err, StandardCharsets.UTF_8));
+        return new Result(process.exitValue(), text(out), text(err));
     }
 
     /**
@@ -134,9 +133,18 @@ final class JavaProcess {
         return builder;
     }
 
-    /** The last lines of a stream, for a message. */
+    /** The first and the last lines of a stream, for a message (the error is at the head, the cause chain at the end). */
     static String tail(String text) {
         List<String> lines = text.lines().toList();
-        return String.join("\n", lines.subList(Math.max(0, lines.size() - 40), lines.size()));
+        if (lines.size() <= 45) {
+            return String.join("\n", lines);
+        }
+        return String.join("\n", lines.subList(0, 25)) + "\n... " + (lines.size() - 45) + " lines left out ...\n"
+                + String.join("\n", lines.subList(lines.size() - 20, lines.size()));
+    }
+
+    /** A file the process wrote, as text; a byte that is not UTF-8 is replaced, never an exception (a message is read, not parsed). */
+    static String text(Path file) throws IOException {
+        return new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
     }
 }

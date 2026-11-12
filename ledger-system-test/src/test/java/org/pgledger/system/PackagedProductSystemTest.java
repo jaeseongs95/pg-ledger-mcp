@@ -498,7 +498,8 @@ class PackagedProductSystemTest {
         String last = "no answer yet";
         while (System.nanoTime() < deadline) {
             assertThat(server.isAlive()).as("the server ended with exit %s; its log:\n%s", server.isAlive() ? "-" : server.exitValue(),
-                    JavaProcess.tail(Files.readString(work.resolve("server.log"), StandardCharsets.UTF_8))).isTrue();
+                    JavaProcess.tail(JavaProcess.text(work.resolve("server.log"))))
+                    .isTrue();
             try {
                 HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
                 last = response.statusCode() + " " + response.body();
@@ -511,7 +512,7 @@ class PackagedProductSystemTest {
             Thread.sleep(500);
         }
         throw new AssertionError("the server was not healthy in " + PROCESS_SECONDS + " seconds (last: " + last
-                + "); its log:\n" + JavaProcess.tail(Files.readString(work.resolve("server.log"), StandardCharsets.UTF_8)));
+                + "); its log:\n" + JavaProcess.tail(JavaProcess.text(work.resolve("server.log"))));
     }
 
     private List<Map<String, String>> rows(String sql) {
