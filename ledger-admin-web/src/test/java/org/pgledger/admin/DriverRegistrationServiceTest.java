@@ -33,7 +33,6 @@ import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import tools.jackson.dataformat.yaml.YAMLMapper;
 
 /**
  * DRV-005, DRV-016, DRV-020 and ADM-060, ADM-061, ADM-062 as far as the admin does them: the URL the driver must
@@ -78,11 +77,9 @@ class DriverRegistrationServiceTest {
     }
 
     private static void withService(Path registrationFile, Path driverDirectory, String url, Body body) {
-        YAMLMapper yaml = YAMLMapper.builder()
-                .propertyNamingStrategy(tools.jackson.databind.PropertyNamingStrategies.KEBAB_CASE)
-                .disable(tools.jackson.dataformat.yaml.YAMLWriteFeature.SPLIT_LINES).build();
         new ApplicationContextRunner()
-                .withBean(DriverRegistrationFile.class, () -> new DriverRegistrationFile(yaml, registrationFile))
+                .withBean(DriverRegistrationFile.class,
+                        () -> new DriverRegistrationFile(new DriverRegistrationFile.Location(registrationFile)))
                 .withBean(LedgerJdbcProperties.class, () -> new LedgerJdbcProperties(url, null, null, 1,
                         new DriverRegistration(null, null, null, null)))
                 .withBean(Clock.class, () -> CLOCK)

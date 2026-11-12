@@ -13,6 +13,7 @@ import org.pgledger.cli.ErrorCode;
 import org.pgledger.cli.FailureException;
 import org.pgledger.cli.UsageException;
 import org.pgledger.cli.database.CliActor;
+import org.pgledger.database.driver.DriverLoader;
 import org.pgledger.database.driver.DriverRegistrar;
 import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.database.driver.DriverRegistrationFile;
@@ -96,7 +97,9 @@ public class DriverRegisterCommand implements Command {
         OwnerIdentity owner = actor.current();
         DriverRegistration registration;
         try {
-            registration = new DriverRegistrar(jdbc.url(), properties.directory()).check(jar, className, clock.instant());
+            // the loader has no state and no dependency; it is made here until the registrar becomes a bean (unit W4)
+            registration = new DriverRegistrar(new DriverLoader(), jdbc.url(), properties.directory()).check(jar,
+                    className, clock.instant());
         } catch (InfrastructureException refused) {
             throw new FailureException(ErrorCode.DRIVER_INVALID, refused, refused.args().getFirst());
         }

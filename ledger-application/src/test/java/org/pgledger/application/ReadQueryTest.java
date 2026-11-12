@@ -203,7 +203,7 @@ class ReadQueryTest {
     @DisplayName("MCR-H10: imported rows are visible with their legacy reference and assurance")
     void h10_importedRows(Scenario s) {
         SaveResult d = s.newDefect("d");
-        s.ctx().jdbc().sql("INSERT INTO history (id, at, author_id, login, actor_assurance, entity, entity_id, op, "
+        s.ctx().jdbc().sql("INSERT INTO history (id, occurred_at, author_id, login, actor_assurance, entity, entity_id, op, "
                 + "changes, reason, request_id, legacy_ref) VALUES (?, TIMESTAMP '2025-01-01 00:00:00', "
                 + "'agent:claude:old', 'ledger_author', 'LEGACY_LOGIN', 'DEFECT', ?, 'IMPORT', '{}', "
                 + "'imported from the old ledger', ?, 'legacy-7')")

@@ -23,17 +23,8 @@ public class AttentionQueryRepository {
     public record Position(AttentionKind kind, String id) {
     }
 
-    private static final String ITEMS = "SELECT 'OPEN_WITH_FIX' AS kind, d.id AS id, d.project_id AS project_id "
-            + "FROM defect d WHERE d.status = 'OPEN' "
-            + "AND EXISTS (SELECT 1 FROM defect_fix f WHERE f.defect_id = d.id) "
-            + "UNION ALL SELECT 'FIXED_WITHOUT_COMMIT', d.id, d.project_id FROM defect d "
-            + "WHERE d.status IN ('SOURCE_FIXED', 'VERIFIED') "
-            + "AND NOT EXISTS (SELECT 1 FROM defect_fix f WHERE f.defect_id = d.id) "
-            + "UNION ALL SELECT 'OPEN_NO_OWNER', d.id, d.project_id FROM defect d "
-            + "WHERE d.status = 'OPEN' AND d.owner_actor_id IS NULL "
-            + "UNION ALL SELECT 'TASK_UNKNOWN', t.id, t.project_id FROM task t WHERE t.state = 'UNKNOWN' "
-            + "UNION ALL SELECT 'DONE_NOT_VERIFIED', t.id, t.project_id FROM task t "
-            + "WHERE t.state = 'REPORTED_DONE'";
+    /** What each kind means is {@link AttentionSql}, the same text the defect list and the task list filter with. */
+    private static final String ITEMS = AttentionSql.items();
 
     private final JdbcClient jdbc;
 

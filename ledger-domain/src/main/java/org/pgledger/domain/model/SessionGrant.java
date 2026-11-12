@@ -2,6 +2,7 @@ package org.pgledger.domain.model;
 
 import java.time.Instant;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 import org.pgledger.domain.error.ValidationException;
 import org.pgledger.domain.error.ValidationReason;
@@ -16,7 +17,7 @@ import org.pgledger.domain.value.TextRule;
  * once revoked, so a live grant exists at most once per key and any number of revoked ones may coexist.
  */
 @Table("session_grant")
-public record SessionGrant(@Id Long id, AuthorId authorId, ProjectId projectId, Scope scope, AuthorId grantedBy,
+public record SessionGrant(@Id Long id, AuthorId authorId, ProjectId projectId, @Column("grant_scope") Scope scope, AuthorId grantedBy,
         Instant grantedAt, Instant expiresAt, Instant revokedAt, Instant lastUsedAt, String note, String activeKey) {
 
     public SessionGrant {

@@ -76,7 +76,9 @@ class CounterTest {
         LookupException unknown = catchThrowableOfType(LookupException.class,
                 () -> ctx.tx(() -> ids.nextDefectNo(ProjectCode.of("NOSUCH"))));
         assertThat(unknown.code()).isEqualTo(LookupCode.NOT_FOUND);
-        assertThatThrownBy(() -> ids.nextDefectNo(project.code())).isInstanceOf(IllegalStateException.class)
+        // @Transactional(propagation = MANDATORY): Spring itself refuses a call that has no transaction
+        assertThatThrownBy(() -> ids.nextDefectNo(project.code()))
+                .isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class)
                 .as("ids are only issued inside a transaction");
     }
 

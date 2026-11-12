@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import org.pgledger.database.time.UtcTime;
 import org.pgledger.domain.rule.AttentionKind;
+import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.TaskState;
 import org.pgledger.domain.value.MaxRows;
 import org.pgledger.domain.value.ProjectId;
@@ -47,12 +48,8 @@ public class TaskQueryRepository {
         if (filter.owner() != null) {
             sql.append(" AND owner_actor_id = :owner");
         }
-        if (filter.attention() == AttentionKind.TASK_UNKNOWN) {
-            sql.append(" AND state = 'UNKNOWN'");
-        } else if (filter.attention() == AttentionKind.DONE_NOT_VERIFIED) {
-            sql.append(" AND state = 'REPORTED_DONE'");
-        } else if (filter.attention() != null) {
-            throw new IllegalArgumentException("not a task attention kind: " + filter.attention());
+        if (filter.attention() != null) {
+            sql.append(" AND ").append(AttentionSql.condition(filter.attention(), HistoryEntity.TASK));
         }
         if (after != null) {
             sql.append(" AND (created_at < :after OR (created_at = :after AND id < :afterId))");

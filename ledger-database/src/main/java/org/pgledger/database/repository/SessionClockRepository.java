@@ -17,6 +17,11 @@ public final class SessionClockRepository {
     /**
      * The session clock, read through an aggregate over our own table so that no vendor-specific "select without
      * table" is needed. Empty when the table has no row yet.
+     *
+     * <p>This is the one place that asks the database for the time, and on purpose (principle 4.5 forbids DB clock
+     * functions for the data): the ANSI {@code LOCALTIMESTAMP} shows the wall clock of the database session, and that is what
+     * the UTC guard ({@code UtcSessionCheck}) compares with the UTC {@code Clock} to find out whether the session zone is
+     * UTC. No row is ever written with this value.
      */
     public Optional<LocalDateTime> sessionTimestamp() {
         return jdbc.sql("SELECT MAX(LOCALTIMESTAMP) FROM schema_history")

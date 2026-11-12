@@ -10,9 +10,13 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
+import org.pgledger.database.driver.LegacySourcePool;
+import org.pgledger.database.driver.LegacySourceProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.stereotype.Component;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -25,14 +29,17 @@ import org.springframework.transaction.support.TransactionTemplate;
  * and the comparison see. The statements are plain ANSI: a select list, a table of the legacy schema and an
  * {@code ORDER BY}; values that are JSON in the legacy schema are read as text, never converted by a function.
  *
- * <p>Not a Spring bean on its own: {@code LegacySourceConfiguration} builds it from the settings
- * {@code ledger.import.source.*}, and a test hands it a database it has filled. Spring's programmatic transaction support
+ * <p>A component that only {@code LegacySourceConfiguration} makes, from the settings {@code ledger.import.source.*} (the
+ * scan of this package leaves it out), and a test hands it a database it has filled. One repository and one transaction
+ * manager are made per legacy data source, which is a setting and not a bean, so the transaction manager is made here.
+ * Spring's programmatic transaction support
  * ({@link TransactionTemplate} over a {@link DataSourceTransactionManager}) is the standard tool for a transaction on a
  * second {@link DataSource}; it is described in the Spring Framework reference, "Programmatic Transaction Management"
  * (https://docs.spring.io/spring-framework/reference/data-access/transaction/programmatic.html), and the read-only and
  * isolation settings of a transaction definition in "Transaction Definition"
  * (https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/tx-decl-explained.html).
  */
+@Component
 public final class LegacySourceRepository {
 
     /** The legacy schema name is an identifier, so it cannot be a bind value: it is checked against this form. */
@@ -51,6 +58,12 @@ public final class LegacySourceRepository {
     private final JdbcClient jdbc;
     private final TransactionTemplate snapshot;
     private final String schema;
+
+    /** The repository of the legacy database of the settings {@code ledger.import.source.*}. */
+    @Autowired
+    public LegacySourceRepository(LegacySourcePool pool, LegacySourceProperties properties) {
+        this(pool.dataSource(), properties.schema());
+    }
 
     /**
      * @param dataSource the connection of the legacy account

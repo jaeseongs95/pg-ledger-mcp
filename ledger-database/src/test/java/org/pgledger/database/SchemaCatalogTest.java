@@ -49,7 +49,7 @@ class SchemaCatalogTest {
             "task.updated_at", "defect_fix.ci_completed_at", "defect_fix.recorded_at", "defect_case.observed_at",
             "defect_case.recorded_at", "session_grant.granted_at", "session_grant.expires_at",
             "session_grant.revoked_at", "session_grant.last_used_at", "session_key.registered_at",
-            "session_key.revoked_at", "owner_audit.at", "history.at", "request_receipt.created_at",
+            "session_key.revoked_at", "owner_audit.occurred_at", "history.occurred_at", "request_receipt.created_at",
             "schema_history.applied_at");
 
     private LedgerTestContext ctx;
@@ -80,6 +80,14 @@ class SchemaCatalogTest {
             }
             return names;
         });
+    }
+
+    /** SCH-032 (F10): the three columns whose natural names are reserved words of SQL:2003 are named without them. */
+    @Test
+    void sch032_noColumnIsNamedWithAWordSql2003Reserves() {
+        Set<String> names = columns().stream().map(Column::key).collect(java.util.stream.Collectors.toSet());
+        assertThat(names).contains("history.occurred_at", "owner_audit.occurred_at", "session_grant.grant_scope")
+                .doesNotContain("history.at", "owner_audit.at", "session_grant.scope");
     }
 
     private record Column(String table, String name, int type, boolean nullable, String defaultValue) {
@@ -153,10 +161,10 @@ class SchemaCatalogTest {
                 "INSERT INTO request_receipt (request_id, operation, payload_sha256, author_id, login, origin, "
                         + "created_at) VALUES ('22222222-2222-2222-2222-222222222222', 'SAVE', 'aa', 'claude:a', "
                         + "'ledger_author', 'OTHER', TIMESTAMP '2026-11-05 10:00:00')",
-                "INSERT INTO session_grant (id, author_id, project_id, scope, granted_by, granted_at, active_key) "
+                "INSERT INTO session_grant (id, author_id, project_id, grant_scope, granted_by, granted_at, active_key) "
                         + "VALUES (900002, 'claude:a', :project, 'ADMIN', 'user:owner', "
                         + "TIMESTAMP '2026-11-05 10:00:00', 'k900002')",
-                "INSERT INTO owner_audit (id, at, actor, operation, subject) VALUES (900004, "
+                "INSERT INTO owner_audit (id, occurred_at, actor, operation, subject) VALUES (900004, "
                         + "TIMESTAMP '2026-11-05 10:00:00', 'owner', 'OTHER', 'claude:a|p')",
                 "INSERT INTO schema_history (version, file_name, sha256, applied_at, outcome) VALUES (99, 'V99__x.sql', "
                         + "'aa', TIMESTAMP '2026-11-05 10:00:00', 'MAYBE')");

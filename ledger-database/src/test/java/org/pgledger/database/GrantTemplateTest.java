@@ -30,7 +30,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.database.schema.GrantApplier;
-import org.pgledger.database.schema.SchemaMigrationException;
+import org.pgledger.domain.error.InfrastructureCode;
+import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.support.Databases;
@@ -155,7 +156,7 @@ class GrantTemplateTest {
     }
 
     @Test
-    @DisplayName("INS-010 applying the template a second time changes nothing; an account that does not exist is a SchemaMigrationException with its cause and no SQL in the message")
+    @DisplayName("INS-010 applying the template a second time changes nothing; an account that does not exist is an InfrastructureException SCHEMA_GRANT_FAILED with its cause and no SQL in it")
     void ins010_theGrantsCanBeAppliedAgain() throws SQLException {
         String url = new Databases().newUrl();
         HikariConfig config = new HikariConfig();
@@ -182,8 +183,11 @@ class GrantTemplateTest {
                     Statement s = c.createStatement()) {
                 s.execute("SELECT COUNT(*) FROM defect");
             }
-            assertThatThrownBy(() -> applier.apply("NO_SUCH_ACCOUNT")).isInstanceOf(SchemaMigrationException.class)
-                    .hasMessageNotContaining("GRANT").hasCauseInstanceOf(org.springframework.dao.DataAccessException.class);
+            assertThatThrownBy(() -> applier.apply("NO_SUCH_ACCOUNT"))
+                    .isInstanceOfSatisfying(InfrastructureException.class, e -> {
+                        assertThat(e.code()).isEqualTo(InfrastructureCode.SCHEMA_GRANT_FAILED);
+                        assertThat(e.args()).as("no SQL and no account in the failure").isEmpty();
+                    }).hasCauseInstanceOf(org.springframework.dao.DataAccessException.class);
         }
     }
 }

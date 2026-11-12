@@ -40,7 +40,7 @@ class OwnerCommandsTest {
     private static final String PROJECTS = "SELECT id, code, title, next_defect_no, next_task_no, created_by FROM project ORDER BY id";
     private static final String CODES = "SELECT code_group, code, name_ko, name_en, description_ko, description_en, sort_order, "
             + "state, created_by FROM common_code WHERE code_group = 'DEFECT_CATEGORY' ORDER BY code";
-    private static final String GRANTS = "SELECT id, author_id, project_id, scope, granted_by, expires_at, revoked_at, note "
+    private static final String GRANTS = "SELECT id, author_id, project_id, grant_scope, granted_by, expires_at, revoked_at, note "
             + "FROM session_grant ORDER BY id";
     private static final String AUDIT = "SELECT actor, operation, subject, detail FROM owner_audit ORDER BY id";
 
@@ -275,7 +275,7 @@ class OwnerCommandsTest {
         assertThat(output.info()).contains(AUTHOR).contains("e2e").contains("defect,task,fix,verify");
         List<Map<String, Object>> grants = database.rows(GRANTS);
         assertThat(grants).hasSize(4);
-        assertThat(grants).extracting(row -> row.get("scope")).containsExactly("DEFECT", "TASK", "FIX", "VERIFY");
+        assertThat(grants).extracting(row -> row.get("grant_scope")).containsExactly("DEFECT", "TASK", "FIX", "VERIFY");
         for (Map<String, Object> grant : grants) {
             assertThat(grant.get("author_id")).isEqualTo(AUTHOR);
             assertThat(grant.get("project_id")).isEqualTo("e2e");

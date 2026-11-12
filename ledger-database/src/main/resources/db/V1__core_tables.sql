@@ -1,6 +1,8 @@
 -- V1: the core tables. ANSI SQL only: no trigger, procedure, view, sequence or identity column, no boolean
 -- column, no DEFAULT on a time column. Every id and counter is assigned by the application. Times are UTC
 -- TIMESTAMP values written by the application clock. ${longtext} is the only per-DBMS part (see SchemaMigrator).
+-- No column is named with a word that SQL:2003 reserves (so no quoting is needed on any DBMS): the time of a history
+-- or audit row is occurred_at (not AT) and the scope of a grant is grant_scope (not SCOPE).
 
 CREATE TABLE project (
   id VARCHAR(64) NOT NULL,
@@ -183,7 +185,7 @@ CREATE TABLE session_grant (
   id BIGINT NOT NULL,
   author_id VARCHAR(200) NOT NULL,
   project_id VARCHAR(64) NOT NULL,
-  scope VARCHAR(10) NOT NULL,
+  grant_scope VARCHAR(10) NOT NULL,
   granted_by VARCHAR(200) NOT NULL,
   granted_at TIMESTAMP NOT NULL,
   expires_at TIMESTAMP,
@@ -194,11 +196,11 @@ CREATE TABLE session_grant (
   CONSTRAINT pk_session_grant PRIMARY KEY (id),
   CONSTRAINT fk_session_grant_project FOREIGN KEY (project_id) REFERENCES project (id),
   CONSTRAINT uq_session_grant_active UNIQUE (active_key),
-  CONSTRAINT ck_session_grant_scope CHECK (scope IN ('DEFECT', 'TASK', 'FIX', 'VERIFY')),
+  CONSTRAINT ck_session_grant_scope CHECK (grant_scope IN ('DEFECT', 'TASK', 'FIX', 'VERIFY')),
   CONSTRAINT ck_session_grant_expiry CHECK (expires_at IS NULL OR expires_at > granted_at),
   CONSTRAINT ck_session_grant_revoked CHECK (revoked_at IS NULL OR revoked_at >= granted_at)
 );
-CREATE INDEX ix_session_grant_author ON session_grant (author_id, project_id, scope);
+CREATE INDEX ix_session_grant_author ON session_grant (author_id, project_id, grant_scope);
 
 -- The public key an author signs its writes with (Ed25519, X.509 DER in base64). Registered by the owner only
 -- (admin web, CLI), never through a tool. A key is replaced or revoked by closing its row: revoked_at is set and both
@@ -228,7 +230,7 @@ CREATE INDEX ix_session_key_author ON session_key (author_id, id);
 -- the application only inserts, and the operator's GRANT gives the application account no UPDATE or DELETE on it.
 CREATE TABLE owner_audit (
   id BIGINT NOT NULL,
-  at TIMESTAMP NOT NULL,
+  occurred_at TIMESTAMP NOT NULL,
   actor VARCHAR(300) NOT NULL,
   operation VARCHAR(20) NOT NULL,
   subject VARCHAR(300) NOT NULL,

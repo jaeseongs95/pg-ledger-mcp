@@ -3,7 +3,7 @@
 
 CREATE TABLE history (
   id BIGINT NOT NULL,
-  at TIMESTAMP NOT NULL,
+  occurred_at TIMESTAMP NOT NULL,
   author_id VARCHAR(200) NOT NULL,
   login VARCHAR(63) NOT NULL,
   actor_assurance VARCHAR(20) NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE history (
     OR to_state NOT IN ('VERIFIED', 'MET', 'NOT_MET') OR login = 'ledger_reviewer')
 );
 CREATE INDEX ix_history_entity ON history (entity, entity_id, id);
-CREATE INDEX ix_history_author ON history (author_id, at);
+CREATE INDEX ix_history_author ON history (author_id, occurred_at);
 CREATE INDEX ix_history_request ON history (request_id);
 
 CREATE TABLE request_receipt (

@@ -3,8 +3,12 @@ package org.pgledger.database.schema;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
+import org.pgledger.domain.error.InfrastructureCode;
+import org.pgledger.domain.error.InfrastructureException;
+import org.springframework.stereotype.Component;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
@@ -25,7 +29,8 @@ import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
  * schema of {@link SchemaProperties#name()} when one is configured. Reference:
  * https://docs.spring.io/spring-framework/reference/data-access/jdbc/embedded-database-support.html (script execution).
  */
-public final class GrantApplier {
+@Component
+public class GrantApplier {
 
     /** The class path location of the template. */
     public static final String TEMPLATE = "db-templates/dml-grants.sql";
@@ -51,8 +56,9 @@ public final class GrantApplier {
      * Grants the rights of the template to the account.
      *
      * @throws IllegalArgumentException when the text is not an account name (nothing is run)
-     * @throws SchemaMigrationException when the database refuses a statement, for example because the account does not
-     *         exist or the connection may not grant; the statements before it stay applied (the next run repeats them)
+     * @throws InfrastructureException SCHEMA_GRANT_FAILED when the database refuses a statement, for example because the
+     *         account does not exist or the connection may not grant; the statements before it stay applied (the next run
+     *         repeats them)
      */
     public void apply(String account) {
         if (!isAccountName(account)) {
@@ -70,8 +76,8 @@ public final class GrantApplier {
         try {
             DatabasePopulatorUtils.execute(populator, SchemaDataSource.of(dataSource, properties.name()));
         } catch (DataAccessException e) {
-            throw new SchemaMigrationException("cannot apply the grants to the account (the account must exist and the "
-                    + "connection must be allowed to grant)", e);
+            // the account must exist and the connection must be allowed to grant
+            throw new InfrastructureException(InfrastructureCode.SCHEMA_GRANT_FAILED, List.of(), e);
         }
     }
 }

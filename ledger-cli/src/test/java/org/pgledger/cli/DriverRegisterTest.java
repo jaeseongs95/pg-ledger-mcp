@@ -85,7 +85,7 @@ class DriverRegisterTest {
     }
 
     private Optional<DriverRegistrationFile.Entry> registered() {
-        return new DriverRegistrationFile(DriverRegistrationFile.newMapper(), file).read();
+        return new DriverRegistrationFile(new DriverRegistrationFile.Location(file)).read();
     }
 
     @Test

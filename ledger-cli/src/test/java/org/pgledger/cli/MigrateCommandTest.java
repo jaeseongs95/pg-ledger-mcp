@@ -172,7 +172,8 @@ class MigrateCommandTest {
 
         assertThat(result.exitCode()).isEqualTo(ExitStatus.FAILURE.code());
         assertThat(result.code()).contains(ErrorCode.MIGRATION_FAILED);
-        assertThat(captured.getAll()).contains("digest mismatch").contains("V1");
+        // the failure of the database module is an InfrastructureException with a code; its summary names the code and the file
+        assertThat(captured.getAll()).contains("SCHEMA_DIGEST_MISMATCH").contains("V1");
         assertThat(database.rows("SELECT outcome FROM schema_history WHERE version = 1 ORDER BY applied_at")
                 .getLast().get("outcome")).isEqualTo("FAILED");
     }

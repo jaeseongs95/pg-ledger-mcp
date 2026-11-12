@@ -29,7 +29,6 @@ import org.pgledger.database.repository.IdAllocator;
 import org.pgledger.database.repository.KeywordMatch;
 import org.pgledger.database.repository.LinkRepository;
 import org.pgledger.database.repository.MergeChainRepository;
-import org.pgledger.database.repository.StatsRepository;
 import org.pgledger.database.support.DatabaseTest;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Seed;

@@ -3,6 +3,7 @@ package org.pgledger.database;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
@@ -31,7 +32,8 @@ import org.pgledger.database.repository.SchemaHistoryRepository;
 import org.pgledger.database.repository.SchemaHistoryRepository.Outcome;
 import org.pgledger.database.repository.SchemaHistoryRepository.Row;
 import org.pgledger.database.schema.LedgerSchemaGuardConfiguration;
-import org.pgledger.database.schema.SchemaMigrationException;
+import org.pgledger.domain.error.InfrastructureCode;
+import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.database.schema.SchemaMigrator;
 import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.database.schema.SchemaVerifier;
@@ -121,6 +123,15 @@ class SchemaMigratorTest {
         return Sha256.ofText(text.replace("\r\n", "\n"));
     }
 
+    /** The code of the failure is the contract: the call must fail with an InfrastructureException of exactly this code. */
+    private static InfrastructureException refusedWith(org.assertj.core.api.ThrowableAssert.ThrowingCallable call,
+            InfrastructureCode code) {
+        InfrastructureException refused = catchThrowableOfType(InfrastructureException.class, call);
+        assertThat(refused).as("an InfrastructureException is thrown").isNotNull();
+        assertThat(refused.code()).isEqualTo(code);
+        return refused;
+    }
+
     private static Row success(int version, String file, String text, Instant at) {
         return new Row(version, file, digest(text), at, Outcome.SUCCESS);
     }
@@ -167,16 +178,17 @@ class SchemaMigratorTest {
         String editedTwo = TWO + "-- edited\n";
         Path edited = files(Map.of("V1__one.sql", ONE, "V2__two.sql", editedTwo, "V3__three.sql", THREE));
         migrator(original).migrate();
-        assertThatThrownBy(() -> migrator(edited).migrate()).isInstanceOf(SchemaMigrationException.class)
-                .hasMessageContaining("digest mismatch for V2");
+        InfrastructureException mismatch = refusedWith(() -> migrator(edited).migrate(),
+                InfrastructureCode.SCHEMA_DIGEST_MISMATCH);
+        assertThat(mismatch.args()).containsExactly("2", "V2__two.sql", digest(TWO).hex(), digest(editedTwo).hex());
         assertThat(history()).contains(success(2, "V2__two.sql", TWO, T0),
                 failed(2, "V2__two.sql", editedTwo, T0.plusNanos(1000)));
         assertThat(history().stream().filter(r -> r.version() == 2)).hasSize(2);
         // the guard uses the latest outcome, not any success row
-        assertThatThrownBy(() -> verifier(edited).verify()).isInstanceOf(SchemaMigrationException.class);
-        assertThatThrownBy(() -> verifier(original).verify()).hasMessageContaining("FAILED");
+        refusedWith(() -> verifier(edited).verify(), InfrastructureCode.SCHEMA_DIGEST_MISMATCH);
+        refusedWith(() -> verifier(original).verify(), InfrastructureCode.SCHEMA_RECORDED_FAILED);
         // a digest mismatch of a successful version is never retried and appends nothing more
-        assertThatThrownBy(() -> migrator(edited).migrate()).hasMessageContaining("digest mismatch");
+        refusedWith(() -> migrator(edited).migrate(), InfrastructureCode.SCHEMA_DIGEST_MISMATCH);
         assertThat(history().stream().filter(r -> r.version() == 2)).hasSize(2);
         assertThat(tableExists("t_two")).isTrue();
     }
@@ -185,17 +197,19 @@ class SchemaMigratorTest {
     void sch004_005_020_aFailedFileIsRetriedAndEveryAttemptIsKept() {
         Path broken = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO, "V3__three.sql", BROKEN_THREE,
                 "V4__four.sql", FOUR));
-        assertThatThrownBy(() -> migrator(broken).migrate()).isInstanceOf(SchemaMigrationException.class)
-                .hasMessageContaining("V3");
+        InfrastructureException failure = refusedWith(() -> migrator(broken).migrate(),
+                InfrastructureCode.SCHEMA_MIGRATION_FAILED);
+        assertThat(failure.args()).containsExactly("3", "V3__three.sql");
+        assertThat(failure.getCause()).as("the database failure is the cause").isNotNull();
         assertThat(history()).isEqualTo(List.of(success(1, "V1__one.sql", ONE, T0), success(2, "V2__two.sql", TWO, T0),
                 failed(3, "V3__three.sql", BROKEN_THREE, T0)));
         assertThat(tableExists("t_four")).as("V4 waits for V3").isFalse();
         // H2 commits every DDL statement at once, so the statement that ran before the failure stays (a DBMS with
         // transactional DDL rolls the whole file back: checked at the test server stage)
         assertThat(tableExists("t_half")).isTrue();
-        assertThatThrownBy(() -> verifier(broken).verify()).hasMessageContaining("FAILED");
+        refusedWith(() -> verifier(broken).verify(), InfrastructureCode.SCHEMA_RECORDED_FAILED);
         // a second try without a fix appends a second failed row, one microsecond later
-        assertThatThrownBy(() -> migrator(broken).migrate()).isInstanceOf(SchemaMigrationException.class);
+        refusedWith(() -> migrator(broken).migrate(), InfrastructureCode.SCHEMA_MIGRATION_FAILED);
         assertThat(history().stream().filter(r -> r.version() == 3).map(Row::appliedAt).toList())
                 .containsExactly(T0, T0.plusNanos(1000));
         // after the fix V3 and V4 apply
@@ -213,8 +227,8 @@ class SchemaMigratorTest {
     @Test
     void sch006_aGapInTheFilesIsRefused() {
         Path gap = files(Map.of("V1__one.sql", ONE, "V3__three.sql", THREE));
-        assertThatThrownBy(() -> migrator(gap).migrate()).isInstanceOf(SchemaMigrationException.class)
-                .hasMessageContaining("gap");
+        assertThat(refusedWith(() -> migrator(gap).migrate(), InfrastructureCode.SCHEMA_VERSION_GAP).args())
+                .containsExactly("2", "3");
     }
 
     @Test
@@ -222,16 +236,16 @@ class SchemaMigratorTest {
         Path all = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO, "V3__three.sql", THREE));
         migrator(files(Map.of("V1__one.sql", ONE))).migrate();
         new SchemaHistoryRepository(pool).append(success(3, "V3__three.sql", THREE, T0));
-        assertThatThrownBy(() -> migrator(all).migrate()).isInstanceOf(SchemaMigrationException.class)
-                .hasMessageContaining("out of order");
+        assertThat(refusedWith(() -> migrator(all).migrate(), InfrastructureCode.SCHEMA_OUT_OF_ORDER).args())
+                .containsExactly("2", "V2__two.sql", "3");
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"v1__x.sql", "V1_x.sql", "V01__x.sql", "V1__x.txt", "V1__X.sql"})
     void sch007_namesThatDoNotMatchAreRejectedNotSkipped(String name) {
         Path dir = files(Map.of(name, ONE));
-        assertThatThrownBy(() -> migrator(dir).migrate()).isInstanceOf(SchemaMigrationException.class)
-                .hasMessageContaining("bad schema file name");
+        assertThat(refusedWith(() -> migrator(dir).migrate(), InfrastructureCode.SCHEMA_FILE_NAME_INVALID).args())
+                .containsExactly(name);
     }
 
     @Test
@@ -254,7 +268,7 @@ class SchemaMigratorTest {
             if (refused == null) {
                 return "done";
             }
-            assertThat(refused).isInstanceOf(SchemaMigrationException.class);
+            assertThat(refused).isInstanceOf(InfrastructureException.class);
             return "refused";
         };
         return Parallel.all(List.of(migrate, migrate));
@@ -277,10 +291,12 @@ class SchemaMigratorTest {
         Path two = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO));
         migrator(two).migrate();
         Path three = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO, "V3__three.sql", THREE));
-        assertThatThrownBy(() -> verifier(three).verify()).hasMessageContaining("V3").hasMessageContaining("pending");
+        assertThat(refusedWith(() -> verifier(three).verify(), InfrastructureCode.SCHEMA_PENDING).args())
+                .containsExactly("3", "V3__three.sql");
         verifier(two).verify();
         Path one = files(Map.of("V1__one.sql", ONE));
-        assertThatThrownBy(() -> verifier(one).verify()).hasMessageContaining("has no schema file");
+        assertThat(refusedWith(() -> verifier(one).verify(), InfrastructureCode.SCHEMA_APPLIED_FILE_MISSING).args())
+                .containsExactly("2", "V2__two.sql");
     }
 
     /** A database in some state, the files the starting application carries, and what the refusal must name. */
@@ -295,14 +311,14 @@ class SchemaMigratorTest {
         Map<String, String> two = Map.of("V1__one.sql", ONE, "V2__two.sql", TWO);
         return Stream.of(
                 new Refusal("a version is pending", two, Map.of("V1__one.sql", ONE, "V2__two.sql", TWO,
-                        "V3__three.sql", THREE), "V3__three.sql) is pending"),
+                        "V3__three.sql", THREE), "SCHEMA_PENDING [3, V3__three.sql]"),
                 new Refusal("a version failed", Map.of("V1__one.sql", ONE, "V2__two.sql", TWO, "V3__three.sql",
                         BROKEN_THREE), Map.of("V1__one.sql", ONE, "V2__two.sql", TWO, "V3__three.sql", BROKEN_THREE),
-                        "V3 (V3__three.sql) is recorded as FAILED"),
+                        "SCHEMA_RECORDED_FAILED [3, V3__three.sql]"),
                 new Refusal("an applied file was edited", two, Map.of("V1__one.sql", ONE, "V2__two.sql",
-                        TWO + "-- edited\n"), "digest mismatch for V2"),
+                        TWO + "-- edited\n"), "SCHEMA_DIGEST_MISMATCH [2, V2__two.sql,"),
                 new Refusal("an applied version has no file", two, Map.of("V1__one.sql", ONE),
-                        "V2 (V2__two.sql) was applied but has no schema file"));
+                        "SCHEMA_APPLIED_FILE_MISSING [2, V2__two.sql]"));
     }
 
     private ConfigurableApplicationContext startApplication(Path dir) {
@@ -336,8 +352,8 @@ class SchemaMigratorTest {
     void sch010_aDatabaseThatWasNeverMigratedIsRefused() {
         Path two = files(Map.of("V1__one.sql", ONE, "V2__two.sql", TWO));
         try (HikariDataSource empty = databases.newDataSource()) {
-            assertThatThrownBy(() -> new SchemaVerifier(empty, new PathMatchingResourcePatternResolver(),
-                    props(two, null)).verify()).hasMessageContaining("no schema history");
+            refusedWith(() -> new SchemaVerifier(empty, new PathMatchingResourcePatternResolver(), props(two, null))
+                    .verify(), InfrastructureCode.SCHEMA_HISTORY_MISSING);
         }
     }
 

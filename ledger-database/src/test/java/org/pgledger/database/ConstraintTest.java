@@ -164,10 +164,10 @@ class ConstraintTest {
                         + "created_by) VALUES ('ORPHAN-C', 'nope', '1', 'c', 't', 'UNKNOWN', 1, 'user:owner')",
                 "INSERT INTO condition_link (link_key, condition_id, task_id, created_by) VALUES ('k', 'NOSUCH', "
                         + "'X', 'user:owner')",
-                "INSERT INTO session_grant (id, author_id, project_id, scope, granted_by, granted_at, active_key) "
+                "INSERT INTO session_grant (id, author_id, project_id, grant_scope, granted_by, granted_at, active_key) "
                         + "VALUES (990002, 'claude:a', 'nope', 'DEFECT', 'user:owner', TIMESTAMP '2026-11-05 "
                         + "10:00:00', 'orphan-key')",
-                "INSERT INTO history (id, at, author_id, login, actor_assurance, entity, entity_id, op, changes, "
+                "INSERT INTO history (id, occurred_at, author_id, login, actor_assurance, entity, entity_id, op, changes, "
                         + "reason, corrects_id, request_id) VALUES (990003, TIMESTAMP '2026-11-05 10:00:00', "
                         + "'claude:a', 'ledger_author', 'DECLARED', 'DEFECT', 'X', 'CORRECT', '{}', "
                         + "'a reason of length', 424242, '11111111-1111-1111-1111-111111111111')",

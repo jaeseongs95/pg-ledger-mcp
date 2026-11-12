@@ -2,6 +2,7 @@ package org.pgledger.database;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -29,8 +30,8 @@ import org.pgledger.database.repository.Counter;
 import org.pgledger.database.repository.KeysetPage;
 import org.pgledger.database.repository.KeywordMatch;
 import org.pgledger.database.repository.MergeChainRepository;
-import org.pgledger.database.repository.StatsRepository;
-import org.pgledger.database.repository.StatsRepository.AttentionItem;
+import org.pgledger.database.repository.AttentionQueryRepository;
+import org.pgledger.database.repository.StatsQueryRepository;
 import org.pgledger.database.support.LedgerTestContext;
 import org.pgledger.database.support.Seed;
 import org.pgledger.domain.model.Defect;
@@ -212,19 +213,29 @@ class QueryRepositoryTest {
         LedgerTestContext.as(Seed.ALICE, () -> ctx.tx(() -> ctx.bean(org.pgledger.database.repository.TaskRepository.class)
                 .save(doneTask.transitioned(org.pgledger.domain.rule.TaskState.REPORTED_DONE, LedgerTestContext.START))));
 
-        StatsRepository stats = ctx.bean(StatsRepository.class);
-        assertThat(stats.defectsByStatus(project.id())).containsEntry(DefectStatus.OPEN, 2L)
-                .containsEntry(DefectStatus.SOURCE_FIXED, 1L).containsEntry(DefectStatus.VERIFIED, 1L);
+        StatsQueryRepository stats = ctx.bean(StatsQueryRepository.class);
+        assertThat(stats.defectsByStatus(project.id())).containsEntry(DefectStatus.OPEN.name(), 2L)
+                .containsEntry(DefectStatus.SOURCE_FIXED.name(), 1L).containsEntry(DefectStatus.VERIFIED.name(), 1L);
         assertThat(stats.defectsBySeverity(project.id())).containsEntry("P2", 4L);
-        List<AttentionItem> attention = stats.attention(project.id());
-        assertThat(attention).contains(new AttentionItem(AttentionKind.OPEN_WITH_FIX, openWithFix.id().value()),
-                new AttentionItem(AttentionKind.OPEN_NO_OWNER, openNoOwner.id().value()),
-                new AttentionItem(AttentionKind.OPEN_NO_OWNER, openWithFix.id().value()),
-                new AttentionItem(AttentionKind.FIXED_WITHOUT_COMMIT, fixedNoCommit.id().value()),
-                new AttentionItem(AttentionKind.TASK_UNKNOWN, unknownTask.id().value()),
-                new AttentionItem(AttentionKind.DONE_NOT_VERIFIED, doneTask.id().value()));
-        assertThat(attention).extracting(AttentionItem::id).doesNotContain(verifiedWithFix.id().value());
+        List<AttentionQueryRepository.Item> attention = ctx.bean(AttentionQueryRepository.class)
+                .page(project.id(), null, MaxRows.DEFAULT, null).rows();
+        assertThat(attention).extracting(AttentionQueryRepository.Item::kind, AttentionQueryRepository.Item::id)
+                .contains(tuple(AttentionKind.OPEN_WITH_FIX, openWithFix.id().value()),
+                        tuple(AttentionKind.OPEN_NO_OWNER, openNoOwner.id().value()),
+                        tuple(AttentionKind.OPEN_NO_OWNER, openWithFix.id().value()),
+                        tuple(AttentionKind.FIXED_WITHOUT_COMMIT, fixedNoCommit.id().value()),
+                        tuple(AttentionKind.TASK_UNKNOWN, unknownTask.id().value()),
+                        tuple(AttentionKind.DONE_NOT_VERIFIED, doneTask.id().value()));
+        assertThat(attention).extracting(AttentionQueryRepository.Item::id).doesNotContain(verifiedWithFix.id().value());
         assertThat(attention).hasSize(6);
+        // the same meaning in the filter of the list: a kind selects the rows the attention list names for it
+        assertThat(ctx.bean(DefectQueryRepository.class).page(project.id(), new Filter(null, null, null, null, null,
+                null, AttentionKind.FIXED_WITHOUT_COMMIT), MaxRows.DEFAULT, Order.OLDEST_FIRST, null).rows())
+                .extracting(DefectSummary::id).containsExactly(fixedNoCommit.id());
+        // a kind of the other entity is a mistake of the caller
+        assertThatThrownBy(() -> ctx.bean(DefectQueryRepository.class).page(project.id(), new Filter(null, null, null,
+                null, null, null, AttentionKind.TASK_UNKNOWN), MaxRows.DEFAULT, Order.OLDEST_FIRST, null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("defect attention kind");
     }
 
     @Test

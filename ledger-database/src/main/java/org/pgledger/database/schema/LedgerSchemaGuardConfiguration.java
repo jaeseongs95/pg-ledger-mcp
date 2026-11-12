@@ -1,25 +1,13 @@
 package org.pgledger.database.schema;
 
-import org.springframework.beans.factory.InitializingBean;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
 /**
- * Startup guard of an application: the schema must be up to date (it only looks, never changes anything) and the
- * JVM and the database session must run in UTC. A failure stops the context from starting.
+ * Startup guard of an application: the schema services and the {@link SchemaGuard} that stops the context from starting
+ * when the schema is not up to date or the JVM or the database session is not in UTC.
  */
 @Configuration(proxyBeanMethods = false)
-@Import(LedgerSchemaConfiguration.class)
+@Import({LedgerSchemaConfiguration.class, SchemaGuard.class})
 public class LedgerSchemaGuardConfiguration {
-
-    @Bean
-    InitializingBean schemaGuard(SchemaVerifier verifier, UtcSessionCheck utcCheck, SchemaProperties properties) {
-        return () -> {
-            verifier.verify();
-            if (properties.requireUtc()) {
-                utcCheck.verify();
-            }
-        };
-    }
 }

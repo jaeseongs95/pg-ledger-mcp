@@ -29,6 +29,7 @@ import org.pgledger.domain.error.InfrastructureException;
 import org.pgledger.domain.value.Sha256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 /**
  * The driver boundary: the only place of the product that loads classes from a path and uses reflection. It checks
@@ -51,7 +52,17 @@ import org.slf4j.LoggerFactory;
  * {@link PosixFilePermissions} (https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/attribute/PosixFilePermissions.html),
  * {@link java.nio.file.FileSystem#supportedFileAttributeViews()} (https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/file/FileSystem.html)
  * and {@link URLClassLoader} (https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/net/URLClassLoader.html).
+ *
+ * <p>Why this is code of ours and not Spring Boot's (principle 8.2, "a reflection that must be written is confined to
+ * one place"): Boot's {@code DataSource} auto-configuration creates the driver by class name from the application class
+ * path ({@code spring.datasource.driver-class-name}), and the product ships no driver on that class path. The driver is
+ * a jar that the user registers at run time, which has to be opened in a class loader of its own so that nothing of the
+ * DBMS is visible to the rest of the product. Loading a class from a path ({@link URLClassLoader}), asking whether it is
+ * a {@code java.sql.Driver} and creating it ({@code Class.forName}, {@code Constructor.newInstance}) are therefore all
+ * done here, and nowhere else. The class is a {@code @Component} so that the registration checks and the data source are
+ * made with an injected loader; a {@code Condition}, which runs before any bean exists, makes one with {@code new}.
  */
+@Component
 public final class DriverLoader {
 
     private static final Logger LOG = LoggerFactory.getLogger(DriverLoader.class);
@@ -69,9 +80,6 @@ public final class DriverLoader {
     private static final Set<OpenOption> READ_WITHOUT_FOLLOWING_LINKS =
             Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
 
-    private DriverLoader() {
-    }
-
     /** The loaded driver and the digest of the bytes it was loaded from. */
     private record Opened(RegisteredDriver driver, Sha256 digest) {
     }
@@ -82,7 +90,7 @@ public final class DriverLoader {
      * @throws InfrastructureException DRIVER_NOT_CONFIGURED when nothing is registered, DRIVER_INVALID when what is
      *         registered cannot be used (missing or changed jar, not an archive, wrong class)
      */
-    public static RegisteredDriver load(DriverRegistration registration) {
+    public RegisteredDriver load(DriverRegistration registration) {
         boolean hasJar = registration.jar() != null;
         boolean hasClass = registration.className() != null && !registration.className().isBlank();
         if (!hasJar && !hasClass) {
@@ -103,7 +111,7 @@ public final class DriverLoader {
      * Checks a jar and a class for registration (before anything is stored) and returns the registration with the
      * digest of the jar. It loads the class exactly as {@link #load} does and closes the loader again.
      */
-    public static DriverRegistration describe(Path jar, String className, String url, Instant registeredAt) {
+    public DriverRegistration describe(Path jar, String className, String url, Instant registeredAt) {
         Opened opened = open(jar, className, null);
         try (RegisteredDriver driver = opened.driver()) {
             driver.requireAccepts(url);
@@ -116,7 +124,7 @@ public final class DriverLoader {
      * once and checked and read ({@link #readTrusted}), digest (against {@code expectedDigest} when it is given), load.
      * Whatever fails after the copy was made removes it.
      */
-    private static Opened open(Path jar, String className, String expectedDigest) {
+    private Opened open(Path jar, String className, String expectedDigest) {
         requireUsablePath(jar);
         Path copy = createPrivateCopy();
         boolean handedOver = false;
@@ -249,6 +257,8 @@ public final class DriverLoader {
         URLClassLoader loader = null;
         try {
             URL url = copy.toUri().toURL();
+            // an isolated loader whose parent is the platform loader: the driver sees the JDK and its own jar, never the
+            // classes of the product (and the product never sees the driver's classes except through java.sql.Driver)
             loader = new URLClassLoader(new URL[] {url}, ClassLoader.getPlatformClassLoader());
             Class<?> type = Class.forName(className, false, loader);
             if (!Driver.class.isAssignableFrom(type)) {

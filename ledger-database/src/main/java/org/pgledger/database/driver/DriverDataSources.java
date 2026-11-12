@@ -12,6 +12,13 @@ import java.util.List;
 /**
  * Builds the pool from a registered driver: {@code Driver} -> {@link SimpleDriverDataSource} -> Hikari. The
  * {@code DriverManager} is not involved, so the driver of the registered jar is the one that connects.
+ *
+ * <p>Why the pool is assembled here and not by Spring Boot (principle 4.1, "the {@code DataSource} and the pool come from
+ * Boot's auto-configuration"): Boot builds a Hikari pool from {@code spring.datasource.*}, which names a driver class that
+ * Boot loads from the application class path. The driver of this product is a jar that the user registers at run time and
+ * that lives in an isolated class loader ({@link DriverLoader}), so the {@link java.sql.Driver} instance is handed to
+ * {@link SimpleDriverDataSource} (Spring's own {@code DataSource} for a given driver) and that one to Hikari, which Boot
+ * would have used too. The pool settings are the ones of {@code ledger.jdbc.*}.
  */
 public final class DriverDataSources {
 
