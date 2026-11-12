@@ -119,6 +119,7 @@ MCP를 직접 호출하는 쪽은 호스트로 인증되지 않습니다. bearer
 | `ledger-admin-web` | 소유자용 Spring Boot 관리 웹(`ledger-admin-web.jar`) |
 | `ledger-cli` | 소유자용 명령줄 도구(`ledger-cli.jar`) |
 | `ledger-client-hook` | 모든 클라이언트가 함께 쓰는 훅 jar(`ledger-client-hook.jar`) |
+| `ledger-system-test` | 시험 코드만 있는 모듈: 빌드한 jar를 그 컴퓨터의 PostgreSQL에 대해 실행하는, 패키지된 제품의 시스템 시험 |
 
 ## 설정
 
@@ -402,6 +403,10 @@ JDK 25와 Gradle 래퍼만 있으면 되며, 래퍼가 Gradle을 직접 내려�
 런타임 클래스패스에 없는지 확인합니다. `ledger-cli`의 문서 시험(DOC-001부터 DOC-029까지, [docs/testing/TEST_CASES.md](docs/testing/TEST_CASES.md))은 이 README, 영문 README,
 릴리스 노트를 코드와 대조합니다.
 
+`ledger-system-test`의 시스템 시험(SYS-001부터 SYS-012까지)에도 같은 로컬 PostgreSQL과 빌드된 jar가 필요합니다. 이 시험은 설치 명령, `ledger-cli.jar`,
+`ledger-mcp-server.jar`, 훅 jar를 각각 별도의 Java 프로세스로 시험 데이터베이스에 대해 실행하므로, 빌드가 시험 전에 jar를 먼저 만듭니다.
+`./gradlew build`에 포함되며, `./gradlew :ledger-system-test:test`로 단독 실행할 수 있습니다.
+
 ### 시험 데이터베이스
 
 모듈 시험에는 이미 설치되어 실행 중인 PostgreSQL 18 이상이 필요합니다. 기본값으로 `127.0.0.1:55432`의 `ledger_test` 데이터베이스에 그 데이터베이스의 소유자 계정으로 접속하며,
@@ -435,7 +440,7 @@ JVM이 인식하는 프로세서 수를 제한할 수 있습니다. 속성은 �
 ## 구성
 
 - `ledger-domain`, `ledger-attestation`, `ledger-database`, `ledger-application`, `ledger-mcp-server`, `ledger-admin-web`,
-  `ledger-cli`, `ledger-client-hook`: 위의 모듈이며 각각 `src/main`과 `src/test`를 가집니다.
+  `ledger-cli`, `ledger-client-hook`: 위의 모듈이며 각각 `src/main`과 `src/test`를 가집니다. `ledger-system-test`는 `src/test`만 가집니다.
 - `clients/claude`, `clients/codex`, `clients/antigravity`: 클라이언트별 플러그인의 매니페스트와 README이며, 빌드가 훅 jar와 함께
   `ledger-client-hook/build/client-plugins`에 모읍니다.
 - `docs/`: 시험 사례 목록, 릴리스 노트 형식, 릴리스 노트.

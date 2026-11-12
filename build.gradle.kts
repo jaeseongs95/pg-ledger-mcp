@@ -90,7 +90,7 @@ subprojects {
         }
         // A test of a database is never up to date: the state of the database is an input that Gradle cannot see.
         if (project.name in setOf("ledger-database", "ledger-application", "ledger-mcp-server", "ledger-admin-web",
-                "ledger-cli")) {
+                "ledger-cli", "ledger-system-test")) {
             outputs.upToDateWhen { false }
         }
         testLogging {

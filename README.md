@@ -129,6 +129,7 @@ The build is a Gradle multi-module project.
 | `ledger-admin-web` | the Spring Boot admin web for the owner (`ledger-admin-web.jar`) |
 | `ledger-cli` | the owner command line tool (`ledger-cli.jar`) |
 | `ledger-client-hook` | the one hook jar of all clients (`ledger-client-hook.jar`) |
+| `ledger-system-test` | test code only: the system test of the packaged product, which starts the built jars against the local PostgreSQL |
 
 ## Configuration
 
@@ -445,6 +446,10 @@ migration tool or Lombok is on a runtime classpath. The documentation tests of
 `ledger-cli` (DOC-001 to DOC-029 in [docs/testing/TEST_CASES.md](docs/testing/TEST_CASES.md)) check this README, the Korean one and the
 release notes against the code.
 
+The system test of `ledger-system-test` (SYS-001 to SYS-012) needs that same local PostgreSQL and the built jars: it runs the install
+commands, `ledger-cli.jar`, `ledger-mcp-server.jar` and the hook jar as separate Java processes against the test database, so the build
+makes the jars before it runs the test. It is part of `./gradlew build`; `./gradlew :ledger-system-test:test` runs it alone.
+
 ### The test database
 
 The module tests need a PostgreSQL 18 or later that is already installed and running. By default they connect to
@@ -485,7 +490,7 @@ number, or is smaller than 1, fails the build at configuration time.
 ## Layout
 
 - `ledger-domain`, `ledger-attestation`, `ledger-database`, `ledger-application`, `ledger-mcp-server`, `ledger-admin-web`,
-  `ledger-cli`, `ledger-client-hook`: the modules above, each with `src/main` and `src/test`.
+  `ledger-cli`, `ledger-client-hook`: the modules above, each with `src/main` and `src/test`; `ledger-system-test` has `src/test` only.
 - `clients/claude`, `clients/codex`, `clients/antigravity`: the manifests and README of each client plugin; the build stages them with
   the hook jar into `ledger-client-hook/build/client-plugins`.
 - `docs/`: the test case catalogue, the release note format and the release notes.
