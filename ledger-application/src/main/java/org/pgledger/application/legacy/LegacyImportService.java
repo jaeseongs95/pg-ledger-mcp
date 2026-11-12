@@ -40,8 +40,13 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Steps, in this order:
  * <ol>
- * <li>The new schema must hold no ledger data yet ({@link LegacyTargetRepository#tablesWithData}); otherwise
- * {@link ConflictCode#DUPLICATE_KEY}, nothing is written (MIG-009).</li>
+ * <li>The new schema must hold only what {@code migrate} and {@code setup} made: no row in a table of ledger data, none in
+ * {@code session_key}, and no earlier import (an {@code owner_audit} row of the operation {@code IMPORT}); the seed codes in
+ * {@code common_code} and the audit rows of the operator actions that make no ledger data ({@code CODE_SET},
+ * {@code DRIVER_REGISTERED}) are accepted, because the installer runs {@code setup} before the import
+ * ({@link LegacyTargetRepository#tablesWithData}); otherwise {@link ConflictCode#DUPLICATE_KEY}, nothing is written
+ * (MIG-009). A seed code that the legacy ledger also has is overwritten with the legacy values (the row of the same key),
+ * and the comparison reads back only the keys of the legacy side.</li>
  * <li>The legacy schema must be complete (its installer steps, MIG-021); otherwise {@link LookupCode#NOT_FOUND}.</li>
  * <li>Validation pass: every legacy row is mapped ({@link LegacyRowMapper}); every row that cannot be imported as it is
  * (an empty text in a NOT NULL column, an id that is not an upper-case id, a text longer than its column ...) is
@@ -102,7 +107,8 @@ public class LegacyImportService {
      * Imports the legacy ledger and checks the copy.
      *
      * @param actor who runs the import (the audit row names it)
-     * @throws ConflictException DUPLICATE_KEY: the new schema already holds ledger data (the tables are the argument)
+     * @throws ConflictException DUPLICATE_KEY: the new schema already holds ledger data or an earlier import left its audit
+     *         row (the tables are the argument)
      * @throws LookupException NOT_FOUND: the legacy schema lacks installer steps (they are the argument)
      * @throws ValidationException VALIDATION_FAILED: rows that cannot be imported as they are (they are the issues)
      * @throws InfrastructureException INTEGRITY_VIOLATION: a table of the new schema differs from the legacy table (the

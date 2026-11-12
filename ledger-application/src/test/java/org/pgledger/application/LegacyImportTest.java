@@ -538,7 +538,7 @@ class LegacyImportTest {
     }
 
     @Test
-    @DisplayName("REH2-MIG-04 a project of its own (PROJECT_ADDED in the audit trail) and a grant on it (GRANT_ISSUED) refuse the import with DUPLICATE_KEY naming the tables that hold the rows (project; project and session_grant) and never owner_audit; nothing is written")
+    @DisplayName("REH2-MIG-04 a project of its own (PROJECT_ADDED in the audit trail) and a grant on it (GRANT_ISSUED) refuse the import with DUPLICATE_KEY naming the tables that hold the rows (project; project, session_key and session_grant) and never owner_audit; nothing is written")
     void reh2Mig04_ledgerDataRefuses() {
         withRich(rig -> {
             rig.ctx().bean(ProjectService.class).add(new ProjectCommand("own", "OWN", "A project of its own"), TestOwners.OWNER);
@@ -549,12 +549,15 @@ class LegacyImportTest {
             assertThat(project.args().getFirst()).contains("project").doesNotContain("session_grant").doesNotContain("owner_audit");
             assertThat(rig.ledgerRows()).isEqualTo(rows);
 
+            // a grant needs the registered key of its author (what key-register does)
+            rig.ctx().enroll(SEED);
             rig.ctx().bean(GrantService.class).grant(new GrantCommand(SEED, "own", List.of("fix"), null, null), TestOwners.OWNER);
             long withGrant = rig.ledgerRows();
 
             LedgerException grant = Expect.failure(rig::importAll, ConflictCode.DUPLICATE_KEY);
 
-            assertThat(grant.args().getFirst()).contains("project").contains("session_grant").doesNotContain("owner_audit");
+            assertThat(grant.args().getFirst()).contains("project").contains("session_key").contains("session_grant")
+                    .doesNotContain("owner_audit");
             assertThat(rig.ledgerRows()).isEqualTo(withGrant);
         });
     }

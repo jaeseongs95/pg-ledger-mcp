@@ -107,7 +107,7 @@ public class PrepareHostCommand implements Command {
             if (parameters.nginx() != null && parameters.nginx().acme() != null) {
                 platform.prepareTls(layout, input.root());
             }
-            for (Path file : files.write(input.root(), renderer.render(parameters),
+            for (Path file : files.writeIntoHost(input.root(), renderer.render(parameters),
                     backup -> output.info(messages.get("render-deploy.kept", backup.toString())))) {
                 output.info(messages.get("render-deploy.written", file.toString()));
             }

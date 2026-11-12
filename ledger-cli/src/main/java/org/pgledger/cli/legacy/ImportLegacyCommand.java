@@ -38,7 +38,8 @@ import org.springframework.stereotype.Component;
  * schema through {@link LegacyImportService} and prints, per table, the number of rows and the SHA-256 digest that the
  * legacy table and the new table share. The legacy connection is the settings {@code ledger.import.source.*} (the
  * password is the secret {@code ledger.import.source.password}, read from the secret store like every other secret and
- * never printed). The command is refused when the new schema already holds ledger data; the grants are copied without a
+ * never printed). The command is refused when the new schema holds more than {@code migrate} and {@code setup} made (ledger data, a session
+ * key or the audit row of an earlier import); the grants are copied without a
  * session key, so each session has to have its key registered ({@code key-register}) before its grant works. The audit row
  * names {@code cli:<process user>}.
  *

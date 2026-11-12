@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
 import org.pgledger.database.time.UtcTime;
+import org.pgledger.domain.rule.OwnerAction;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -29,9 +30,22 @@ public class LegacyTargetRepository {
 
     /**
      * The tables whose rows are ledger data: every copied table except the common codes (a fresh installation seeds some),
-     * and the two tables that only the new schema has. A schema in which none of them has a row is a fresh installation.
+     * and the table of the session keys, which only the new schema has. A schema in which none of them has a row, and in which
+     * no import has run ({@link #EARLIER_IMPORT}), is one that only {@code migrate} and {@code setup} have prepared.
      */
     private static final List<String> DATA_TABLES = dataTables();
+
+    /** The table of the owner's audit trail, which only the new schema has: it is counted only for the operation IMPORT. */
+    private static final String OWNER_AUDIT = "owner_audit";
+
+    /**
+     * Where an earlier import shows: the audit row of the operation IMPORT. Every other operation of the owner that makes ledger
+     * data leaves its row in a table that is counted anyway ({@code GRANT_ISSUED} and {@code GRANT_REVOKED} a grant,
+     * {@code KEY_*} a session key, {@code PROJECT_ADDED} a project), and the ones that make none ({@code CODE_SET} of the seed that
+     * {@code setup} adds, {@code DRIVER_REGISTERED}) must not stop the import: the order of the installation is the install
+     * (which runs {@code setup}) and then the import.
+     */
+    private static final String EARLIER_IMPORT = "SELECT COUNT(*) FROM " + OWNER_AUDIT + " WHERE operation = ?";
 
     private final JdbcClient jdbc;
     private final DataSource dataSource;
@@ -49,11 +63,14 @@ public class LegacyTargetRepository {
             }
         }
         names.add("session_key");
-        names.add("owner_audit");
         return List.copyOf(names);
     }
 
-    /** The tables of the new schema that already hold ledger data (empty on a fresh installation). */
+    /**
+     * The tables of the new schema that already hold ledger data, in the order of the copy, and {@code owner_audit} last when
+     * an earlier import left its row. Empty on a schema that only {@code migrate} and {@code setup} have prepared (the seed codes
+     * of {@code common_code} and the audit rows of the operator actions that make no ledger data do not count).
+     */
     public List<String> tablesWithData() {
         List<String> found = new ArrayList<>();
         for (String table : DATA_TABLES) {
@@ -61,6 +78,10 @@ public class LegacyTargetRepository {
             if (rows != null && rows > 0) {
                 found.add(table);
             }
+        }
+        Long imports = jdbc.sql(EARLIER_IMPORT).param(OwnerAction.IMPORT.name()).query(Long.class).single();
+        if (imports != null && imports > 0) {
+            found.add(OWNER_AUDIT);
         }
         return found;
     }

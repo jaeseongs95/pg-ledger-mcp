@@ -60,9 +60,13 @@ final class HostFiles {
         }
     }
 
-    /** The path (or the account) and the kind of the failure; never the text of the exception. */
+    /**
+     * The path (or the account) and the kind of the failure; never the text of the exception. A backup of 1.x that holds other
+     * bytes than its file names both files.
+     */
     static FailureException failure(IOException e) {
-        String subject = e instanceof FileSystemException failed && failed.getFile() != null ? failed.getFile()
+        String subject = e instanceof DeployFiles.BackupDiffersException differs ? differs.files()
+                : e instanceof FileSystemException failed && failed.getFile() != null ? failed.getFile()
                 : e instanceof UserPrincipalNotFoundException missing ? missing.getName() : "-";
         return new FailureException(ErrorCode.HOST_FAILED, e, subject, e.getClass().getSimpleName());
     }

@@ -490,6 +490,22 @@ class DocsTest {
 
     @ParameterizedTest
     @EnumSource(Language.class)
+    @DisplayName("REH2-DOC-01 the migration of the README and of each part of the 2.0.0 note says that the import runs once on the schema that migrate and setup made (the state after the installer), and that the rollback copies the backup of the unit back (it stays) and what a later run of the installer does with it; none says the schema is freshly migrated")
+    void migrationSaysWhatTheImportAndTheRollbackLeave(Language language) {
+        boolean english = language == Language.EN;
+        String readme = language.readme().part(english ? "Migrating from 1.x" : "1.x에서 이전").text();
+        String part = note().part(language.partHeading()).text();
+
+        for (String text : List.of(readme, part)) {
+            assertThat(text).contains(english ? "`migrate` and `setup`" : "`migrate`와 `setup`").contains("HOST_FAILED")
+                    .contains(english ? "copy the `<file>.1x-backup`" : "`<file>.1x-backup` 유닛 파일을 복사해 되돌리고")
+                    .contains(english ? "backup stays)" : "(백업은 그대로 남습니다)")
+                    .doesNotContain(english ? "freshly migrated" : "방금 `migrate`한");
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
     @DisplayName("W7-INS-03 both READMEs list --java=<path> among the options of install.sh and say that the Java runtime is at a path every account can execute, not under /home; so does each part of the 2.0.0 note")
     void javaRuntimeIsAtAPathEveryAccountCanExecute(Language language) {
         String installation = language.readme().part(language == Language.EN ? "Installation" : "설치").text();

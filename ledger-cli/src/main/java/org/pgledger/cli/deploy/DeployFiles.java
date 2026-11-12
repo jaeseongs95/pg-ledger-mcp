@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileSystemException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -47,20 +48,18 @@ public final class DeployFiles {
      * @return the files written, in order
      * @throws UsageException INVALID_DEPLOY_VALUE naming {@code platform}, before the first file is written, when there is no
      *         root and a file has no path on this host
-     * @throws FailureException DEPLOY_WRITE_FAILED naming the file and the kind of failure
+     * @throws FailureException DEPLOY_WRITE_FAILED naming the file and the kind of failure (for a backup that holds other bytes
+     *         both files)
      */
     public List<Path> write(Path root, List<RenderedFile> files, Consumer<Path> kept) {
-        List<Path> targets = new ArrayList<>();
-        for (RenderedFile file : files) {
-            targets.add(resolve(root, file.path()));
-        }
+        List<Path> targets = targets(root, files);
         List<Path> written = new ArrayList<>();
         for (int index = 0; index < files.size(); index++) {
             Path target = targets.get(index);
-            String content = files.get(index).content();
             try {
-                keepForeign(target, kept);
-                replace(target, out -> out.write(content.getBytes(StandardCharsets.UTF_8)));
+                writeOne(target, files.get(index).content(), kept);
+            } catch (BackupDiffersException e) {
+                throw new FailureException(ErrorCode.DEPLOY_WRITE_FAILED, e, e.files(), e.getClass().getSimpleName());
             } catch (IOException e) {
                 throw new FailureException(ErrorCode.DEPLOY_WRITE_FAILED, e, target.toString(),
                         e.getClass().getSimpleName());
@@ -71,11 +70,59 @@ public final class DeployFiles {
     }
 
     /**
+     * As {@link #write}, for a command that reports a failure of the host itself ({@code prepare-host}: the failure of the
+     * file is the {@link IOException}, which the command turns into HOST_FAILED, see {@link HostFiles#failure}).
+     *
+     * @throws IOException the file that could not be written, or {@link BackupDiffersException} naming the file and its backup
+     */
+    public List<Path> writeIntoHost(Path root, List<RenderedFile> files, Consumer<Path> kept) throws IOException {
+        List<Path> targets = targets(root, files);
+        for (int index = 0; index < files.size(); index++) {
+            writeOne(targets.get(index), files.get(index).content(), kept);
+        }
+        return targets;
+    }
+
+    private List<Path> targets(Path root, List<RenderedFile> files) {
+        List<Path> targets = new ArrayList<>();
+        for (RenderedFile file : files) {
+            targets.add(resolve(root, file.path()));
+        }
+        return targets;
+    }
+
+    private void writeOne(Path target, String content, Consumer<Path> kept) throws IOException {
+        keepForeign(target, kept);
+        replace(target, out -> out.write(content.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    /**
+     * The backup that a file of 1.x could not be moved to, because it is there and holds other bytes: neither file is
+     * changed. A refusal of its own (and no {@code FileAlreadyExistsException}), so the report of a failure names what the
+     * operator has to look at: the file and its backup.
+     */
+    static final class BackupDiffersException extends FileSystemException {
+
+        private static final long serialVersionUID = 1L;
+
+        BackupDiffersException(Path file, Path backup) {
+            super(file.toString(), backup.toString(), "the backup holds other bytes than the file");
+        }
+
+        /** Both files, as a report names them. */
+        String files() {
+            return getFile() + " and " + getOtherFile();
+        }
+    }
+
+    /**
      * A file of that name that this command did not render (the unit of a 1.x installation, a hand-written one) is moved to
      * {@code <file>.1x-backup} before it is replaced, so the old installation can be put back (the rollback of the migration).
-     * The move is a rename without {@code REPLACE_EXISTING}: an existing backup is never overwritten, the move fails and the
-     * write is refused with nothing of either file changed. A file this command rendered (it says so, {@link Text#MARKER}) is
-     * replaced as it is: every run after the first finds its own file.
+     * When the backup is already there it is never overwritten: with the same bytes as the file (the rollback of the README
+     * copies the backup back and leaves it) it is the backup of this very file, so it stays as it is and the file is replaced;
+     * with other bytes it is the backup of another file, the write is refused with {@link BackupDiffersException} and nothing of
+     * either file is changed. A file this command rendered (it says so, {@link Text#MARKER}) is replaced as it is: every run
+     * after the first finds its own file.
      */
     private void keepForeign(Path target, Consumer<Path> kept) throws IOException {
         if (!Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)
@@ -84,8 +131,14 @@ public final class DeployFiles {
             return;
         }
         Path backup = target.resolveSibling(target.getFileName() + BACKUP_SUFFIX);
-        // no REPLACE_EXISTING and no ATOMIC_MOVE (which may replace silently): a backup that exists makes the move fail
-        Files.move(target, backup);
+        if (Files.exists(backup, LinkOption.NOFOLLOW_LINKS)) {
+            if (!Files.isRegularFile(backup, LinkOption.NOFOLLOW_LINKS) || Files.mismatch(target, backup) != -1) {
+                throw new BackupDiffersException(target, backup);
+            }
+        } else {
+            // no REPLACE_EXISTING and no ATOMIC_MOVE (which may replace silently): a backup that appeared meanwhile fails the move
+            Files.move(target, backup);
+        }
         kept.accept(backup);
     }
 
