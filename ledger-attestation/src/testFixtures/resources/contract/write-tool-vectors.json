@@ -1,0 +1,11 @@
+{
+  "description": "Contract vectors of the ledger tool names: the ten write tools carry the host attestation, the read tools never do. The hook (WriteTool) and the server (ToolContract) are two programs, so both test against this file.",
+  "write": [
+    "ledger_save", "ledger_transition", "ledger_record_fix", "ledger_record_case", "ledger_link", "ledger_correct",
+    "ledger_batch", "ledger_review", "ledger_review_correct", "ledger_whoami"
+  ],
+  "read": [
+    "ledger_get", "ledger_defect", "ledger_task", "ledger_history", "ledger_search", "ledger_defects", "ledger_tasks",
+    "ledger_conditions", "ledger_attention", "ledger_stats", "ledger_projects", "ledger_codes"
+  ]
+}

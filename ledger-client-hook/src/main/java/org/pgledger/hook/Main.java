@@ -3,6 +3,7 @@ package org.pgledger.hook;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import org.pgledger.hook.keys.KeyFolder;
 import org.pgledger.hook.keys.SessionKeyStore;
 
 /**
@@ -16,6 +17,10 @@ import org.pgledger.hook.keys.SessionKeyStore;
  * ({@link KeyFolder#resolve}). Main reads the two values and the property {@code user.name} (the account that must own
  * the key folder), and the key store in the {@code keys} package is the only code that uses the folder.
  *
+ * <p>The objects are assembled by hand here, on purpose: the hook jar uses no Spring (no container, no component scan; it
+ * depends on the JDK-only {@code ledger-attestation} module and Jackson, HK-018) and a hook is one short process per
+ * call. The pieces that differ between hosts are the {@link HostDialect} implementations, chosen by {@link Client}.
+ *
  * <p>The classes are Java 25 class files. An older JVM refuses the jar by itself with
  * {@code UnsupportedClassVersionError} (class file version 69.0 = Java 25), before any of this code runs.
  */
@@ -27,7 +32,7 @@ public final class Main {
         KeyFolder folder = KeyFolder.resolve(System.getenv(KeyFolder.ENVIRONMENT_VARIABLE), System.getProperty("user.home"));
         // the account that owns the key folder and the key files: the file system's owner is compared with it
         HookCli cli = new HookCli(JsonCodec.create(), Clock.systemUTC(),
-                SessionKeyStore.at(folder.first(), folder.more(), System.getProperty("user.name")));
+                new SessionKeyStore(folder, System.getProperty("user.name")));
         int status = cli.run(args, System.in, System.out, System.err);
         PrintStream stdout = System.out;
         stdout.flush();

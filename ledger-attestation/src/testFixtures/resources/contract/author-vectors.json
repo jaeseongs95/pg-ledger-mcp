@@ -1,0 +1,43 @@
+{
+  "description": "Contract vectors of the author format: <vendor>:<session id>, vendor [a-z][a-z0-9-]{0,31}, session id [A-Za-z0-9._-]{1,128}; the vendor user is reserved for the owner and only the whole text user:owner is accepted with it. The hook (Author) and the server (AuthorId) are two programs, so both test against this file. A null value is the author that was not given at all.",
+  "valid": [
+    "claude:abc",
+    "codex:019a-b.c_d",
+    "gemini:x",
+    "antigravity:parent-1234_ab.cd",
+    "user:owner",
+    "a:b",
+    "a1-b2:Z9._-",
+    "abcdefghijklmnopqrstuvwxyz012345:s",
+    "claude:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "user-x:abc",
+    "usera:owner"
+  ],
+  "invalid": [
+    { "value": null, "why": "no author" },
+    { "value": "", "why": "empty" },
+    { "value": "claude", "why": "no colon" },
+    { "value": "claude:", "why": "empty session id" },
+    { "value": ":abc", "why": "empty vendor" },
+    { "value": "Claude:abc", "why": "vendor with an upper case letter" },
+    { "value": "1claude:abc", "why": "vendor starts with a digit" },
+    { "value": "-claude:abc", "why": "vendor starts with a hyphen" },
+    { "value": "cla_ude:abc", "why": "vendor with an underscore" },
+    { "value": "abcdefghijklmnopqrstuvwxyz0123456:s", "why": "vendor of 33 characters" },
+    { "value": "claude:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0", "why": "session id of 129 characters" },
+    { "value": "claude:a b", "why": "space in the session id" },
+    { "value": "claude:a:b", "why": "second colon" },
+    { "value": " claude:abc", "why": "leading space, no trimming" },
+    { "value": "claude:abc ", "why": "trailing space, no trimming" },
+    { "value": "claude:abc\n", "why": "trailing line feed" },
+    { "value": "claude:abc\r\n", "why": "trailing carriage return and line feed" },
+    { "value": "claude:a/b", "why": "slash in the session id" },
+    { "value": "claude:한글", "why": "non ASCII in the session id" },
+    { "value": "claude:١", "why": "non ASCII digit in the session id" },
+    { "value": "user:other", "why": "the vendor user accepts only owner" },
+    { "value": "user:", "why": "the vendor user with an empty session id" },
+    { "value": "user:Owner", "why": "owner is case sensitive" },
+    { "value": "user:owner ", "why": "owner with a trailing space" },
+    { "value": "user:owner\n", "why": "owner with a trailing line feed" }
+  ]
+}

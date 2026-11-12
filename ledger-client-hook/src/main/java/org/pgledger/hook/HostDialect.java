@@ -2,11 +2,13 @@ package org.pgledger.hook;
 
 import tools.jackson.core.JacksonException;
 
-/** How one host phrases its pre-tool-use event and the answer to it. */
+/**
+ * How one host phrases its pre-tool-use event and the answer to it, and how it spells the name of an MCP tool. This is
+ * the vendor boundary of the hook: everything that differs between the hosts (event fields, tool name shapes, answer
+ * documents) is in the implementation of that host, and the code that signs ({@link LedgerHook}) knows no host. A new
+ * host is a new implementation and one more constant of {@link Client}.
+ */
 sealed interface HostDialect permits ClaudeDialect, CodexDialect, AntigravityDialect {
-
-    /** The vendor prefix of the attestation this host produces. */
-    Vendor vendor();
 
     /**
      * Binds the host event and finds out whether it is a ledger write call and where its arguments and host id are.

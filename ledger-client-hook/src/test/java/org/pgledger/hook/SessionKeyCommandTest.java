@@ -23,6 +23,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.pgledger.attestation.AttestationToken;
 import org.pgledger.attestation.KeyBlock;
 import org.pgledger.attestation.PublicKeys;
+import org.pgledger.hook.keys.KeyFolder;
 import tools.jackson.databind.JsonNode;
 
 /** HK-028 (where the key folder is) and HK-029 (the session-key command). */
@@ -30,33 +31,48 @@ import tools.jackson.databind.JsonNode;
 class SessionKeyCommandTest {
 
     private static final String AUTHOR = "claude:session-29";
-    private static final List<String> DEFAULT_IN_HOME = List.of(".pg-ledger-mcp", "session-keys");
+    /** An absolute folder of this machine: the key folder is a {@link Path} now, and only an absolute one is usable. */
+    private static final Path BASE = Path.of("").toAbsolutePath();
 
     // ---- HK-028: the key folder ----
 
-    /** (value of LEDGER_HOOK_KEY_DIR, value of user.home, expected first element, expected further elements). */
+    /** (value of LEDGER_HOOK_KEY_DIR, value of user.home, the folder that is resolved). */
     static Stream<Arguments> folderCases() {
+        String keyDir = BASE.resolve("key-dir").toString();
+        String homeDir = BASE.resolve("home-dir").toString();
+        KeyFolder inHome = new KeyFolder.Usable(BASE.resolve("home-dir").resolve(".pg-ledger-mcp").resolve("session-keys"));
+        KeyFolder none = new KeyFolder.Unconfigured();
         return Stream.of(
-                Arguments.argumentSet("variable set", "key-dir", "home-dir", "key-dir", List.of()),
-                Arguments.argumentSet("variable set, no home", "key-dir", null, "key-dir", List.of()),
-                Arguments.argumentSet("variable not set", null, "home-dir", "home-dir", DEFAULT_IN_HOME),
-                Arguments.argumentSet("variable empty", "", "home-dir", "home-dir", DEFAULT_IN_HOME),
-                Arguments.argumentSet("variable blank", "  \t", "home-dir", "home-dir", DEFAULT_IN_HOME),
-                Arguments.argumentSet("neither", null, null, "", List.of()),
-                Arguments.argumentSet("blank both", " ", " ", "", List.of()));
+                Arguments.argumentSet("variable set", keyDir, homeDir, new KeyFolder.Usable(BASE.resolve("key-dir"))),
+                Arguments.argumentSet("variable set, no home", keyDir, null, new KeyFolder.Usable(BASE.resolve("key-dir"))),
+                Arguments.argumentSet("variable not set", null, homeDir, inHome),
+                Arguments.argumentSet("variable empty", "", homeDir, inHome),
+                Arguments.argumentSet("variable blank", "  \t", homeDir, inHome),
+                Arguments.argumentSet("neither", null, null, none),
+                Arguments.argumentSet("blank both", " ", " ", none));
     }
 
     @ParameterizedTest
     @MethodSource("folderCases")
-    @DisplayName("HK-028 the key folder is LEDGER_HOOK_KEY_DIR if set and not blank, otherwise <user.home>/.pg-ledger-mcp/session-keys")
-    void resolvesTheKeyFolder(String variable, String home, String first, List<String> more) {
-        KeyFolder folder = KeyFolder.resolve(variable, home);
-        assertThat(folder.first()).isEqualTo(first);
-        assertThat(folder.more()).isEqualTo(more);
-        if (home != null && variable == null) {
-            assertThat(Path.of(folder.first(), folder.more().toArray(String[]::new)))
-                    .isEqualTo(Path.of(home, ".pg-ledger-mcp", "session-keys"));
-        }
+    @DisplayName("HK-028 the key folder is LEDGER_HOOK_KEY_DIR if set and not blank, otherwise <user.home>/.pg-ledger-mcp/session-keys; neither: no folder is named")
+    void resolvesTheKeyFolder(String variable, String home, KeyFolder expected) {
+        assertThat(KeyFolder.resolve(variable, home)).isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"keys", "./keys", "../keys", "keys/.."})
+    @DisplayName("HK-028 a relative value of the variable is a Path that is not usable (Rejected), never resolved against the working directory")
+    void aRelativeFolderIsRejected(String relative) {
+        assertThat(KeyFolder.resolve(relative, "ignored")).isInstanceOf(KeyFolder.Rejected.class);
+        assertThat(KeyFolder.of(Path.of(relative))).isInstanceOf(KeyFolder.Rejected.class);
+    }
+
+    @Test
+    @DisplayName("HK-028 a value that is no path at all is Rejected with the reason as cause, not an exception of the resolution")
+    void aTextThatIsNoPathIsRejected() {
+        KeyFolder folder = KeyFolder.resolve("bad\u0000path", "ignored");
+        assertThat(folder).isInstanceOf(KeyFolder.Rejected.class);
+        assertThat(((KeyFolder.Rejected) folder).cause()).isNotNull();
     }
 
     @Test

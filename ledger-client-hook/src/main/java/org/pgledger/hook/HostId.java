@@ -1,26 +1,26 @@
 package org.pgledger.hook;
 
-import java.util.Optional;
+import java.util.Objects;
+import java.util.regex.Pattern;
 
-/** A host session or conversation id: 1 to 128 characters of {@code [A-Za-z0-9._-]}, the session part format of the ledger. */
-record HostId(String value) {
+/**
+ * A host session or conversation id: 1 to 128 characters of {@code [A-Za-z0-9._-]}, the session part of the author
+ * format of the ledger (see {@link Author}). The compact constructor refuses anything else; {@link HostIdentity#of}
+ * is the way in for text that is not known to be an id.
+ */
+record HostId(String value) implements HostIdentity {
 
-    private static final int MAX_LENGTH = 128;
+    private static final Pattern FORMAT = Pattern.compile("[A-Za-z0-9._-]{1,128}");
 
-    /** The id if {@code text} is of the allowed form; null (absent or not a JSON string) and other text give empty. */
-    static Optional<HostId> of(String text) {
-        if (text == null || text.isEmpty() || text.length() > MAX_LENGTH) {
-            return Optional.empty();
+    HostId {
+        Objects.requireNonNull(value, "value");
+        if (!accepts(value)) {
+            throw new IllegalArgumentException("not a host session id");
         }
-        for (int i = 0; i < text.length(); i++) {
-            if (!allowed(text.charAt(i))) {
-                return Optional.empty();
-            }
-        }
-        return Optional.of(new HostId(text));
     }
 
-    private static boolean allowed(char c) {
-        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+    /** Whether the text is of the allowed form; null (absent or not a JSON string) is not. */
+    static boolean accepts(String text) {
+        return text != null && FORMAT.matcher(text).matches();
     }
 }
