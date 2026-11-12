@@ -3,8 +3,11 @@ package org.pgledger.database.driver;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.pgledger.database.repository.SchemaHistoryRepository;
+import org.pgledger.database.schema.ApplicationAccountAccess;
+import org.pgledger.database.schema.SchemaProperties;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
+import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import java.util.List;
@@ -31,6 +34,8 @@ public final class DriverDataSources {
      */
     public static HikariDataSource create(RegisteredDriver registered, LedgerJdbcProperties properties,
             String schema) {
+        // a registration written by hand cannot make the embedded database the ledger database either
+        EmbeddedDatabaseRefusal.require(properties.url(), registered.driver().getClass().getName());
         registered.requireAccepts(properties.url());
         SimpleDriverDataSource simple = new SimpleDriverDataSource(registered.driver(), properties.url(),
                 properties.username(), properties.password());
@@ -42,6 +47,22 @@ public final class DriverDataSources {
             config.setSchema(foldedSchema(simple, schema));
         }
         return new HikariDataSource(config);
+    }
+
+    /**
+     * The check of the application account: a separate connection of that account (no pool, one connection per use) through the
+     * registered driver, used by {@code setup} while the run itself is connected as another account (the owner account).
+     *
+     * @param application the settings of the application account ({@code ledger.jdbc.*} without the owner account of the run)
+     */
+    public static ApplicationAccountAccess applicationAccess(RegisteredDriver registered, LedgerJdbcProperties application,
+            ResourcePatternResolver resolver, SchemaProperties schema) {
+        EmbeddedDatabaseRefusal.require(application.url(), registered.driver().getClass().getName());
+        registered.requireAccepts(application.url());
+        return new ApplicationAccountAccess(application.username(),
+                new SimpleDriverDataSource(registered.driver(), application.url(), application.username(),
+                        application.password()),
+                resolver, schema);
     }
 
     private static String foldedSchema(SimpleDriverDataSource simple, String schema) {

@@ -28,6 +28,8 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.cli.CliCommand;
 import org.pgledger.cli.deploy.DeployLayout;
 import org.pgledger.cli.deploy.RenderDeployCommand;
+import org.pgledger.cli.seed.InstallDefaults;
+import org.pgledger.cli.seed.PackagedSeed;
 import org.pgledger.domain.rule.ToolContract;
 import org.springframework.core.io.ClassPathResource;
 
@@ -336,7 +338,8 @@ class DocsTest {
     }
 
     static Stream<Arguments> installerNameCases() {
-        List<String> names = new ArrayList<>(List.of(DeployLayout.DEFAULT_NAME, DeployLayout.linux(DeployLayout.DEFAULT_NAME).adminName()));
+        String defaultName = new InstallDefaults(new PackagedSeed()).instanceName();
+        List<String> names = new ArrayList<>(List.of(defaultName, DeployLayout.linux(defaultName).adminName()));
         installerOptions().forEach(option -> names.add("--" + option));
         return languageAnd(names);
     }

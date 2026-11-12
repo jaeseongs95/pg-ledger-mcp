@@ -3,7 +3,7 @@
 # only what Java cannot do (create the operating system user, switch to it, enable and restart the units, reload nginx) and
 # everything else is `java -jar ledger-cli.jar <command>`: render-deploy --check (every option, validated first), prepare-host
 # (directories with owner and mode, the jars and the driver copied, units, settings, nginx site), secret-import-1x,
-# secret-set, token-generate, driver-register and migrate (schema and ANSI GRANTs).
+# secret-set, token-generate, driver-register and setup (schema, ANSI GRANTs and the seed codes of the new ledger).
 # Documentation it follows: Spring Boot, "Installing Spring Boot Applications" (a systemd unit in /etc/systemd/system,
 # `systemctl enable`): https://docs.spring.io/spring-boot/how-to/deployment/installing.html ; systemd.exec(5) (User=, the
 # sandboxing options of the rendered units); nginx proxy_module `proxy_set_header` (the rendered site).
@@ -11,7 +11,7 @@
 # secrets are readable by it alone, so the accounts the agents run as cannot read them. --name=<instance> gives an instance of
 # its own (services <name> and <name>-admin, /opt/<name>, /etc/<name>), so two can live on one host with their own ports; the
 # name is validated by Java (render-deploy --check) before anything is created. Two database accounts: the application account
-# (both servers and the owner commands) and the DDL account (migrate and the grants; its password is typed and not stored).
+# (both servers and the owner commands) and the DDL account (setup and the grants; its password is typed and not stored).
 # Run as root: sudo deploy/install.sh --jars=<dir> --driver-jar=<file> --driver-class=<class> --owner-account=<account>
 #   --app-account=<account> --jdbc-url=<url> [the other options of render-deploy]
 # Both accounts are created beforehand with the DBMS's own tools. It installs no package and no database. A re-run is an
@@ -26,7 +26,7 @@
 set -eu
 umask 022
 
-NAME=pg-ledger-mcp
+NAME=
 JARS=
 DRIVER_JAR=
 DRIVER_CLASS=
@@ -56,13 +56,15 @@ for arg in "$@"; do
     *) set -- "$@" "$arg" ;;
   esac
 done
+for v in "$JARS" "$DRIVER_JAR" "$DRIVER_CLASS" "$OWNER" "$APP_ACCOUNT"; do [ -n "$v" ] || die "an option is missing: see the header of this file"; done
+[ -z "$FROM_ENV" ] || [ -r "$FROM_ENV" ] || die "the 1.x environment file cannot be read: $FROM_ENV"
+JAVA=$(command -v java) || die "java is not installed"
+# The default name is an install default of the seed bundle, the one place the defaults are written: Java tells it.
+[ -n "$NAME" ] || NAME=$(java -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent install-default instance-name)
 SVC=$NAME
 ADMIN=$NAME-admin
 LIB=/opt/$NAME
 ETC=/etc/$NAME
-for v in "$JARS" "$DRIVER_JAR" "$DRIVER_CLASS" "$OWNER" "$APP_ACCOUNT"; do [ -n "$v" ] || die "an option is missing: see the header of this file"; done
-[ -z "$FROM_ENV" ] || [ -r "$FROM_ENV" ] || die "the 1.x environment file cannot be read: $FROM_ENV"
-JAVA=$(command -v java) || die "java is not installed"
 # Every option, the name included, is validated by Java before anything is created.
 java -Duser.timezone=UTC -jar "$JARS/ledger-cli.jar" --ledger.secrets.home=/nonexistent render-deploy --check --java="$JAVA" "$@"
 
@@ -82,8 +84,8 @@ as_svc token-generate ledger.mcp.token --print --copy-to=ledger.admin.agent-toke
 # The driver is registered after the secrets (a registered driver makes the commands connect).
 as_svc driver-register --jar="$ETC/drivers/${DRIVER_JAR##*/}" --class="$DRIVER_CLASS"
 
-# Schema and grants through the DDL account; its password is typed and not stored.
-as_svc migrate --owner-account="$OWNER" --app-account="$APP_ACCOUNT" $STDIN
+# The first setup through the DDL account (schema, grants, the seed codes); its password is typed and not stored.
+as_svc setup --owner-account="$OWNER" --app-account="$APP_ACCOUNT" $STDIN
 
 # systemctl: the service manager of the host, Java does not talk to it.
 systemctl daemon-reload

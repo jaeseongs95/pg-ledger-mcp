@@ -18,6 +18,9 @@ dependencies {
     // The MCP Java SDK client of mcp-check (the SDK the server runs on) and the Jackson 3 mapper it writes JSON with (Boot BOM).
     implementation(libs.mcp.sdk)
     implementation("tools.jackson.core:jackson-databind")
+    // The seed bundle (the initial data of a new installation) and its reader; the H2 driver that reads it comes with this
+    // module and is on the runtime class path of this tool only (the root build, DRV-014, allows it nowhere else).
+    implementation(project(":ledger-seed"))
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // ArchUnit 1.5.1: see gradle/libs.versions.toml
@@ -33,6 +36,44 @@ tasks.bootJar {
     archiveFileName = "ledger-cli.jar"
 }
 
+// The seed bundle (SETUP): the build writes the H2 file ledger-seed.mv.db from the text files of src/seed with a Java program
+// (SeedBuilder of ledger-seed, run on the JVM of the build) and packs it with the tool as a resource. The binary is generated,
+// never committed; the text files are the source and the only place the defaults of an installation are written.
+val seedBuilder by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+dependencies {
+    seedBuilder(platform(libs.spring.boot.bom))
+    seedBuilder(project(":ledger-seed"))
+}
+val seedSources = layout.projectDirectory.dir("src/seed")
+val seedOutput = layout.buildDirectory.dir("generated/seed")
+val generateSeed = tasks.register<JavaExec>("generateSeed") {
+    group = "build"
+    description = "Writes the seed bundle ledger-seed.mv.db (H2) from the text files of src/seed."
+    classpath = seedBuilder
+    mainClass = "org.pgledger.seed.SeedBuilder"
+    args(seedSources.asFile.absolutePath, seedOutput.get().asFile.absolutePath)
+    inputs.dir(seedSources).withPropertyName("seedSources")
+    outputs.dir(seedOutput).withPropertyName("seedOutput")
+}
+// The one place of the install defaults is src/seed/install-defaults.properties: the seed bundle carries it for the Java code, and
+// this puts the instance name into application.properties, whose placeholders are read before any bean exists (SET-053).
+val installDefaultsFile = seedSources.file("install-defaults.properties")
+val installDefaults = java.util.Properties().apply {
+    installDefaultsFile.asFile.reader(Charsets.UTF_8).use { load(it) }
+}
+tasks.processResources {
+    from(generateSeed) {
+        include("ledger-seed.mv.db")
+    }
+    inputs.file(installDefaultsFile).withPropertyName("installDefaults")
+    filesMatching("application.properties") {
+        filter<org.apache.tools.ant.filters.ReplaceTokens>("tokens" to mapOf("instance-name" to installDefaults.getProperty("instance-name")))
+    }
+}
+
 // DOC-001 .. DOC-029: the documentation tests read the READMEs, the release notes and the sources of the other modules as
 // text. The root of the repository is passed in, never guessed, and the files are inputs, so a change of a document or of
 // the code a document mirrors runs the tests again.
@@ -40,7 +81,8 @@ tasks.test {
     systemProperty("ledger.docs.root", rootProject.layout.projectDirectory.asFile.absolutePath)
     inputs.files(rootProject.fileTree(rootProject.layout.projectDirectory) {
         include("README*.md", "docs/**/*.md", "clients/**", "settings.gradle.kts", "build.gradle.kts",
-            "ledger-*/src/main/java/**/*.java")
+            "ledger-*/src/main/java/**/*.java", "ledger-cli/src/seed/**", "ledger-database/src/main/resources/**",
+            "deploy/*", "ledger-*/build.gradle.kts")
     }).withPropertyName("documentationSources")
 }
 

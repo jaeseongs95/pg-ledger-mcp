@@ -58,7 +58,9 @@ public enum ErrorCode {
     ENV_KEYS_MISSING,
     INVALID_1X_VALUE,
     HOST_FAILED,
-    HOST_UNSUPPORTED;
+    HOST_UNSUPPORTED,
+    APP_ACCOUNT_NO_ACCESS,
+    SEED_UNAVAILABLE;
 
     public String messageKey() {
         return "error." + name();

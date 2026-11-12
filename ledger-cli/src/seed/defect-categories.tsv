@@ -1,0 +1,15 @@
+code	name_ko	name_en	description_ko	description_en
+ARC	구조·의존 방향	Structure and dependency direction	core가 바깥 계층에 의존하거나 계약이 구체 구현에 묶인다(SOLID)	The core depends on outer layers or a contract is tied to a concrete implementation (SOLID).
+CON	동시성·원자성	Concurrency and atomicity	경합·재시도·잠금·lease 때문에 잘못된 상태가 된다	Races, retries, locks or leases cause an incorrect state.
+DAT	데이터 손실·복구	Data loss and recovery	데이터·백업이 사라지거나 복구 자료가 남지 않는다	Data or backups disappear, or recovery material is not retained.
+DENY	거짓 거부·과잉 차단	False refusal and excessive blocking	정당한 입력·호출·상태를 막거나 실패로 판정해 정상 동작이 멈춘다(GATE와 반대 방향)	Valid input, calls or states are blocked or judged failures, stopping normal operation (the opposite of GATE).
+DIAG	진단 오류	Incorrect diagnosis	원인과 다른 안내·고정 문구·잘못된 상태 표시	Guidance, fixed messages or status displays do not match the actual cause.
+DOC	문서·계약 모순	Documentation and contract contradictions	문서·스키마·설명이 실제 동작과 다르다	Documentation, schemas or descriptions differ from actual behavior.
+EXC	원인 소거·치환	Error cause suppression or substitution	예외를 삼키거나 다른 원인·코드로 바꿔 호출자가 실제 원인을 알 수 없게 된다	Swallowed exceptions or substituted causes or codes hide the actual failure from the caller.
+GATE	판정 우회·거짓 PASS	Gate bypass and false PASS	검증·게이트·하한이 실제 조건 없이 통과한다	Verification, gates or minimum requirements pass without meeting their actual conditions.
+HOST	host 확장성	Host extensibility	새 host·다른 host에서 동작이 빠지거나 다른 host 경로로 처리된다	Behavior is missing on a new or different host, or is handled through another host path.
+PKG	빌드·배포 산출물	Build and distribution artifacts	배포물·dist·패키지 구성이 소스와 다르거나 빠진다	Distributions, dist output or package contents differ from the source or are missing.
+RES	자원 상한	Resource limits	작업량·크기·시간 상한이 없거나 실제 상한이 아니다	Workload, size or time limits are absent or do not impose an actual bound.
+SEC	권한·신뢰 경계	Authorization and trust boundaries	권한 확인·신원·경로 경계가 우회되거나 신뢰하면 안 되는 값을 신뢰한다	Authorization, identity or path boundaries are bypassed, or untrusted values are trusted.
+TST	시험 공백·헛통과	Test gaps and false passes	시험이 결함을 잡지 못하거나 결함을 정답으로 고정한다	Tests fail to detect defects or encode defective behavior as the expected result.
+VND	벤더·모델 이름 결합	Vendor and model name coupling	벤더·모델·host 이름의 사전 등록이나 리터럴에 동작이 묶인다(SOLID O·D)	Behavior depends on preregistered vendor, model or host names, or name literals (SOLID O and D).

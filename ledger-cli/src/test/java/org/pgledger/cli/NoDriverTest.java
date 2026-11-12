@@ -34,6 +34,8 @@ class NoDriverTest {
     static Stream<Arguments> commandsThatNeedTheDatabase() {
         return Stream.of(
                 Arguments.of((Object) new String[] { "migrate" }),
+                // SET-018: the first setup uses the database like migrate (the seed is read first and needs no driver)
+                Arguments.of((Object) new String[] { "setup" }),
                 Arguments.of((Object) new String[] { "import-legacy" }),
                 Arguments.of((Object) new String[] { "import-legacy", "--verify-only" }),
                 Arguments.of((Object) new String[] { "project-add", "e2e", "E2E", "End-to-end test project" }),

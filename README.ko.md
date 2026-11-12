@@ -118,6 +118,7 @@ MCP를 직접 호출하는 쪽은 호스트로 인증되지 않습니다. bearer
 | `ledger-mcp-server` | Spring Boot MCP 서버(`ledger-mcp-server.jar`) |
 | `ledger-admin-web` | 소유자용 Spring Boot 관리 웹(`ledger-admin-web.jar`) |
 | `ledger-cli` | 소유자용 명령줄 도구(`ledger-cli.jar`) |
+| `ledger-seed` | 새 설치의 시드 번들(기본 결함 분류와 설치 기본값을 담은 H2 파일 하나)과 그 읽기 코드. `ledger-cli`만 사용합니다 |
 | `ledger-client-hook` | 모든 클라이언트가 함께 쓰는 훅 jar(`ledger-client-hook.jar`) |
 | `ledger-system-test` | 시험 코드만 있는 모듈: 빌드한 jar를 그 컴퓨터의 PostgreSQL에 대해 실행하는, 패키지된 제품의 시스템 시험 |
 
@@ -187,8 +188,9 @@ MCP를 직접 호출하는 쪽은 호스트로 인증되지 않습니다. bearer
   인스턴스나 기본 이름으로 아직 1.x가 도는 호스트 옆의 설치에는 자기 `--name=<name>`과 자기 포트만 있으면 됩니다.
 - **데이터베이스 계정 둘.** 설치 전에 DBMS의 도구로 만들어 둡니다(계정 생성은 ANSI SQL이 아니며 제품에 속하지 않습니다). 앱 계정은 두 서버와 `ledger-cli`의
   소유자 명령이 함께 쓰며, `migrate`가 `ledger-database/src/main/resources/db-templates/dml-grants.sql`의 최소 권한을 부여합니다(DDL 없음, 이력에
-  `UPDATE`와 `DELETE` 없음). DDL 계정은 `migrate`와 `import-legacy`에만 쓰며, 비밀번호는 숨김 입력으로 받고 저장하지 않습니다. 데이터베이스의 세션 시간대는
-  UTC여야 하고, 앱 계정이 스키마를 볼 수 있어야 합니다(DBMS의 단계입니다).
+  `UPDATE`와 `DELETE` 없음). DDL 계정은 `migrate`, `setup`, `import-legacy`에만 쓰며, 비밀번호는 숨김 입력으로 받고 저장하지 않습니다. 데이터베이스의 세션 시간대는
+  UTC여야 하고, 앱 계정이 스키마를 쓸 수 있도록 허용되어 있어야 합니다. 이는 DBMS의 단계이며 제품 SQL에 포함되지 않습니다. `setup`이 이를 확인하고 빠져 있으면
+  알려 줍니다(첫 설정 참조).
 - **jar와 드라이버.** `./gradlew build`로 jar를 빌드하고, 호스트에 필요한 jar 세 개를 한 디렉터리에 모읍니다. 데이터베이스의 JDBC 드라이버는 직접 구하며
   그 클래스를 지정합니다. 제품에 동봉되어 있지 않습니다.
 
@@ -201,7 +203,7 @@ cp ledger-cli/build/libs/ledger-cli.jar ledger-mcp-server/build/libs/ledger-mcp-
   합니다. `render-deploy --check`가 모든 옵션을 먼저 검증하고, `prepare-host`가 폴더를 소유자·모드·ACL과 함께 만들고, jar와 드라이버 jar를 복사하고, 서비스 정의와
   설정을 씁니다(`application.yaml`과 서비스별 파일 하나씩이 한 디렉터리에 놓입니다. 운영자의 설정은 그곳의 `local.yaml`에 두며, 마지막에 읽고 교체하지 않습니다).
   이어서 설치기는 `ledger-cli`로 비밀을 저장합니다. 앱 계정의 데이터베이스 비밀번호(숨김 입력), `ledger.admin.token`과 `ledger.mcp.token`(생성하며 그 단계의 끝에
-  한 번만 표시), 복사본 `ledger.admin.agent-token`입니다. 그리고 드라이버를 등록하고, DDL 계정으로 `migrate`를 실행하고, 두 서비스를 시작합니다. Java가 할 수 없어
+  한 번만 표시), 복사본 `ledger.admin.agent-token`입니다. 그리고 드라이버를 등록하고, DDL 계정으로 `setup`을 실행하고(스키마, 부여, 시드 코드. 첫 설정 참조), 두 서비스를 시작합니다. Java가 할 수 없어
   스크립트에 남는 것은 운영체제 사용자 생성(`useradd`), 그 사용자로 명령 시작(`runuser`), 서비스 관리자(`systemctl`, WinSW, `sc.exe`), `nginx -t`와 다시 읽기입니다.
   Java 25 확인은 JVM이 합니다. jar는 Java 25용으로 컴파일되어 다른 런타임은 읽지 못합니다. 내려받거나 설치하는 것은
   없습니다. 더 새로운 jar로 다시 실행하면 업그레이드입니다. 파일과 서비스는 교체되고, 스키마와 권한은 다시 적용되며, 비밀·토큰·데이터는 유지됩니다. 중간에 멈춘 실행도 같은 방법으로 고칩니다. 같은 옵션으로 다시 실행하면 됩니다(비밀을 저장하는 명령은
@@ -290,6 +292,29 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 합니다. 개인 PC에서는 관리 웹을 `http://localhost:8865`로 엽니다(포트는 `--admin-port=<n>`입니다). 관리 웹은 `Secure` 세션 쿠키를 설정하는데, 주요 브라우저는
 `localhost`를 보안 컨텍스트로 취급하므로 이를 받아들입니다.
 
+### 첫 설정
+
+설치 스크립트는 `setup`을 호출하며, 업그레이드한 뒤나 직접 준비한 데이터베이스에서는 운영자가 직접 실행합니다. 새 장부는 처음에 담을 데이터가 필요하므로 `ledger-cli`는
+시드 번들을 함께 가지고 있습니다. 시드 번들은 파일 `ledger-seed.mv.db`이며, 빌드가 `ledger-cli` 모듈의 텍스트 파일 `src/seed/defect-categories.tsv`와
+`src/seed/install-defaults.properties`에서 Java 프로그램으로 만들어 `ledger-cli.jar`에 넣습니다. 이 파일은 저장소에 커밋하지 않습니다. 번들에는 기본 결함 분류 14개
+(코드, 한국어·영어 이름과 설명)와 설치 기본값(인스턴스 이름과 두 포트)이 들어 있으며, 비밀값은 없습니다. 파일 형식이 H2 데이터베이스일 뿐이며 H2는 여기서 그 용도로만
+쓰입니다. 장부는 언제나 운영자가 설치한 데이터베이스 시스템에 저장되고, H2 드라이버나 H2의 JDBC URL을 등록하려 하면 `driver-register`와 관리 웹의 드라이버 화면이
+거절합니다.
+
+`setup [--owner-account=<account>] [--app-account=<account>] [--stdin]`은 `migrate`의 옵션을 그대로 받고, 다음 네 가지를 이 순서로 합니다.
+
+1. `migrate`와 똑같이 스키마를 마이그레이션하고 앱 계정의 부여를 적용합니다.
+2. 앱 계정의 연결로, 그 계정이 스키마를 쓸 수 있는지 확인합니다. 스키마를 쓸 수 있는 권한은 데이터베이스 시스템의 문장이며 제품 SQL에 포함되지 않습니다. 따라서 그 권한이
+   빠져 있으면 `setup`은 종료 코드 `3`으로 멈추고, 계정을 밝히고, 운영자가 데이터베이스 시스템의 도구로 그 권한을 줘야 한다고 알려 줍니다. 그 시점에는 그 밖의 것이 바뀌지
+   않았으며, 그 단계를 한 뒤 `setup`을 다시 실행하면 멈춘 곳에서 이어집니다.
+3. 장부에 아직 없는 시드 코드를 `code-set`과 관리 웹이 쓰는 서비스로 추가합니다. 코드 개정 번호와 소유자 감사 기록이 그대로 남습니다. 이미 있는 코드는 절대 바꾸지
+   않습니다. 이름을 바꾸거나 퇴역시킨 코드는 운영자가 둔 그대로 남습니다.
+4. 시드와 데이터베이스를 코드 개수와 SHA-256 다이제스트로 대조하고 보고를 출력합니다. `setup`을 다시 실행해도 아무것도 바뀌지 않고 같은 보고가 나옵니다. 시드와 다른 운영자의
+   코드는 바뀐 것으로 세고 그대로 둡니다.
+
+설치 기본값은 시드 번들 한 곳에 적습니다. `render-deploy`, `prepare-host`, `seal-host`는 옵션을 주지 않으면 이름과 포트를 거기서 가져오고, 설치 스크립트는
+`install-default <name>`(`instance-name`, `mcp-port`, `admin-port`)으로 받으므로 어느 스크립트도 기본값의 사본을 갖지 않습니다.
+
 ### 설치 뒤
 
 1. `ledger-cli mcp-check`로 MCP 서버를 확인합니다. 등록된 드라이버가 없으면 MCP 서버는 이유를 밝히고 멈추며, 관리 웹은 로그인과 드라이버 화면만 제공하는
@@ -313,6 +338,7 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 | `token-generate` | `token-generate <name> [--print] [--copy-to=<name>]` | 무작위 토큰(`SecureRandom` 32바이트)을 비밀로 저장합니다. 이미 있는 비밀은 그대로 두며, `--print`는 방금 만든 토큰을 한 번만 보여 줍니다. `--copy-to`는 같은 토큰을 두 번째 이름으로도 한 번 저장합니다 |
 | `secret-import-1x` | `secret-import-1x [--env=<file>] [--stdin]` | 1.x 설치의 토큰 두 개를(`DBHUB_AUTH_TOKEN`은 `ledger.mcp.token`과 `ledger.admin.agent-token`으로, `PGLEDGER_ADMIN_TOKEN`은 `ledger.admin.token`으로) 파일 또는 표준 입력으로 준 환경 파일에서 비밀 저장소로 옮깁니다. 이미 있는 비밀은 그대로 두며 값은 출력하지 않습니다 |
 | `migrate` | `migrate [--owner-account=<account>] [--app-account=<account>] [--stdin]` | 아직 적용하지 않은 스키마 파일을 적용하며(`--owner-account`를 주면 DDL 계정으로 실행하고 그 비밀번호는 입력받거나 `--stdin`이면 표준 입력에서 읽으며 저장하지 않습니다), 이어서 `dml-grants.sql`의 권한을 앱 계정에 부여합니다 |
+| `setup` | `setup [--owner-account=<account>] [--app-account=<account>] [--stdin]` | 첫 설정입니다. `migrate`처럼 마이그레이션하고, 앱 계정이 스키마를 쓸 수 있는지 확인하며(쓸 수 없으면 종료 코드 `3`과 빠진 단계를 알림), 없는 시드 코드를 추가하고(있는 코드는 바꾸지 않음), 시드와 데이터베이스를 개수와 다이제스트로 대조합니다. 다시 실행해도 아무것도 바뀌지 않습니다 |
 | `import-legacy` | `import-legacy [--verify-only] [--owner-account=<account>] [--stdin]` | 1.x 장부를 새 스키마로 복사하고 모든 표를 대조합니다. 장부 전체를 쓰므로 DDL 계정으로 실행합니다 |
 | `key-register` | `key-register <author> <public-key-or-block> <fingerprint> [--replace=<current-fingerprint>]` | 세션이 출력한 공개 키를 작성자에 묶습니다. 유효한 키는 `--replace`가 있어야 교체합니다 |
 | `key-revoke` | `key-revoke <author> --fingerprint=<fingerprint>` | 작성자의 유효한 키를 닫습니다 |
@@ -326,6 +352,7 @@ deploy\install.cmd dist <winsw-exe> <driver-jar> <driver-class> <ddl-account> <a
 | `render-deploy` | `render-deploy --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>] [--check]` | 서비스 정의(systemd 유닛, Windows에서는 WinSW 설정)와 설정, 선택적 nginx 사이트를 씁니다. 설치기가 호출합니다 |
 | `prepare-host` | `prepare-host --jars=<dir> --driver-jar=<file> [--winsw=<file>] --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | 호스트의 파일을 준비합니다(root로, Windows에서는 관리자 권한으로 실행). 폴더를 소유자·모드 또는 ACL과 함께 만들고, jar와 드라이버(Windows에서는 WinSW도)를 복사하고, `render-deploy`가 쓰는 것을 씁니다. 설치기가 호출합니다 |
 | `seal-host` | `seal-host --java=<path> --jdbc-url=<url> --app-account=<account> [--name=<name>] [--platform=<platform>] [--home=<path>] [--schema=<name>] [--long-text-type=<type>] [--mcp-port=<n>] [--admin-port=<n>] [--mcp-host=<host> --admin-host=<host>] [--nginx-conf=<path> --tls-certificate=<path> --tls-key=<path>] [--root=<directory>]` | Windows, 마지막 단계: LocalService에 필요한 접근을 주고 비밀을 넘깁니다. 설치기가 호출합니다 |
+| `install-default` | `install-default <name>` | 시드 번들에서 설치 기본값 하나(`instance-name`, `mcp-port`, `admin-port`)를 출력합니다. 설치기가 기본값을 이것으로 받습니다 |
 
 ## 관리 웹
 

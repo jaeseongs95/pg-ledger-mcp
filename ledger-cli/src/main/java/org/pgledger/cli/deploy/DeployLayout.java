@@ -5,8 +5,8 @@ import jakarta.validation.constraints.Pattern;
 import java.util.Locale;
 
 /**
- * Where an installation puts its files, and the names of it. An installation is an <em>instance</em> with a name (default
- * {@link #DEFAULT_NAME}): the product runs as two services, the MCP server (named {@code <name>}) and the admin web (named
+ * Where an installation puts its files, and the names of it. An installation is an <em>instance</em> with a name (the default
+ * is an install default, see {@code InstallDefaults}): the product runs as two services, the MCP server (named {@code <name>}) and the admin web (named
  * {@code <name>-admin}), under <b>one</b> operating system service account that belongs to no person (on Linux the system user
  * {@code <name>}). Its purpose is to keep the secrets of the ledger (the admin token, the database password) away from the
  * accounts the agents run as, so the secret directory is readable by the service account only. Everything an instance owns
@@ -62,8 +62,6 @@ public record DeployLayout(Platform platform,
         }
     }
 
-    /** The name of an instance that is not given another one. */
-    public static final String DEFAULT_NAME = "pg-ledger-mcp";
     /**
      * The one service account on Windows: the predefined local account LocalService, which "has minimum privileges on the
      * local computer and presents anonymous credentials on the network"

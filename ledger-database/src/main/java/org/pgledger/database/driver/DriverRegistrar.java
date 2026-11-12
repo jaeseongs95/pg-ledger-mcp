@@ -62,10 +62,13 @@ public final class DriverRegistrar {
     /**
      * Checks the jar and the class and describes the registration (nothing is stored).
      *
-     * @throws InfrastructureException DRIVER_INVALID with the jar or the class missing (naming the field), or with
+     * @throws InfrastructureException DRIVER_INVALID with the jar or the class missing (naming the field), with
+     *         {@link EmbeddedDatabaseRefusal#REASON} when the JDBC URL or the class names the embedded database H2, or with
      *         {@link #REFUSED_REASON} when the jar or the class cannot be used
      */
     public DriverRegistration check(String jar, String className, Instant registeredAt) {
+        // the embedded database is never the ledger database: decided before any file is looked at (and so before any code runs)
+        EmbeddedDatabaseRefusal.require(jdbcUrl, className);
         if (jar == null || jar.isBlank()) {
             throw new InfrastructureException(InfrastructureCode.DRIVER_INVALID, List.of("the jar path is missing"));
         }

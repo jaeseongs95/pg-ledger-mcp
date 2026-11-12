@@ -3,10 +3,10 @@ package org.pgledger.cli;
 import java.util.List;
 
 /**
- * A command was refused. The two permitted kinds decide the exit code in {@link CliErrorTranslator}; the arguments are
+ * A command was refused. The three permitted kinds decide the exit code in {@link CliErrorTranslator}; the arguments are
  * message parameters (paths, modes) and never a secret value or user-typed text.
  */
-public abstract sealed class CliException extends RuntimeException permits UsageException, FailureException {
+public abstract sealed class CliException extends RuntimeException permits UsageException, FailureException, OperatorStepException {
 
     private static final long serialVersionUID = 1L;
 

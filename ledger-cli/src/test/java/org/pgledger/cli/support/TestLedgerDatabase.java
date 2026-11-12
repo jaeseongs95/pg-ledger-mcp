@@ -86,6 +86,18 @@ public final class TestLedgerDatabase implements AutoCloseable {
         return new JdbcTemplate(TestDatabase.scoped(TestDatabase.shared().appPool(), schema.name()));
     }
 
+    /**
+     * The connections of the application account to this schema, as the check of {@code setup} uses them. With {@code letIn}
+     * the account is let into the schema first ({@code USAGE}, the step an operator does with the tools of the DBMS); without
+     * it the account is as a new installation has it before the operator did that step.
+     */
+    public DataSource applicationDataSource(boolean letIn) {
+        if (letIn) {
+            schema.allowUsage(appAccount());
+        }
+        return TestDatabase.scoped(TestDatabase.shared().appPool(), schema.name());
+    }
+
     /** The rows of an ANSI query (the column names are the lower-case names of PostgreSQL). */
     public List<Map<String, Object>> rows(String sql, Object... arguments) {
         return jdbc.queryForList(sql, arguments);

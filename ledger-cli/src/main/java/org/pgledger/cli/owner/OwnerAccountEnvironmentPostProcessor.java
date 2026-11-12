@@ -33,8 +33,12 @@ public final class OwnerAccountEnvironmentPostProcessor implements EnvironmentPo
     /** The flag that takes the password from standard input instead of the terminal. */
     public static final String STDIN = "stdin";
 
-    /** The commands that declare the option: the schema migration and the legacy import ({@code CliCommand.cliName}). */
-    private static final Set<String> COMMANDS = Set.of(CliCommand.MIGRATE.cliName(), CliCommand.IMPORT_LEGACY.cliName());
+    /**
+     * The commands that declare the option: the schema migration, the first setup (which migrates) and the legacy import
+     * ({@code CliCommand.cliName}).
+     */
+    private static final Set<String> COMMANDS = Set.of(CliCommand.MIGRATE.cliName(), CliCommand.SETUP.cliName(),
+            CliCommand.IMPORT_LEGACY.cliName());
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {

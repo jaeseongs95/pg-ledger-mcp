@@ -469,8 +469,8 @@ class DeployRendererTest {
     void ins040_theDefaultName() {
         assertThat(render(named(withSite(), "pg-ledger-mcp"))).isEqualTo(render(withSite()));
         assertThat(render(named(personalPc(), "pg-ledger-mcp"))).isEqualTo(render(personalPc()));
-        assertThat(DeployLayout.DEFAULT_NAME).isEqualTo("pg-ledger-mcp");
-        assertThat(DeployLayout.linux(DeployLayout.DEFAULT_NAME).adminName()).isEqualTo("pg-ledger-mcp-admin");
+        assertThat(DeployTestBeans.defaults().instanceName()).isEqualTo("pg-ledger-mcp");
+        assertThat(DeployLayout.linux(DeployTestBeans.defaults().instanceName()).adminName()).isEqualTo("pg-ledger-mcp-admin");
     }
 
     static Stream<String> badNames() {

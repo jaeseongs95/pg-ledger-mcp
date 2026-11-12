@@ -55,9 +55,6 @@ public record DeployParameters(
         @Pattern(regexp = DeployForms.HOST, message = DeployOptions.ADMIN_HOST) String adminHost,
         @Valid Nginx nginx) {
 
-    public static final int DEFAULT_MCP_PORT = 8765;
-    public static final int DEFAULT_ADMIN_PORT = 8865;
-
     /** The nginx site: the file and the TLS certificate and key of the operator (nothing issues or renews them). */
     public record Nginx(
             @NotNull(message = DeployOptions.NGINX_CONF)

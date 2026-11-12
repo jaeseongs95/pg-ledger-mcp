@@ -108,6 +108,13 @@ val forbiddenRuntime = listOf(
     "com.microsoft.sqlserver", "org.liquibase", "org.flywaydb", "org.hibernate.orm", "jakarta.persistence",
     "org.projectlombok", "info.picocli", "org.springframework.shell", "org.zeroturnaround",
 )
+// The one exception (DRV-014, SETUP): the H2 driver, on ledger-seed and on ledger-cli (which uses it) only. H2 gives the format of
+// the seed bundle, the initial data of a new installation that `ledger-cli setup` moves into the ledger database, and nothing
+// else: the ledger database is always a DBMS the operator installs (user decision 「dbms 설치가 전제라니까?」, 「h2는 그런목적으로만
+// 쓰라고.」), the product refuses to register H2 as it, and the MCP server and the admin web keep zero JDBC drivers. The system test
+// (DRV-013) looks for the driver in the built jars of the three applications.
+val embeddedDriverGroup = "com.h2database"
+val embeddedDriverModules = setOf("ledger-seed", "ledger-cli")
 val verifyRuntimeClasspath by tasks.registering {
     group = "verification"
     description = "Fails when a forbidden artifact is on the runtime classpath of a module."
@@ -116,7 +123,8 @@ val verifyRuntimeClasspath by tasks.registering {
         subprojects.forEach { p ->
             p.configurations.getByName("runtimeClasspath").resolvedConfiguration.resolvedArtifacts.forEach { a ->
                 val group = a.moduleVersion.id.group
-                if (forbiddenRuntime.any { group == it || group.startsWith("$it.") }) {
+                val seedReader = group == embeddedDriverGroup && p.name in embeddedDriverModules
+                if (!seedReader && forbiddenRuntime.any { group == it || group.startsWith("$it.") }) {
                     problems += "${p.name}: ${a.moduleVersion.id}"
                 }
             }
