@@ -40,7 +40,7 @@
     </tr></thead>
     <tbody>
       <tr th:each="t : ${page.items()}">
-        <td><a th:href="@{/tasks/{id}(id=${t.id()})}" th:text="${t.id()}">ID</a></td>
+        <td><a th:href="@{/tasks/detail(id=${t.id()})}" th:text="${t.id()}">ID</a></td>
         <td><span th:class="'badge badge-' + ${t.state()}" th:text="${t.state()}">ACTIVE</span></td>
         <td th:text="${t.title()}">Title</td><td th:text="${t.ownerActorId()}">owner</td>
         <td><time th:replace="~{fragments :: time(${t.updatedAt()})}">t</time></td>

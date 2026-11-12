@@ -15,7 +15,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 
 /** The tasks and the release conditions of a project (filtered, paged) and the detail of a task. */
 @Controller
@@ -67,8 +67,12 @@ public class TasksController {
         return "tasks";
     }
 
-    @GetMapping("/tasks/{id}")
-    String task(@PathVariable("id") String id, Model model) {
+    /**
+     * The page of one task. The id is a query parameter and not a path segment: the ids of 1.x contain characters (a slash,
+     * a number sign, a question mark) that a path segment cannot carry, and the web container refuses an encoded slash.
+     */
+    @GetMapping("/tasks/detail")
+    String task(@RequestParam("id") String id, Model model) {
         model.addAttribute("task", details.task(id));
         return "task";
     }

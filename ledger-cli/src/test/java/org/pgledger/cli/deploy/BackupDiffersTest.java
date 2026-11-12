@@ -40,7 +40,7 @@ class BackupDiffersTest {
         Files.writeString(unit, ONE_X + "# changed since\n", StandardCharsets.UTF_8);
         Files.writeString(backup, ONE_X, StandardCharsets.UTF_8);
 
-        assertThatThrownBy(() -> files.writeIntoHost(tmp, List.of(new RenderedFile(UNIT, RENDERED)), path -> { }))
+        assertThatThrownBy(() -> files.writeIntoHost(tmp, List.of(new RenderedFile(UNIT, RENDERED)), (path, how) -> { }))
                 .isInstanceOfSatisfying(DeployFiles.BackupDiffersException.class, refused -> {
                     assertThat(refused.getFile()).isEqualTo(unit.toString());
                     assertThat(refused.getOtherFile()).isEqualTo(backup.toString());

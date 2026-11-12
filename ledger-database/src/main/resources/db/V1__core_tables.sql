@@ -46,21 +46,29 @@ CREATE TABLE id_counter (
     'OWNER_AUDIT'))
 );
 
+-- The id of a task and of a condition is a text of 1.x (any case, 1 to 120 characters). id_key is that id in upper case, filled
+-- by the application, and is UNIQUE, so that two ids that differ only in case are one id on every DBMS whatever its collation
+-- is (no trigger, no function index: a unique key on a column is portable). The columns that were NOT NULL in 1.x with
+-- '' allowed (purpose, success_condition, behavior, root_cause, condition_text) are nullable: no column holds '' (an
+-- Oracle-type DBMS cannot), the application stores NULL for an empty text and returns an empty text as 1.x did. origin_ref is a
+-- long text as well (text without a limit in 1.x, 9408 characters in production).
 CREATE TABLE task (
   id VARCHAR(120) NOT NULL,
+  id_key VARCHAR(360) NOT NULL,
   project_id VARCHAR(64) NOT NULL,
   title VARCHAR(300) NOT NULL,
-  purpose ${longtext} NOT NULL,
-  success_condition ${longtext} NOT NULL,
+  purpose ${longtext},
+  success_condition ${longtext},
   state VARCHAR(20) NOT NULL,
   owner_actor_id VARCHAR(200),
-  origin_ref VARCHAR(500),
+  origin_ref ${longtext},
   origin_quote VARCHAR(2000),
   version BIGINT NOT NULL,
   created_at TIMESTAMP NOT NULL,
   updated_at TIMESTAMP NOT NULL,
   created_by VARCHAR(200) NOT NULL,
   CONSTRAINT pk_task PRIMARY KEY (id),
+  CONSTRAINT uq_task_id_key UNIQUE (id_key),
   CONSTRAINT fk_task_project FOREIGN KEY (project_id) REFERENCES project (id),
   CONSTRAINT ck_task_state CHECK (state IN ('UNKNOWN', 'PLANNED', 'ACTIVE', 'BLOCKED', 'REPORTED_DONE', 'VERIFIED',
     'CANCELLED'))
@@ -75,8 +83,8 @@ CREATE TABLE defect (
   severity VARCHAR(32) NOT NULL,
   status VARCHAR(20) NOT NULL,
   merged_into VARCHAR(120),
-  behavior ${longtext} NOT NULL,
-  root_cause ${longtext} NOT NULL,
+  behavior ${longtext},
+  root_cause ${longtext},
   owner_actor_id VARCHAR(200),
   case_seq BIGINT DEFAULT 0 NOT NULL,
   version BIGINT NOT NULL,
@@ -102,7 +110,7 @@ CREATE TABLE defect_fix (
   repo VARCHAR(300) NOT NULL,
   commit_sha VARCHAR(40) NOT NULL,
   branch VARCHAR(300),
-  ci_ref VARCHAR(500),
+  ci_ref VARCHAR(2000),
   ci_conclusion VARCHAR(10),
   ci_completed_at TIMESTAMP,
   recorded_by VARCHAR(200) NOT NULL,
@@ -153,15 +161,17 @@ CREATE TABLE defect_relation (
 
 CREATE TABLE release_condition (
   id VARCHAR(120) NOT NULL,
+  id_key VARCHAR(360) NOT NULL,
   project_id VARCHAR(64) NOT NULL,
   release_name VARCHAR(100) NOT NULL,
   goal_label VARCHAR(200),
-  code VARCHAR(64) NOT NULL,
-  condition_text ${longtext} NOT NULL,
+  code VARCHAR(200) NOT NULL,
+  condition_text ${longtext},
   state VARCHAR(10) NOT NULL,
   version BIGINT NOT NULL,
   created_by VARCHAR(200) NOT NULL,
   CONSTRAINT pk_release_condition PRIMARY KEY (id),
+  CONSTRAINT uq_condition_id_key UNIQUE (id_key),
   CONSTRAINT fk_condition_project FOREIGN KEY (project_id) REFERENCES project (id),
   CONSTRAINT uq_condition_code UNIQUE (project_id, release_name, code),
   CONSTRAINT ck_condition_state CHECK (state IN ('UNKNOWN', 'MET', 'NOT_MET'))

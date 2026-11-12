@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 import org.pgledger.domain.error.ValidationException;
 
 /**
- * Id of a task: free upper-case text ({@link EntityId#PATTERN}); the server issues {@code <CODE>-T-NNNN}. The number of
+ * Id of a task: free text ({@link EntityId#PATTERN}, the ids of 1.x in any case); the server issues {@code <CODE>-T-NNNN}. The number of
  * an issued id has at most 18 digits (as in {@link DefectId}), so it fits a {@code long}; a free id that does not have
  * that form has no number.
  */
@@ -33,6 +33,11 @@ public record TaskId(String value) {
 
     public static TaskId of(String value) {
         return new TaskId(value);
+    }
+
+    /** The key under the UNIQUE constraint of the table: the id in upper case ({@link EntityId#key}). */
+    public String key() {
+        return EntityId.key(value);
     }
 
     /** The id the server issues for task number {@code number} of a project. */

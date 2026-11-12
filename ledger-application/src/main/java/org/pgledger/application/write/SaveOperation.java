@@ -173,8 +173,12 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
                     throw ValidationException.invalid("id", ValidationReason.REQUIRED_FOR_CONDITION);
                 }
                 ConditionId conditionId = ConditionId.of(explicitId);
-                if (conditions.existsById(conditionId) || conditions.findByProjectIdAndReleaseAndCode(
-                        project.id(), f.release().orNull(), f.code().orNull()).isPresent()) {
+                // the id of another case is the same id (the key is UNIQUE); the refusal names the id that exists
+                conditions.findByIdKey(conditionId.key()).ifPresent(existing -> {
+                    throw duplicate(HistoryEntity.CONDITION, existing.id().value());
+                });
+                if (conditions.findByProjectIdAndReleaseAndCode(project.id(), f.release().orNull(), f.code().orNull())
+                        .isPresent()) {
                     throw duplicate(HistoryEntity.CONDITION, conditionId.value());
                 }
                 Condition saved = inserted(() -> conditions.save(Condition.open(conditionId, f)), HistoryEntity.CONDITION,
@@ -185,7 +189,10 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
         }
         ChangeSet changes = ChangeSet.empty();
         for (Map.Entry<String, String> field : mentioned.entrySet()) {
-            changes = changes.with(field.getKey(), null, field.getValue());
+            // an empty text (purpose, behavior ...) is no value: the row holds NULL, so there is nothing to record
+            if (!"".equals(field.getValue())) {
+                changes = changes.with(field.getKey(), null, field.getValue());
+            }
         }
         long historyId = history.append(ctx, HistoryWriter.Entry.of(entity, id, HistoryOp.CREATE, changes));
         return new SaveResult(WriteStatus.COMMITTED, entity.token(), id, version, historyId, ctx.author().value(),
@@ -218,13 +225,15 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
             TaskId candidate;
             do {
                 candidate = TaskId.issue(project.code(), ids.nextTaskNo(project.code()));
-            } while (tasks.existsById(candidate));
+            } while (tasks.findByIdKey(candidate.key()).isPresent());
             return candidate;
         }
         TaskId candidate = TaskId.of(explicit);
-        if (tasks.existsById(candidate)) {
-            throw duplicate(HistoryEntity.TASK, explicit);
-        }
+        // the id of another case is the same id (the key is UNIQUE): the refusal names the id that exists, and a create that
+        // races with the one of another case is stopped by the key itself (see inserted)
+        tasks.findByIdKey(candidate.key()).ifPresent(existing -> {
+            throw duplicate(HistoryEntity.TASK, existing.id().value());
+        });
         // a free id has a number only in the form the server issues (at most 18 digits); any other id raises nothing
         candidate.numberIn(project.code()).ifPresent(number -> ids.raiseTaskNo(project.code(), number));
         return candidate;

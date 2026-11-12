@@ -506,6 +506,27 @@ class DocsTest {
 
     @ParameterizedTest
     @EnumSource(Language.class)
+    @DisplayName("REH3-DOC-01 the migration of the README and of each part of the 2.0.0 note say that the ids of 1.x are kept (1 to 120 characters, any case), that ids that differ only in case are refused, that an empty text of 1.x reads as an empty string, and which columns are longer (code 200, ci_ref 2000)")
+    void migrationSaysWhatHappensToIdsAndTexts(Language language) {
+        boolean english = language == Language.EN;
+        String readme = language.readme().part(english ? "Migrating from 1.x" : "1.x에서 이전").text();
+        String part = note().part(language.partHeading()).text();
+
+        for (String text : List.of(readme, part)) {
+            if (english) {
+                assertThat(text).contains("ids of 1.x are kept as they are").contains("1 to 120 characters")
+                        .contains("differ only in case").contains("empty text").contains("`code` of a condition (200")
+                        .contains("`ci_ref` (2000");
+            } else {
+                assertThat(text).contains("1.x의 ID는 그대로 유지").contains("1자 이상 120자 이하")
+                        .contains("대소문자만 다른").contains("빈 문자열").contains("조건의 `code`(200자")
+                        .contains("`ci_ref`(2000자");
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
     @DisplayName("W7-INS-03 both READMEs list --java=<path> among the options of install.sh and say that the Java runtime is at a path every account can execute, not under /home; so does each part of the 2.0.0 note")
     void javaRuntimeIsAtAPathEveryAccountCanExecute(Language language) {
         String installation = language.readme().part(language == Language.EN ? "Installation" : "설치").text();

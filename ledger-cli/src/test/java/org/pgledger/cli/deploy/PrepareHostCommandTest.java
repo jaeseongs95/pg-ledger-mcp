@@ -131,9 +131,13 @@ class PrepareHostCommandTest {
         Files.createDirectories(unit.getParent());
         Files.writeString(unit, "[Unit]\nDescription=1.x\n");
 
-        Outcome result = run(cli.withHostAccounts(testUser()), new RecordingOutput());
+        RecordingOutput output = new RecordingOutput();
+
+        Outcome result = run(cli.withHostAccounts(testUser()), output);
 
         assertThat(result.code()).isEmpty();
+        // REH3-INS-01: the first run says it moved the previous file
+        assertThat(output.info()).contains("Kept the previous file of that name as").doesNotContain("already holds the same bytes");
         assertThat(mode(etc)).isEqualTo("rwxr-x---");
         assertThat(Files.readString(lib.resolve(DeployLayout.CLI_JAR))).isEqualTo("content of ledger-cli.jar");
         assertThat(Files.readString(unit.resolveSibling("pg-ledger-mcp.service.1x-backup"))).isEqualTo("[Unit]\nDescription=1.x\n");
@@ -160,6 +164,8 @@ class PrepareHostCommandTest {
         assertThat(Files.readString(backup)).isEqualTo(ONE_X_UNIT);
         assertThat(Files.readString(unit)).contains("Rendered by `ledger-cli render-deploy`").doesNotContain("Description=1.x");
         assertThat(output.info()).contains(backup.toString()).contains("Prepared the host for the instance pg-ledger-mcp");
+        // REH3-INS-02: the backup was there already; the first-run sentence ("Kept the previous file") is not printed
+        assertThat(output.info()).contains("already holds the same bytes").doesNotContain("Kept the previous file");
     }
 
     @Test

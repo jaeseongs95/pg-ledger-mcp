@@ -21,8 +21,9 @@ public class Links {
     }
 
     /**
-     * The page of an item of the attention list, as the link base with the placeholder {@code {id}}: the defect page for a
-     * defect and the task page for a task. The kind of the item is decided as the {@link HistoryEntity} that its text
+     * The page of an item of the attention list, as the link base the page gives the {@code id} to: the defect page
+     * ({@code /defects/{id}}, the id is a path segment) for a defect and the task page ({@code /tasks/detail}, the id is a query
+     * parameter: the ids of 1.x may contain a slash) for a task. The kind of the item is decided as the {@link HistoryEntity} that its text
      * names, not by comparing the text in the page.
      *
      * @throws org.pgledger.domain.error.ValidationException when the text names no kind of row
@@ -32,7 +33,7 @@ public class Links {
     public String itemPage(String entity) {
         return switch (Tokens.parse("entity", entity, HistoryEntity.values())) {
             case DEFECT -> "/defects/{id}";
-            case TASK -> "/tasks/{id}";
+            case TASK -> "/tasks/detail";
             case CONDITION, DEFECT_FIX, DEFECT_TASK, DEFECT_RELATION, CONDITION_LINK, DEFECT_CASE ->
                 throw new IllegalArgumentException("the attention list has no item of the kind " + entity);
         };

@@ -114,6 +114,17 @@ public class Seeds {
                 new SaveCommand(null, "task", null, 0L, fieldsOf(fields), REASON))).id();
     }
 
+    /** A task with an id of its own (an id of 1.x: any case, with characters such as {@code / # ? :}). */
+    public String task(Seeded seeded, String id, String title) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("project_id", seeded.project());
+        fields.put("title", title);
+        fields.put("purpose", "purpose of " + title);
+        fields.put("success_condition", "success of " + title);
+        return signed("ledger_save", attestation -> saves.save(attestation,
+                new SaveCommand(null, "task", id, 0L, fieldsOf(fields), REASON))).id();
+    }
+
     public String condition(Seeded seeded, String suffix, String release, String conditionCode) {
         Map<String, String> fields = new LinkedHashMap<>();
         fields.put("project_id", seeded.project());

@@ -15,11 +15,17 @@ public enum TextRule {
     ROOT_CAUSE(4000, false),
     PURPOSE(4000, false),
     SUCCESS_CONDITION(4000, false),
-    ORIGIN_REF(500, false),
+    /**
+     * 20000: {@code origin_ref} is a long text column ({@code text} without a limit in 1.x, up to 9408 characters in the production
+     * ledger). The write limit is above the longest value of 1.x so that an imported value can be saved again; the request
+     * size of the server bounds the rest.
+     */
+    ORIGIN_REF(20000, false),
     ORIGIN_QUOTE(2000, false),
     RELEASE(100, false),
     GOAL_LABEL(200, false),
-    CONDITION_CODE(64, false),
+    /** 200: the longest code of the 1.x ledger is 79 characters (the column held 64 in earlier 2.0 builds). */
+    CONDITION_CODE(200, false),
     CONDITION_TEXT(4000, false),
     OBSERVATION(4000, true),
     EVIDENCE(2000, true),
@@ -27,7 +33,8 @@ public enum TextRule {
     GRANT_NOTE(500, false),
     REPO(300, false),
     BRANCH(300, false),
-    CI_REF(500, true),
+    /** 2000: the longest CI reference of the 1.x ledger is 533 characters (the column held 500 in earlier 2.0 builds). */
+    CI_REF(2000, true),
     EVIDENCE_URI(2000, true),
     PROJECT_TITLE(200, true),
     CODE_NAME(200, true),
@@ -56,6 +63,26 @@ public enum TextRule {
             throw ValidationException.invalid(path(), ValidationReason.REQUIRED);
         }
         return value;
+    }
+
+    /**
+     * The value of a field that has to be given and may be empty (the NOT NULL columns of 1.x that allowed {@code ''}: purpose,
+     * success condition, behavior, root cause, condition text): {@code null} is a validation failure (REQUIRED), a blank text is
+     * the empty text {@code ""}, which the row stores as NULL (see {@link #emptyToNull}); too long is a validation failure.
+     */
+    public String givenOrEmpty(String raw) {
+        if (raw == null) {
+            throw ValidationException.invalid(path(), ValidationReason.REQUIRED);
+        }
+        return raw.isBlank() ? "" : optional(raw);
+    }
+
+    /**
+     * The text a row stores: NULL for an empty text (no column holds {@code ''}: a DBMS of the Oracle kind cannot, and the
+     * two would be different values otherwise). The tools show such a field as {@code ""} again, as 1.x did.
+     */
+    public static String emptyToNull(String text) {
+        return text == null || text.isEmpty() ? null : text;
     }
 
     /** The value, or {@code null} when it is absent or blank; too long is a validation failure. */

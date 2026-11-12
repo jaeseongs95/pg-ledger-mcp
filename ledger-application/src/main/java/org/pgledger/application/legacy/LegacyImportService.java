@@ -2,6 +2,7 @@ package org.pgledger.application.legacy;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -49,7 +50,8 @@ import org.springframework.transaction.annotation.Transactional;
  * and the comparison reads back only the keys of the legacy side.</li>
  * <li>The legacy schema must be complete (its installer steps, MIG-021); otherwise {@link LookupCode#NOT_FOUND}.</li>
  * <li>Validation pass: every legacy row is mapped ({@link LegacyRowMapper}); every row that cannot be imported as it is
- * (an empty text in a NOT NULL column, an id that is not an upper-case id, a text longer than its column ...) is
+ * (an empty text in a NOT NULL column that identifies a row, an id that is malformed or differs only in case from another of its
+ * kind, a text longer than its column ...) is
  * collected, and when there is any the import stops with one {@link ValidationException} that lists them all
  * (MIG-023, MIG-028). Nothing is written, no value is invented. The numbers the legacy ledger used are collected in the
  * same pass.</li>
@@ -186,12 +188,24 @@ public class LegacyImportService {
         List<LegacyViolation> violations = new ArrayList<>();
         for (LegacyTable table : LegacyTable.values()) {
             List<LegacyRow> defects = new ArrayList<>();
+            // the ids of a task or a condition that were seen, by their upper-case key: a second id with the same key differs
+            // from the first only in case, and the new schema refuses that (its key column is UNIQUE, REH3-IMP-02)
+            Map<String, String> idsByKey = new HashMap<>();
             source.scan(table, row -> {
                 counters.collect(table, row);
                 LegacyRowMapper.Mapped mapped = mapper.map(table, row, rules.get(table), counters);
                 violations.addAll(mapped.violations());
                 if (table == LegacyTable.DEFECT) {
                     defects.add(mapped.row());
+                }
+                if (table == LegacyTable.TASK || table == LegacyTable.RELEASE_CONDITION) {
+                    String id = mapped.row().text("id");
+                    String key = mapped.row().text("id_key");
+                    String first = id == null ? null : idsByKey.putIfAbsent(key, id);
+                    if (first != null && !Objects.equals(first, id)) {
+                        violations.add(new LegacyViolation(table.targetName(), id, "id",
+                                ValidationReason.ID_DIFFERS_ONLY_IN_CASE, List.of(first)));
+                    }
                 }
             });
             if (table == LegacyTable.DEFECT) {

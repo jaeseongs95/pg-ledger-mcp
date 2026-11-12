@@ -108,7 +108,7 @@ public class PrepareHostCommand implements Command {
                 platform.prepareTls(layout, input.root());
             }
             for (Path file : files.writeIntoHost(input.root(), renderer.render(parameters),
-                    backup -> output.info(messages.get("render-deploy.kept", backup.toString())))) {
+                    BackupNotice.told(output, messages))) {
                 output.info(messages.get("render-deploy.written", file.toString()));
             }
         } catch (IOException e) {

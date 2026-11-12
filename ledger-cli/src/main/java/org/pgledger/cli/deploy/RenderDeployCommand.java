@@ -73,8 +73,7 @@ public class RenderDeployCommand implements Command {
             output.info(messages.get("render-deploy.checked", parameters.layout().name()));
             return;
         }
-        for (Path file : files.write(root, renderer.render(parameters),
-                backup -> output.info(messages.get("render-deploy.kept", backup.toString())))) {
+        for (Path file : files.write(root, renderer.render(parameters), BackupNotice.told(output, messages))) {
             output.info(messages.get("render-deploy.written", file.toString()));
         }
     }

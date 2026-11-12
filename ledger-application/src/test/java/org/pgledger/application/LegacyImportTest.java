@@ -928,7 +928,7 @@ class LegacyImportTest {
     }
 
     @Test
-    @DisplayName("MIG-023 (a) an empty text in a nullable legacy column is NULL in the new schema and the digests agree; (b) an empty text in a NOT NULL column is reported with table, key and column, the import exits without writing anything and invents no value, and after the source rows are corrected it succeeds")
+    @DisplayName("MIG-023 (a) an empty text in a nullable legacy column is NULL in the new schema and the digests agree; (b) revised by REH3: an empty purpose or success_condition (a nullable column in 2.0) is NULL, the import succeeds and the verification passes; a NOT NULL column that identifies a row stays refused (REH3-IMP-04)")
     void mig023_emptyStrings() {
         withRich(rig -> {
             rig.importAll();
@@ -939,23 +939,16 @@ class LegacyImportTest {
             assertThat(rig.count("SELECT COUNT(*) FROM defect_fix WHERE id = 9 AND branch IS NULL")).isEqualTo(1);
             assertThat(rig.count("SELECT COUNT(*) FROM task WHERE origin_ref = '' OR owner_actor_id = ''")).isZero();
         });
+        // revised by REH3 (decision 7j): the five long texts of 1.x that allowed '' are nullable, the import stores NULL
         LegacyLedger legacy = LegacyFixtures.withEmptyPurpose(LegacyFixtures.rich());
         withRig(legacy, rig -> {
-            ValidationException refused = (ValidationException) Expect.failure(rig::importAll, ValidationCode.VALIDATION_FAILED);
-
-            assertThat(refused.issues()).extracting(ValidationIssue::path, ValidationIssue::reason).containsExactlyInAnyOrder(
-                    tuple("task[OLD-T-UNKNOWN].purpose", ValidationReason.REQUIRED),
-                    tuple("task[OLD-T-UNKNOWN].success_condition", ValidationReason.REQUIRED));
-            assertThat(rig.ledgerRows()).isZero();
-            assertThat(rig.count("SELECT SUM(issued_no) FROM id_counter")).isZero();
-
-            legacy.update("UPDATE " + legacy.schema() + ".task SET purpose = 'corrected', success_condition = 'corrected' "
-                    + "WHERE id = 'OLD-T-UNKNOWN'");
             ImportReport report = rig.importAll();
 
             assertThat(report.tables()).allMatch(TableCheck::matches);
-            assertThat(rig.ctx().jdbc().sql("SELECT purpose FROM task WHERE id = 'OLD-T-UNKNOWN'").query(String.class).single())
-                    .isEqualTo("corrected");
+            assertThat(rig.count("SELECT COUNT(*) FROM task WHERE id = 'OLD-T-UNKNOWN' AND purpose IS NULL "
+                    + "AND success_condition IS NULL")).isEqualTo(1);
+            assertThat(rig.count("SELECT COUNT(*) FROM task WHERE purpose = '' OR success_condition = ''")).isZero();
+            rig.service().verify();
         });
     }
 
@@ -1011,7 +1004,7 @@ class LegacyImportTest {
     }
 
     @Test
-    @DisplayName("MIG-028 ids with | and other upper-case ids import unchanged; ids that violate the upper-case id format (a lower-case task or condition id) are reported with table and key, nothing is written, and they are never case-folded")
+    @DisplayName("MIG-028 ids with | and other upper-case ids import unchanged; revised by REH3: a lower-case task or condition id is kept as it is (never case-folded); ids that differ only in case or are malformed are reported (REH3-IMP-02)")
     void mig028_ids() {
         withRich(rig -> {
             rig.importAll();
@@ -1019,15 +1012,15 @@ class LegacyImportTest {
             assertThat(rig.count("SELECT COUNT(*) FROM release_condition WHERE id IN ('OLD-PIPE-C', 'OLD-PIPE-C|A')")).isEqualTo(2);
             assertThat(rig.count("SELECT COUNT(*) FROM task WHERE id = 'A|T'")).isEqualTo(1);
         });
+        // revised by REH3 (decision 7m): the ids of 1.x are kept in any case, and are never case-folded
         LegacyLedger legacy = LegacyFixtures.withLowerCaseIds(LegacyFixtures.rich());
         withRig(legacy, rig -> {
-            ValidationException refused = (ValidationException) Expect.failure(rig::importAll, ValidationCode.VALIDATION_FAILED);
+            rig.importAll();
 
-            assertThat(refused.issues()).extracting(ValidationIssue::path, ValidationIssue::reason).containsExactlyInAnyOrder(
-                    tuple("task[old-t-lower].id", ValidationReason.MUST_BE_UPPER_CASE_ID_MATCHING),
-                    tuple("release_condition[old-c-lower].id", ValidationReason.MUST_BE_UPPER_CASE_ID_MATCHING));
-            assertThat(rig.ledgerRows()).isZero();
+            assertThat(rig.count("SELECT COUNT(*) FROM task WHERE id = 'old-t-lower'")).isEqualTo(1);
+            assertThat(rig.count("SELECT COUNT(*) FROM release_condition WHERE id = 'old-c-lower'")).isEqualTo(1);
             assertThat(rig.count("SELECT COUNT(*) FROM task WHERE id = 'OLD-T-LOWER'")).isZero();
+            rig.service().verify();
         });
     }
 
@@ -1066,15 +1059,15 @@ class LegacyImportTest {
     @DisplayName("MIG-032 a text longer than its column in the new schema is reported (never cut): table, key, column and the limit")
     void mig032_tooLong() {
         LegacyLedger legacy = LegacyFixtures.rich();
-        legacy.update("UPDATE " + legacy.schema() + ".task SET origin_ref = ? WHERE id = 'OLD-T-1'", "x".repeat(501));
+        legacy.update("UPDATE " + legacy.schema() + ".task SET title = ? WHERE id = 'OLD-T-1'", "x".repeat(301));
         withRig(legacy, rig -> {
             ValidationException refused = (ValidationException) Expect.failure(rig::importAll, ValidationCode.VALIDATION_FAILED);
 
             assertThat(refused.issues()).hasSize(1);
             ValidationIssue issue = refused.issues().getFirst();
-            assertThat(issue.path()).isEqualTo("task[OLD-T-1].origin_ref");
+            assertThat(issue.path()).isEqualTo("task[OLD-T-1].title");
             assertThat(issue.reason()).isEqualTo(ValidationReason.MUST_BE_AT_MOST_CHARS);
-            assertThat(issue.reasonArgs()).containsExactly("500");
+            assertThat(issue.reasonArgs()).containsExactly("300");
             assertThat(rig.ledgerRows()).isZero();
         });
     }

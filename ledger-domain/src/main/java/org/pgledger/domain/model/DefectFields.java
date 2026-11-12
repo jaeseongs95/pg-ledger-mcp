@@ -15,12 +15,15 @@ public record DefectFields(Patch<ProjectId> projectId, Patch<String> title, Patc
         Patch<CodeValue> severity, Patch<String> behavior, Patch<String> rootCause, Patch<AuthorId> ownerActorId)
         implements EntityFields {
 
-    /** Normalises raw boundary values: required texts are validated, optional ones blank to null. */
+    /**
+     * Normalises raw boundary values: required texts are validated, optional ones blank to null; behavior and root cause have
+     * to be given and may be empty (REH3, the {@code save()} of 1.x).
+     */
     public static DefectFields of(Patch<String> projectId, Patch<String> title, Patch<String> category,
             Patch<String> severity, Patch<String> behavior, Patch<String> rootCause, Patch<String> ownerActorId) {
         return new DefectFields(projectId.map(ProjectId::of), title.map(TextRule.TITLE::required),
                 category.map(DefectFields::code), severity.map(DefectFields::code),
-                behavior.map(TextRule.BEHAVIOR::required), rootCause.map(TextRule.ROOT_CAUSE::required),
+                behavior.map(TextRule.BEHAVIOR::givenOrEmpty), rootCause.map(TextRule.ROOT_CAUSE::givenOrEmpty),
                 ownerActorId.map(DefectFields::author));
     }
 

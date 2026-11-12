@@ -247,6 +247,8 @@ class RenderDeployCommandTest {
         assertThat(Files.readString(unit, StandardCharsets.UTF_8)).contains("Rendered by `ledger-cli render-deploy`")
                 .doesNotContain("DBHub");
         assertThat(output.info()).contains(backup.toString());
+        // REH3-INS-02: told as left alone, not as made now
+        assertThat(output.info()).contains("already holds the same bytes").doesNotContain("Kept the previous file");
     }
 
     @Test

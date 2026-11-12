@@ -1,6 +1,7 @@
 package org.pgledger.cli.database;
 
 import org.pgledger.application.LedgerApplicationConfiguration;
+import org.pgledger.cli.driver.PendingDriverAudit;
 import org.pgledger.cli.key.LedgerSessionKeyRegistry;
 import org.pgledger.cli.key.SessionKeyRegistry;
 import org.pgledger.database.schema.LedgerSchemaConfiguration;
@@ -21,13 +22,14 @@ import org.springframework.context.annotation.Import;
  * at startup (the command {@code migrate} must start on a database that is not up to date): every other command checks it
  * first through {@link SchemaReadiness}.
  *
- * <p>The three classes of the tool that need the ledger services are imported here as components, and are not annotated
+ * <p>The classes of the tool that need the ledger services ({@code CliLedger}, the session key registry, the audit row of a
+ * pending driver registration) are imported here as components, and are not annotated
  * with {@code @Component}: component scanning would make them without the condition, and without a database there is no
  * service to give them.
  */
 @Configuration(proxyBeanMethods = false)
 @Conditional(CliDatabaseCondition.class)
 @Import({LedgerApplicationConfiguration.class, LedgerSchemaConfiguration.class, SchemaReadiness.class, CliLedger.class,
-        LedgerSessionKeyRegistry.class})
+        LedgerSessionKeyRegistry.class, PendingDriverAudit.class})
 public class CliLedgerConfiguration {
 }

@@ -17,7 +17,7 @@
       <option th:each="e : ${entities}" th:value="${e.token()}" th:text="${e.token()}" th:selected="${e.token() == filter.entity()}">defect</option>
     </select>
     <label for="entityId" th:text="#{history.entityId}">Entity id</label>
-    <input id="entityId" name="entityId" type="text" th:value="${filter.entityId()}" maxlength="100">
+    <input id="entityId" name="entityId" type="text" th:value="${filter.entityId()}" maxlength="300">
     <label for="op" th:text="#{history.op}">Operation</label>
     <select id="op" name="op">
       <option value="" th:text="#{common.any}">Any</option>
