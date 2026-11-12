@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
@@ -36,6 +37,7 @@ import org.pgledger.database.repository.Counter;
 import org.pgledger.database.repository.HistoryQueryRepository;
 import org.pgledger.database.repository.HistoryRepository;
 import org.pgledger.database.repository.IdAllocator;
+import org.pgledger.domain.context.ActorScope;
 import org.pgledger.domain.error.ConflictCode;
 import org.pgledger.domain.error.ConflictException;
 import org.pgledger.domain.error.InfrastructureCode;
@@ -50,6 +52,7 @@ import org.pgledger.domain.rule.ActorAssurance;
 import org.pgledger.domain.rule.Channel;
 import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
+import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.ConditionId;
 import org.pgledger.domain.value.JsonDocument;
 import org.pgledger.domain.value.LegacyActorId;
@@ -175,11 +178,15 @@ class PrinciplesTest {
         save.save(Scenario.AUTHOR, s.edit("condition", condition.id(), 1, Map.of("condition_text", "changed")));
         Rows rows = s.bean(Rows.class);
 
-        assertThat(Expect.failure(() -> rows.saveDefect(staleDefect), ConflictCode.VERSION_CONFLICT).args())
+        // a write runs inside the scope of its actor (the rows are audited with it)
+        assertThat(Expect.failure(() -> ScopedValue.where(ActorScope.CURRENT, AuthorId.of(Scenario.AUTHOR))
+                .call(() -> rows.saveDefect(staleDefect)), ConflictCode.VERSION_CONFLICT).args())
                 .containsExactly("defect", defect.id(), "1", "2");
-        assertThat(Expect.failure(() -> rows.saveTask(staleTask), ConflictCode.VERSION_CONFLICT).args())
+        assertThat(Expect.failure(() -> ScopedValue.where(ActorScope.CURRENT, AuthorId.of(Scenario.AUTHOR))
+                .call(() -> rows.saveTask(staleTask)), ConflictCode.VERSION_CONFLICT).args())
                 .containsExactly("task", task.id(), "1", "2");
-        assertThat(Expect.failure(() -> rows.saveCondition(staleCondition), ConflictCode.VERSION_CONFLICT).args())
+        assertThat(Expect.failure(() -> ScopedValue.where(ActorScope.CURRENT, AuthorId.of(Scenario.AUTHOR))
+                .call(() -> rows.saveCondition(staleCondition)), ConflictCode.VERSION_CONFLICT).args())
                 .containsExactly("condition", condition.id(), "1", "2");
         // nothing was written by the refused saves
         assertThat(s.defect(defect.id()).title()).isEqualTo("d2");
@@ -259,7 +266,9 @@ class PrinciplesTest {
         var granted = whoami.whoami(Scenario.AUTHOR, Channel.AUTHOR);
         assertThat(granted.authorFormatOk()).isTrue();
         assertThat(granted.author()).isEqualTo(Scenario.AUTHOR);
-        assertThat(granted.grants()).extracting(WhoamiService.GrantView::scope)
-                .containsExactlyInAnyOrder("defect", "task", "fix", "verify");
+        // the author of the scenarios has the grants of every scenario of the context: those of this project are four
+        assertThat(granted.grants().stream().filter(grant -> Objects.equals(grant.project(), s.projectId()))
+                .map(WhoamiService.GrantView::scope).toList()).containsExactlyInAnyOrder("defect", "task", "fix",
+                        "verify");
     }
 }
