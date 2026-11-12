@@ -50,7 +50,8 @@ CREATE TABLE id_counter (
 -- by the application, and is UNIQUE, so that two ids that differ only in case are one id on every DBMS whatever its collation
 -- is (no trigger, no function index: a unique key on a column is portable). The columns that were NOT NULL in 1.x with
 -- '' allowed (purpose, success_condition, behavior, root_cause, condition_text) are nullable: no column holds '' (an
--- Oracle-type DBMS cannot), the application stores NULL for an empty text and returns an empty text as 1.x did.
+-- Oracle-type DBMS cannot), the application stores NULL for an empty text and returns an empty text as 1.x did. origin_ref is a
+-- long text as well (text without a limit in 1.x, 9408 characters in production).
 CREATE TABLE task (
   id VARCHAR(120) NOT NULL,
   id_key VARCHAR(360) NOT NULL,
@@ -60,7 +61,7 @@ CREATE TABLE task (
   success_condition ${longtext},
   state VARCHAR(20) NOT NULL,
   owner_actor_id VARCHAR(200),
-  origin_ref VARCHAR(500),
+  origin_ref ${longtext},
   origin_quote VARCHAR(2000),
   version BIGINT NOT NULL,
   created_at TIMESTAMP NOT NULL,

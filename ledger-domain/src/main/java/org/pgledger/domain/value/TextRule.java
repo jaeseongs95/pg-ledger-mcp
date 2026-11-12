@@ -15,7 +15,12 @@ public enum TextRule {
     ROOT_CAUSE(4000, false),
     PURPOSE(4000, false),
     SUCCESS_CONDITION(4000, false),
-    ORIGIN_REF(500, false),
+    /**
+     * 20000: {@code origin_ref} is a long text column ({@code text} without a limit in 1.x, up to 9408 characters in the production
+     * ledger). The write limit is above the longest value of 1.x so that an imported value can be saved again; the request
+     * size of the server bounds the rest.
+     */
+    ORIGIN_REF(20000, false),
     ORIGIN_QUOTE(2000, false),
     RELEASE(100, false),
     GOAL_LABEL(200, false),

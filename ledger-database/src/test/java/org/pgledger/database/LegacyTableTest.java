@@ -57,7 +57,8 @@ class LegacyTableTest {
         assertThat(target.columnRules(LegacyTable.DEFECT_FIX).get("ci_ref").maxChars()).isEqualTo(2000);
         assertThat(task.get("owner_actor_id").nullable()).isTrue();
         assertThat(task.get("title").maxChars()).isEqualTo(300);
-        assertThat(task.get("origin_ref").maxChars()).isEqualTo(500);
+        // REH3-LEN-02: origin_ref is a long text (text without a limit in 1.x; 9408 characters in production)
+        assertThat(task.get("origin_ref").maxChars()).isIn(0, Integer.MAX_VALUE);
         // a long text column has no limit the import checks: the metadata of PostgreSQL states it as the largest int
         assertThat(target.columnRules(LegacyTable.HISTORY).get("changes").maxChars()).isIn(0, Integer.MAX_VALUE);
         assertThat(target.columnRules(LegacyTable.COMMON_CODE).get("description_ko").nullable()).isTrue();

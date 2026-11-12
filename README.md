@@ -526,8 +526,8 @@ import, check. Do the steps in this order; the installer stops nothing of 1.x by
    unique on every DBMS), so the import refuses such a pair and lists it, and a task or condition cannot be created with an id that
    equals an existing one when the case is ignored. An empty text of 1.x (`purpose`, `success_condition`, `behavior`, `root_cause`
    and `condition_text` allowed `''`) is stored as NULL and the tools return an empty string for it, as 1.x did.
-   The `code` of a condition (200 characters) and the `ci_ref` (2000 characters) are longer than in the earlier 2.0 builds, so every
-   value of 1.x fits.
+   The `code` of a condition (200 characters) and the `ci_ref` (2000 characters) are longer than in the earlier 2.0 builds, and the `origin_ref` of a task is a long text (up to 20000 characters
+   when written), so every value of 1.x fits.
 7. The old grants are copied without a session key. Every author registers a session key with `key-register`; then its grants work.
 8. **Check.** `ledger-cli mcp-check --url=<its public URL>` and `import-legacy --verify-only`; open the admin web and sign in with the
    admin token of 1.x.

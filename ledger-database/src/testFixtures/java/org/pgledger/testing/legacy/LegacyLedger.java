@@ -61,7 +61,7 @@ public final class LegacyLedger implements AutoCloseable {
                     + " created_by VARCHAR(500) NOT NULL, PRIMARY KEY (code_group, code))",
             "CREATE TABLE ledger.task (id VARCHAR(500) NOT NULL PRIMARY KEY, project_id VARCHAR(200) NOT NULL,"
                     + " title VARCHAR(2000) NOT NULL, purpose VARCHAR(10000) NOT NULL, success_condition VARCHAR(10000) NOT NULL,"
-                    + " state VARCHAR(40) NOT NULL, owner_actor_id VARCHAR(500), origin_ref VARCHAR(2000),"
+                    + " state VARCHAR(40) NOT NULL, owner_actor_id VARCHAR(500), origin_ref VARCHAR(20000),"
                     + " origin_quote VARCHAR(5000), version INTEGER NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL,"
                     + " updated_at TIMESTAMP WITH TIME ZONE NOT NULL, created_by VARCHAR(500) NOT NULL,"
                     + " FOREIGN KEY (project_id) REFERENCES ledger.project (id))",

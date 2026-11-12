@@ -95,6 +95,10 @@ class RealShapesImportTest {
                     .isEqualTo(1);
             assertThat(count(ctx, "SELECT COUNT(*) FROM defect_fix WHERE ci_ref = ?", LegacyFixtures.REAL_CI_REF_533))
                     .isEqualTo(1);
+            // REH3-LEN-02: an origin reference of 9408 characters (a text column of 1.x without a limit) is stored whole
+            assertThat(LegacyFixtures.REAL_ORIGIN_REF_9408).hasSize(9408);
+            assertThat(count(ctx, "SELECT COUNT(*) FROM task WHERE id = ? AND origin_ref = ?", LegacyFixtures.REAL_TASK_LONG,
+                    LegacyFixtures.REAL_ORIGIN_REF_9408)).isEqualTo(1);
             // '' is NULL
             assertThat(count(ctx, "SELECT COUNT(*) FROM task WHERE id = ? AND purpose IS NULL AND success_condition IS NULL",
                     LegacyFixtures.REAL_TASK_EMPTY_BOTH)).isEqualTo(1);
@@ -166,7 +170,7 @@ class RealShapesImportTest {
     }
 
     @Test
-    @DisplayName("REH3-IMP-03 a condition code of 200 and a CI reference of 2000 characters import; 201, 2001 and an origin_ref of 501 are reported with the limit (never cut)")
+    @DisplayName("REH3-IMP-03 a condition code of 200 and a CI reference of 2000 characters import; 201, 2001 and a title of 301 are reported with the limit (never cut)")
     void imp03_lengths() {
         LegacyLedger fits = LegacyFixtures.rich();
         insertCondition(fits, "OLD-C-200", "c".repeat(200));
@@ -181,16 +185,16 @@ class RealShapesImportTest {
         LegacyLedger tooLong = LegacyFixtures.rich();
         insertCondition(tooLong, "OLD-C-201", "c".repeat(201));
         insertFix(tooLong, 32, "2", "r".repeat(2001));
-        tooLong.update("UPDATE " + tooLong.schema() + ".task SET origin_ref = ? WHERE id = 'OLD-T-1'", "x".repeat(501));
+        tooLong.update("UPDATE " + tooLong.schema() + ".task SET title = ? WHERE id = 'OLD-T-1'", "x".repeat(301));
         withRig(tooLong, ctx -> {
             ValidationException refused = refused(ctx);
 
             assertThat(refused.issues()).extracting(ValidationIssue::path).containsExactlyInAnyOrder(
-                    "release_condition[OLD-C-201].code", "defect_fix[32].ci_ref", "task[OLD-T-1].origin_ref");
+                    "release_condition[OLD-C-201].code", "defect_fix[32].ci_ref", "task[OLD-T-1].title");
             assertThat(refused.issues()).allSatisfy(issue -> assertThat(issue.reason().name())
                     .isEqualTo("MUST_BE_AT_MOST_CHARS"));
             assertThat(refused.issues().stream().map(issue -> issue.reasonArgs().getFirst()).toList())
-                    .containsExactlyInAnyOrder("200", "2000", "500");
+                    .containsExactlyInAnyOrder("200", "2000", "300");
             assertNothingWritten(ctx);
         });
     }

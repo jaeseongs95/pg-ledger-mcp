@@ -1059,15 +1059,15 @@ class LegacyImportTest {
     @DisplayName("MIG-032 a text longer than its column in the new schema is reported (never cut): table, key, column and the limit")
     void mig032_tooLong() {
         LegacyLedger legacy = LegacyFixtures.rich();
-        legacy.update("UPDATE " + legacy.schema() + ".task SET origin_ref = ? WHERE id = 'OLD-T-1'", "x".repeat(501));
+        legacy.update("UPDATE " + legacy.schema() + ".task SET title = ? WHERE id = 'OLD-T-1'", "x".repeat(301));
         withRig(legacy, rig -> {
             ValidationException refused = (ValidationException) Expect.failure(rig::importAll, ValidationCode.VALIDATION_FAILED);
 
             assertThat(refused.issues()).hasSize(1);
             ValidationIssue issue = refused.issues().getFirst();
-            assertThat(issue.path()).isEqualTo("task[OLD-T-1].origin_ref");
+            assertThat(issue.path()).isEqualTo("task[OLD-T-1].title");
             assertThat(issue.reason()).isEqualTo(ValidationReason.MUST_BE_AT_MOST_CHARS);
-            assertThat(issue.reasonArgs()).containsExactly("500");
+            assertThat(issue.reasonArgs()).containsExactly("300");
             assertThat(rig.ledgerRows()).isZero();
         });
     }

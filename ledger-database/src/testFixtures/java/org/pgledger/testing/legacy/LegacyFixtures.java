@@ -179,6 +179,8 @@ public final class LegacyFixtures {
     public static final String REAL_DEFECT = "AGS-D-0001";
     /** A condition code of 79 characters (the longest of the production ledger; the 2.0 column held 64). */
     public static final String REAL_CODE_79 = "c".repeat(79);
+    /** An origin reference of 9408 characters (the longest of the production ledger; {@code origin_ref} is {@code text} in 1.x). */
+    public static final String REAL_ORIGIN_REF_9408 = "https://origin.example/" + "o".repeat(9408 - "https://origin.example/".length());
     /** A CI reference of 533 characters (the longest of the production ledger; the 2.0 column held 500). */
     public static final String REAL_CI_REF_533 = "https://ci.example/" + "r".repeat(533 - "https://ci.example/".length());
 
@@ -192,7 +194,8 @@ public final class LegacyFixtures {
     public static LegacyLedger withRealShapes(LegacyLedger l) {
         l.insert("project", "id", "ags", "code", "AGS", "title", "The ledger of the real shapes", "created_by", OWNER);
         for (String id : List.of(REAL_TASK_A01, REAL_TASK_LOWER_SUFFIX, REAL_TASK_LONG, REAL_TASK_CHARS, REAL_TASK_120)) {
-            task(l, id, "ags", "Task " + id.length(), "PLANNED", 1, SEED, "");
+            task(l, id, "ags", "Task " + id.length(), "PLANNED", 1, SEED,
+                    REAL_TASK_LONG.equals(id) ? REAL_ORIGIN_REF_9408 : "");
         }
         l.insert("task", "id", REAL_TASK_EMPTY_BOTH, "project_id", "ags", "title", "Empty texts", "purpose", "",
                 "success_condition", "", "state", "PLANNED", "version", 1, "created_at", at("2026-11-01T00:00:00Z"),

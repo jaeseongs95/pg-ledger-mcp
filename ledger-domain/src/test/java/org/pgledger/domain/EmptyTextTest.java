@@ -77,6 +77,14 @@ class EmptyTextTest {
     }
 
     @Test
+    void reh3Len02_theOriginReferenceHoldsWhatOneXHeld() {
+        assertThat(TextRule.ORIGIN_REF.max()).isEqualTo(20000);
+        assertThat(TextRule.ORIGIN_REF.optional("o".repeat(9408))).hasSize(9408);
+        assertThat(TextRule.ORIGIN_REF.optional("o".repeat(20000))).hasSize(20000);
+        Expect.invalid(() -> TextRule.ORIGIN_REF.optional("o".repeat(20001)));
+    }
+
+    @Test
     void reh3Len01_theLimitsHoldTheDataOfOneX() {
         assertThat(TextRule.CONDITION_CODE.max()).isEqualTo(200);
         assertThat(TextRule.CI_REF.max()).isEqualTo(2000);

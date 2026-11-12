@@ -217,6 +217,21 @@ class OneXIdsTest {
     }
 
     @Test
+    @DisplayName("REH3-LEN-02 a task is saved with an origin_ref of 9408 characters (the longest of the 1.x ledger) and edited by it again; 20001 is MUST_BE_AT_MOST_CHARS (20000)")
+    void len02_originReference(Scenario s) {
+        Map<String, String> fields = s.taskFields("t");
+        fields.put("origin_ref", "o".repeat(9408));
+        String id = create(s, "task", null, fields);
+
+        assertThat(s.count("SELECT COUNT(*) FROM task WHERE id = ? AND origin_ref = ?", id, "o".repeat(9408))).isEqualTo(1);
+        assertThat(s.bean(SaveService.class).save(Scenario.AUTHOR, s.edit("task", id, 1, Map.of("origin_ref",
+                "p".repeat(9408)))).version()).isEqualTo(2);
+        fields.put("origin_ref", "o".repeat(20001));
+        LedgerException tooLong = Expect.failure(() -> create(s, "task", null, fields), ValidationCode.VALIDATION_FAILED);
+        assertThat(((ValidationException) tooLong).issues().getFirst().reasonArgs()).containsExactly("20000");
+    }
+
+    @Test
     @DisplayName("REH3-LEN-01 a condition code of 200 and a CI reference of 2000 characters are stored whole; 201 and 2001 are MUST_BE_AT_MOST_CHARS (200, 2000)")
     void len01_longerColumns(Scenario s) {
         String code200 = "c".repeat(200);
