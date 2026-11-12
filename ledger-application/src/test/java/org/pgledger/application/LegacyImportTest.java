@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -87,18 +88,21 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
- * MIG-001 .. MIG-024 and MIG-027 .. MIG-032 on the embedded H2: the legacy import service in the real application context
- * (a freshly migrated database, the real repositories and services, the real migrator) with the legacy ledger of
- * {@link LegacyFixtures} as its source. Every test reads the tables of both sides with its own queries. The cases that need
- * PostgreSQL itself (MIG-025, the timestamptz and jsonb reading of the real DBMS in MIG-016/MIG-027) are test server stage
- * work and are not here.
+ * MIG-001 .. MIG-024 and MIG-027 .. MIG-033 on the PostgreSQL of the test PC: the legacy import service in the real
+ * application context (a freshly migrated schema, the real repositories and services, the real migrator) with the legacy
+ * ledger of {@link LegacyFixtures} (a schema of its own, {@code timestamptz}, {@code uuid} and {@code jsonb} columns as in the
+ * real 1.x) as its source, read by the read-only account. Every test reads the tables of both sides with its own queries.
+ * MIG-025 is test server stage work and is not here.
  */
 class LegacyImportTest {
 
     private static final String SEED = LegacyFixtures.SEED;
     private static final String RELINK = LegacyFixtures.RELINK;
+    /** Reads JSON text: the legacy columns are jsonb, which PostgreSQL prints in its own normalised form. */
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     /** The legacy ledger and the application context that imports it. */
     private record Rig(LegacyLedger legacy, LedgerAppContext ctx) {
@@ -135,7 +139,7 @@ class LegacyImportTest {
 
     private static void withRig(LegacyLedger legacy, DataSource source, Consumer<Rig> body, Class<?>... configurations) {
         try (legacy) {
-            LedgerTestRunners.importing(source, ctx -> body.accept(new Rig(legacy, ctx)), configurations);
+            LedgerTestRunners.importing(legacy, source, ctx -> body.accept(new Rig(legacy, ctx)), configurations);
         }
     }
 
@@ -149,6 +153,11 @@ class LegacyImportTest {
 
     private static String text(Map<String, Object> row, String column) {
         return String.valueOf(row.get(column));
+    }
+
+    /** The two texts are the same JSON value (whitespace and the order of the keys do not matter). */
+    private static void assertSameJson(String actual, String expected) {
+        assertThat((Object) JSON.readTree(actual)).isEqualTo(JSON.readTree(expected));
     }
 
     private static <T> T asTool(String tool, Supplier<T> call) {
@@ -202,7 +211,7 @@ class LegacyImportTest {
     private static String contents(LegacyLedger legacy) {
         StringBuilder all = new StringBuilder();
         for (String table : LegacyLedger.TABLES) {
-            all.append(table).append(legacy.rows("SELECT * FROM " + LegacyLedger.SCHEMA + "." + table + " ORDER BY 1, 2"));
+            all.append(table).append(legacy.rows("SELECT * FROM " + legacy.schema() + "." + table + " ORDER BY 1, 2"));
         }
         return sha256(all.toString());
     }
@@ -223,7 +232,7 @@ class LegacyImportTest {
             }
             assertThat(report.tables()).hasSize(LegacyTable.values().length).allMatch(TableCheck::matches);
             assertThat(report.rows()).isEqualTo(total);
-            assertThat(report.schema()).isEqualTo("ledger");
+            assertThat(report.schema()).isEqualTo(rig.legacy().schema());
         });
     }
 
@@ -236,15 +245,16 @@ class LegacyImportTest {
             for (TableCheck check : report.tables()) {
                 assertThat(check.sourceDigest()).as(check.table().name()).isEqualTo(check.targetDigest());
             }
-            List<List<String>> legacyRows = rig.legacy().rows("SELECT defect_id, task_id, created_by FROM ledger.defect_task")
-                    .stream().map(row -> List.of(text(row, "DEFECT_ID"), text(row, "TASK_ID"), text(row, "CREATED_BY"))).toList();
+            List<List<String>> legacyRows = rig.legacy().rows("SELECT defect_id, task_id, created_by FROM "
+                    + rig.legacy().schema() + ".defect_task")
+                    .stream().map(row -> List.of(text(row, "defect_id"), text(row, "task_id"), text(row, "created_by"))).toList();
             TableCheck defectTask = report.tables().stream().filter(check -> check.table() == LegacyTable.DEFECT_TASK)
                     .findFirst().orElseThrow();
             assertThat(defectTask.sourceDigest().hex()).isEqualTo(documentedDigest(legacyRows));
             assertThat(defectTask.targetDigest().hex()).isEqualTo(documentedDigest(legacyRows));
             for (String table : List.of("history", "defect_fix", "defect_case", "session_grant")) {
-                Set<Long> legacyIds = new HashSet<>(rig.legacy().rows("SELECT id FROM ledger." + table).stream()
-                        .map(row -> ((Number) row.get("ID")).longValue()).toList());
+                Set<Long> legacyIds = new HashSet<>(rig.legacy().rows("SELECT id FROM " + rig.legacy().schema() + "." + table)
+                        .stream().map(row -> ((Number) row.get("id")).longValue()).toList());
                 Set<Long> ids = new HashSet<>(rig.ctx().jdbc().sql("SELECT id FROM " + table).query(Long.class).list());
                 assertThat(ids).as(table).isEqualTo(legacyIds);
             }
@@ -259,7 +269,7 @@ class LegacyImportTest {
 
             List<Map<String, Object>> legacyRows = rig.legacy().rows("SELECT id, author_id, login, actor_assurance, entity, "
                     + "entity_id, op, from_state, to_state, changes, reason, evidence_uri, evidence_sha256, corrects_id, "
-                    + "request_id, legacy_ref FROM ledger.history ORDER BY id");
+                    + "request_id, legacy_ref FROM " + rig.legacy().schema() + ".history ORDER BY id");
             List<Map<String, Object>> rows = rig.rows("SELECT id, author_id, login, actor_assurance, entity, entity_id, op, "
                     + "from_state, to_state, changes, before_data, reason, evidence_uri, evidence_sha256, corrects_id, "
                     + "request_id, legacy_ref FROM history ORDER BY id");
@@ -295,8 +305,13 @@ class LegacyImportTest {
             assertThat(receipts.stream().map(receipt -> text(receipt, "operation")).toList())
                     .containsExactlyInAnyOrder("SAVE", "TRANSITION", "RECORD_FIX");
             String imported = UUID.nameUUIDFromBytes("request-1".getBytes(StandardCharsets.UTF_8)).toString();
-            assertThat(rig.ctx().jdbc().sql("SELECT response FROM request_receipt WHERE request_id = ?").param(imported)
-                    .query(String.class).single()).isEqualTo("{\"id\":\"OLD-D-0001\",\"version\":1}");
+            // the legacy column is jsonb: the text the import reads is PostgreSQL's normalised form of the JSON, and it is
+            // copied as it is
+            String stored = rig.ctx().jdbc().sql("SELECT response FROM request_receipt WHERE request_id = ?").param(imported)
+                    .query(String.class).single();
+            assertThat(stored).isEqualTo(rig.legacy().rows("SELECT response FROM " + rig.legacy().schema()
+                    + ".request_receipt WHERE request_id = ?", UUID.fromString(imported)).getFirst().get("response").toString());
+            assertSameJson(stored, "{\"id\":\"OLD-D-0001\",\"version\":1}");
             assertThat(rig.ctx().jdbc().sql("SELECT payload_sha256 FROM request_receipt WHERE request_id = ?").param(imported)
                     .query(String.class).single()).isEqualTo("c".repeat(64));
 
@@ -312,7 +327,7 @@ class LegacyImportTest {
             assertThat(rig.count("SELECT COUNT(*) FROM defect")).isEqualTo(defects);
             assertThat(rig.count("SELECT COUNT(*) FROM history")).isEqualTo(history);
             assertThat(rig.ctx().jdbc().sql("SELECT response FROM request_receipt WHERE request_id = ?").param(imported)
-                    .query(String.class).single()).isEqualTo("{\"id\":\"OLD-D-0001\",\"version\":1}");
+                    .query(String.class).single()).isEqualTo(stored);
         });
     }
 
@@ -381,8 +396,8 @@ class LegacyImportTest {
             for (LegacyTable table : List.of(LegacyTable.PROJECT, LegacyTable.COMMON_CODE, LegacyTable.TASK,
                     LegacyTable.DEFECT, LegacyTable.DEFECT_TASK, LegacyTable.DEFECT_RELATION, LegacyTable.RELEASE_CONDITION,
                     LegacyTable.CONDITION_LINK)) {
-                List<String> legacy = rig.legacy().rows("SELECT created_by FROM ledger." + table.sourceName()).stream()
-                        .map(row -> text(row, "CREATED_BY")).toList();
+                List<String> legacy = rig.legacy().rows("SELECT created_by FROM " + rig.legacy().schema() + "."
+                        + table.sourceName()).stream().map(row -> text(row, "created_by")).toList();
                 List<String> imported = rig.ctx().jdbc().sql("SELECT created_by FROM " + table.targetName())
                         .query(String.class).list();
                 assertThat(imported).as(table.name()).containsExactlyInAnyOrderElementsOf(legacy);
@@ -433,12 +448,16 @@ class LegacyImportTest {
             rig.service().verify();
             assertThat(contents(legacy)).isEqualTo(before);
             assertThat(legacy.objects()).isEqualTo(objectsBefore);
-            assertThat(legacy.rows("SELECT step FROM ledger._migration ORDER BY step").stream().map(row -> text(row, "STEP"))
-                    .toList()).containsExactlyInAnyOrderElementsOf(LegacyLedger.ALL_STEPS);
+            assertThat(legacy.rows("SELECT step FROM " + legacy.schema() + "._migration ORDER BY step").stream()
+                    .map(row -> text(row, "step")).toList()).containsExactlyInAnyOrderElementsOf(LegacyLedger.ALL_STEPS);
             assertThat(log.calls()).contains("setReadOnly[true]", "setTransactionIsolation[4]", "commit[]");
             assertThat(log.calls().indexOf("setReadOnly[true]")).isLessThan(log.calls().indexOf("setTransactionIsolation[4]"));
-            assertThatThrownBy(() -> JdbcClient.create(legacy.reader()).sql("UPDATE ledger.project SET title = 'x'").update())
-                    .isInstanceOf(DataAccessException.class);
+            // the read-only account has SELECT only: PostgreSQL refuses the write with SQLState 42501 (insufficient privilege)
+            assertThatThrownBy(() -> JdbcClient.create(legacy.reader())
+                    .sql("UPDATE " + legacy.schema() + ".project SET title = 'x'").update())
+                    .isInstanceOf(DataAccessException.class)
+                    .rootCause().isInstanceOfSatisfying(SQLException.class,
+                            cause -> assertThat(cause.getSQLState()).isEqualTo("42501"));
             assertThat(contents(legacy)).isEqualTo(before);
         });
     }
@@ -610,17 +629,17 @@ class LegacyImportTest {
                     {"session_grant", "expires_at"}, {"session_grant", "revoked_at"}, {"request_receipt", "created_at"}}) {
                 String key = "request_receipt".equals(column[0]) ? "request_id" : "id";
                 List<Map<String, Object>> legacy = rig.legacy().rows("SELECT " + key + " AS k, EXTRACT(EPOCH FROM " + column[1]
-                        + ") AS e FROM ledger." + column[0] + " ORDER BY " + key);
+                        + ") AS e FROM " + rig.legacy().schema() + "." + column[0] + " ORDER BY " + key);
                 for (Map<String, Object> row : legacy) {
                     // the new schema names the time of a history row occurred_at (the legacy column is at)
                     String target = "history".equals(column[0]) && "at".equals(column[1]) ? "occurred_at" : column[1];
                     Instant instant = rig.instant("SELECT " + target + " AS t FROM " + column[0] + " WHERE " + key + " = ?",
-                            row.get("K") instanceof UUID ? row.get("K").toString() : row.get("K"));
-                    if (row.get("E") == null) {
-                        assertThat(instant).as("%s.%s %s", column[0], column[1], row.get("K")).isNull();
+                            row.get("k") instanceof UUID ? row.get("k").toString() : row.get("k"));
+                    if (row.get("e") == null) {
+                        assertThat(instant).as("%s.%s %s", column[0], column[1], row.get("k")).isNull();
                     } else {
-                        assertThat(epoch(instant)).as("%s.%s %s", column[0], column[1], row.get("K"))
-                                .isEqualByComparingTo(new BigDecimal(row.get("E").toString()));
+                        assertThat(epoch(instant)).as("%s.%s %s", column[0], column[1], row.get("k"))
+                                .isEqualByComparingTo(new BigDecimal(row.get("e").toString()));
                     }
                 }
             }
@@ -648,7 +667,8 @@ class LegacyImportTest {
     @DisplayName("MIG-029 defects that are merged into each other in a loop cannot be ordered: they are reported (MERGE_CHAIN_LOOPS) and nothing is written")
     void mig029_mergeLoop() {
         LegacyLedger legacy = LegacyFixtures.rich();
-        legacy.update("UPDATE ledger.defect SET merged_into = 'OLD-D-0002', status = 'MERGED' WHERE id = 'OLD-D-0001'");
+        legacy.update("UPDATE " + legacy.schema() + ".defect SET merged_into = 'OLD-D-0002', status = 'MERGED' "
+                + "WHERE id = 'OLD-D-0001'");
         withRig(legacy, rig -> {
             ValidationException refused = (ValidationException) Expect.failure(rig::importAll, ValidationCode.VALIDATION_FAILED);
 
@@ -792,8 +812,11 @@ class LegacyImportTest {
 
             assertThat(page.items()).hasSize(10);
             assertThat(page.items()).allSatisfy(view -> assertThat(view.beforeData()).isNull());
-            assertThat(page.items().stream().filter(view -> view.id() == 2).findFirst().orElseThrow().changes().text())
-                    .isEqualTo("{\"title\":[\"old\",\"First old defect\"],\"quote\":\"\\\"x\\\"\"}");
+            // the legacy column is jsonb: the changes are the text PostgreSQL printed for it, as imported
+            String changes = page.items().stream().filter(view -> view.id() == 2).findFirst().orElseThrow().changes().text();
+            assertThat(changes).isEqualTo(rig.legacy().rows("SELECT changes FROM " + rig.legacy().schema()
+                    + ".history WHERE id = 2").getFirst().get("changes").toString());
+            assertSameJson(changes, "{\"title\":[\"old\",\"First old defect\"],\"quote\":\"\\\"x\\\"\"}");
             assertThat(page.items().stream().filter(view -> view.id() == 13).findFirst().orElseThrow().legacyRef())
                     .isEqualTo("older:1");
         });
@@ -821,7 +844,8 @@ class LegacyImportTest {
             assertThat(rig.ledgerRows()).isZero();
             assertThat(rig.count("SELECT SUM(issued_no) FROM id_counter")).isZero();
 
-            legacy.update("UPDATE ledger.task SET purpose = 'corrected', success_condition = 'corrected' WHERE id = 'OLD-T-UNKNOWN'");
+            legacy.update("UPDATE " + legacy.schema() + ".task SET purpose = 'corrected', success_condition = 'corrected' "
+                    + "WHERE id = 'OLD-T-UNKNOWN'");
             ImportReport report = rig.importAll();
 
             assertThat(report.tables()).allMatch(TableCheck::matches);
@@ -834,8 +858,7 @@ class LegacyImportTest {
     @DisplayName("MIG-024 the fixture builder fills the legacy tables from category-legacy-fixture.json and the data of the old admin: the 14 canonical categories plus OLDBUG, OLD-D-0001..3, tasks, conditions, links, re-links, cases, fixes, grants, history and receipts")
     void mig024_fixture() {
         try (LegacyLedger legacy = LegacyFixtures.rich()) {
-            assertThat(legacy.objects()).containsExactlyInAnyOrderElementsOf(LegacyLedger.TABLES.stream()
-                    .map(name -> name.toUpperCase(Locale.ROOT)).toList());
+            assertThat(legacy.objects()).containsExactlyInAnyOrderElementsOf(LegacyLedger.TABLES);
             assertThat(legacy.count("common_code")).isEqualTo(25);
             assertThat(legacy.count("project")).isEqualTo(2);
             assertThat(legacy.count("task")).isEqualTo(6);
@@ -854,18 +877,23 @@ class LegacyImportTest {
     // ---------------------------------------------------------------------------------------------- MIG-027 .. 032
 
     @Test
-    @DisplayName("MIG-027 (H2 part) the instants of the legacy columns are read as instants, whatever the zone of the legacy database session (UTC, Asia/Seoul, America/New_York): the epoch value of every imported timestamp equals the source epoch value in all three runs and the target rows are identical across the runs; the PostgreSQL timestamptz part is test server stage work")
+    @DisplayName("MIG-027 the timestamptz instants of the legacy columns are read as instants, whatever the zone of the legacy database session (UTC, Asia/Seoul, America/New_York): the epoch value of every imported timestamp equals the source epoch value in all three runs and the target rows are identical across the runs")
     void mig027_sessionZones() {
         List<String> snapshots = new ArrayList<>();
-        try (LegacyLedger legacy = LegacyFixtures.rich()) {
-            for (String zone : List.of("UTC", "Asia/Seoul", "America/New_York")) {
-                LedgerTestRunners.importing(legacy.reader(zone), ctx -> {
+        for (String zone : List.of("UTC", "Asia/Seoul", "America/New_York")) {
+            // one legacy fixture per zone: its pool for the zone is closed with it, so the test JVM keeps within its
+            // connection budget (the data of the fixture is the same every time)
+            try (LegacyLedger legacy = LegacyFixtures.rich()) {
+                DataSource source = legacy.reader(zone);
+                assertThat(JdbcClient.create(source).sql("SHOW TIME ZONE").query(String.class).single()).isEqualTo(zone);
+                LedgerTestRunners.importing(legacy, source, ctx -> {
                     Rig rig = new Rig(legacy, ctx);
                     rig.importAll();
-                    for (Map<String, Object> row : legacy.rows("SELECT id AS k, EXTRACT(EPOCH FROM at) AS e FROM ledger.history")) {
-                        Instant instant = rig.instant("SELECT occurred_at AS t FROM history WHERE id = ?", row.get("K"));
-                        assertThat(epoch(instant)).as("%s history %s", zone, row.get("K"))
-                                .isEqualByComparingTo(new BigDecimal(row.get("E").toString()));
+                    for (Map<String, Object> row : legacy.rows("SELECT id AS k, EXTRACT(EPOCH FROM at) AS e FROM "
+                            + legacy.schema() + ".history")) {
+                        Instant instant = rig.instant("SELECT occurred_at AS t FROM history WHERE id = ?", row.get("k"));
+                        assertThat(epoch(instant)).as("%s history %s", zone, row.get("k"))
+                                .isEqualByComparingTo(new BigDecimal(row.get("e").toString()));
                     }
                     snapshots.add(rig.rows("SELECT * FROM history ORDER BY id").toString() + rig.rows(
                             "SELECT * FROM task ORDER BY id") + rig.rows("SELECT * FROM session_grant ORDER BY id"));
@@ -908,7 +936,7 @@ class LegacyImportTest {
             assertThat(audit).hasSize(1);
             assertThat(text(audit.getFirst(), "actor")).isEqualTo(TestOwners.OWNER.value());
             assertThat(text(audit.getFirst(), "operation")).isEqualTo("IMPORT");
-            assertThat(text(audit.getFirst(), "subject")).isEqualTo("legacy schema ledger");
+            assertThat(text(audit.getFirst(), "subject")).isEqualTo("legacy schema " + rig.legacy().schema());
             assertThat(text(audit.getFirst(), "detail")).startsWith("rows=").contains("history=10").contains("project=2");
             assertThat(rig.count("SELECT revision FROM code_revision")).isEqualTo(1);
         });
@@ -918,7 +946,7 @@ class LegacyImportTest {
     @DisplayName("MIG-032 a text longer than its column in the new schema is reported (never cut): table, key, column and the limit")
     void mig032_tooLong() {
         LegacyLedger legacy = LegacyFixtures.rich();
-        legacy.update("UPDATE ledger.task SET origin_ref = ? WHERE id = 'OLD-T-1'", "x".repeat(501));
+        legacy.update("UPDATE " + legacy.schema() + ".task SET origin_ref = ? WHERE id = 'OLD-T-1'", "x".repeat(501));
         withRig(legacy, rig -> {
             ValidationException refused = (ValidationException) Expect.failure(rig::importAll, ValidationCode.VALIDATION_FAILED);
 
@@ -936,8 +964,10 @@ class LegacyImportTest {
     void sourceNotConfigured() {
         LegacyLedger legacy = LegacyFixtures.rich();
         withRig(legacy, rig -> assertThat(rig.service().sourceConfigured()).isTrue());
-        assertThat(new LegacySourceRepository(LegacyLedger.create().admin(), "ledger").schema()).isEqualTo("ledger");
-        assertThatThrownBy(() -> new LegacySourceRepository(LegacyLedger.create().admin(), "Ledger; DROP"))
-                .isInstanceOf(IllegalArgumentException.class);
+        try (LegacyLedger other = LegacyLedger.create()) {
+            assertThat(new LegacySourceRepository(other.admin(), other.schema()).schema()).isEqualTo(other.schema());
+            assertThatThrownBy(() -> new LegacySourceRepository(other.admin(), "Ledger; DROP"))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
     }
 }

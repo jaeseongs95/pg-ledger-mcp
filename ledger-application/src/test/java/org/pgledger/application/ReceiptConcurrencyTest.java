@@ -21,7 +21,7 @@ import org.pgledger.domain.error.ConflictCode;
 import org.pgledger.domain.error.ErrorCode;
 import org.pgledger.domain.error.LedgerException;
 
-/** SVC-RCP-09 .. SVC-RCP-11: concurrent duplicates on the embedded H2, with real threads. */
+/** SVC-RCP-09 .. SVC-RCP-11: concurrent duplicates on the PostgreSQL of the test PC, with real threads. */
 @LedgerServiceTest
 class ReceiptConcurrencyTest {
 

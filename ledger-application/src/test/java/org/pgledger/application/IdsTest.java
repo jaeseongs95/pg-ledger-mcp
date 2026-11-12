@@ -37,7 +37,7 @@ import org.pgledger.domain.value.AuthorId;
 import org.pgledger.domain.value.Patch;
 import org.pgledger.domain.value.TaskId;
 
-/** SVC-IDS-01 .. SVC-IDS-13: server-assigned ids (embedded H2). */
+/** SVC-IDS-01 .. SVC-IDS-13: server-assigned ids (PostgreSQL of the test PC). */
 @LedgerServiceTest
 class IdsTest {
 

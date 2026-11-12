@@ -51,7 +51,7 @@ import org.pgledger.domain.rule.HistoryEntity;
 import org.pgledger.domain.rule.HistoryOp;
 import org.pgledger.domain.value.DefectId;
 
-/** SVC-RACE-01 .. SVC-RACE-09, SVC-GRT-06: real threads and latches, committed on the embedded H2 (no transaction wraps a test). */
+/** SVC-RACE-01 .. SVC-RACE-09, SVC-GRT-06: real threads and latches, committed on the PostgreSQL of the test PC (no transaction wraps a test). */
 @LedgerServiceTest
 class RaceTest {
 

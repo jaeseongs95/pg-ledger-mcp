@@ -15,7 +15,7 @@ import org.pgledger.application.write.WriteResult.SaveResult;
 import org.pgledger.domain.error.ConflictCode;
 import org.pgledger.domain.error.LedgerException;
 
-/** SVC-BAT-03: a batch is all or nothing, on the embedded H2. */
+/** SVC-BAT-03: a batch is all or nothing, on the PostgreSQL of the test PC. */
 @LedgerServiceTest
 class BatchRollbackTest {
 
