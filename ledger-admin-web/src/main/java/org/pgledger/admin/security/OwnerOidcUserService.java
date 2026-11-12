@@ -63,6 +63,6 @@ public final class OwnerOidcUserService implements OAuth2UserService<OidcUserReq
         if (!bySubject && !byEmail) {
             throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED));
         }
-        return new DefaultOidcUser(List.of(new SimpleGrantedAuthority("ROLE_OWNER")), token);
+        return new DefaultOidcUser(List.of(new SimpleGrantedAuthority(AdminTokenProvider.OWNER_AUTHORITY)), token);
     }
 }

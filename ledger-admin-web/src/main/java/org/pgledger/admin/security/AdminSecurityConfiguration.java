@@ -3,7 +3,6 @@ package org.pgledger.admin.security;
 import jakarta.servlet.DispatcherType;
 import java.util.List;
 import org.pgledger.admin.app.AdminMode;
-import org.pgledger.admin.web.AdminProblems;
 import org.pgledger.domain.error.AdminCode;
 import org.pgledger.domain.error.AdminException;
 import org.springframework.beans.factory.ObjectProvider;
@@ -30,7 +29,6 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.ErrorResponseException;
 import org.springframework.web.servlet.HandlerExceptionResolver;
-import org.springframework.web.servlet.LocaleResolver;
 
 /**
  * The security of the admin web, all of it Spring Security in one filter chain: the Host allow list (the firewall refuses
@@ -54,6 +52,11 @@ public class AdminSecurityConfiguration {
             + "img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; "
             + "form-action 'self'; base-uri 'none'; object-src 'none'";
 
+    /**
+     * A {@code @Bean} method because the firewall is a Spring Security type that the framework picks up by type and that
+     * is configured with the allowed hosts of this application ({@link AllowedHosts}); it has no constructor the
+     * container could fill.
+     */
     @Bean
     HttpFirewall httpFirewall(AllowedHosts hosts) {
         StrictHttpFirewall firewall = new StrictHttpFirewall();
@@ -61,19 +64,17 @@ public class AdminSecurityConfiguration {
         return firewall;
     }
 
-    /** A request the firewall refuses: 403 DNS_REBINDING_BLOCKED when the Host is the reason, 400 for any other. */
+    /**
+     * A request the firewall refuses: 403 DNS_REBINDING_BLOCKED when the Host is the reason, 400 for any other.
+     * A {@code @Bean} method because the handler is the one-method interface of Spring Security, which the framework picks
+     * up by type, made here from the resolver that hands the failure to the error advice.
+     */
     @Bean
     RequestRejectedHandler requestRejectedHandler(AllowedHosts hosts,
             @Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver) {
         return (request, response, rejected) -> resolver.resolveException(request, response, null,
                 hosts.allows(request.getServerName()) ? new ErrorResponseException(HttpStatus.BAD_REQUEST)
                         : new AdminException(AdminCode.DNS_REBINDING_BLOCKED, List.of()));
-    }
-
-    @Bean
-    SecurityFailures securityFailures(@Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver,
-            LocaleResolver localeResolver, AdminProblems problems, AdminMode mode) {
-        return new SecurityFailures(resolver, localeResolver, problems, mode);
     }
 
     @Bean

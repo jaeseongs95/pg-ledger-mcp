@@ -11,11 +11,13 @@ import org.pgledger.domain.error.AdminCode;
 import org.pgledger.domain.error.AdminException;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.stereotype.Component;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.DefaultRedirectStrategy;
 import org.springframework.security.web.RedirectStrategy;
@@ -33,6 +35,7 @@ import org.springframework.web.servlet.LocaleResolver;
  * thing decided here is where a browser goes after a failed sign-in: back to the login page (with the code of the
  * failure), while any other client gets the problem itself.
  */
+@Component
 public final class SecurityFailures implements AuthenticationEntryPoint, AuthenticationFailureHandler,
         AccessDeniedHandler {
 
@@ -43,8 +46,8 @@ public final class SecurityFailures implements AuthenticationEntryPoint, Authent
     private final MediaTypeRequestMatcher browser = new MediaTypeRequestMatcher(MediaType.TEXT_HTML);
     private final RedirectStrategy redirects = new DefaultRedirectStrategy();
 
-    public SecurityFailures(HandlerExceptionResolver resolver, LocaleResolver locales, AdminProblems problems,
-            AdminMode mode) {
+    public SecurityFailures(@Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver,
+            LocaleResolver locales, AdminProblems problems, AdminMode mode) {
         this.resolver = resolver;
         this.locales = locales;
         this.problems = problems;

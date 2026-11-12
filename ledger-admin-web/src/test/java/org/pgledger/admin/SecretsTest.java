@@ -15,6 +15,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.pgledger.admin.app.LedgerAdminProperties;
 import org.pgledger.admin.security.AdminTokenProvider;
 import org.pgledger.admin.security.LoginAttempts;
+import org.pgledger.admin.security.LoginDelay;
 import org.pgledger.admin.support.AdminTest;
 import org.pgledger.admin.support.AdminTestSettings;
 import org.pgledger.admin.support.Browser;
@@ -97,7 +98,7 @@ class SecretsTest {
 
         @Bean
         AdminTokenProvider adminTokenProvider(LedgerAdminProperties properties, LoginAttempts attempts) {
-            return new AdminTokenProvider(properties, attempts);
+            return new AdminTokenProvider(properties, attempts, new LoginDelay());
         }
     }
 

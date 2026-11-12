@@ -5,8 +5,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -22,13 +29,22 @@ import org.opentest4j.TestAbortedException;
 import org.pgledger.admin.app.LedgerAdminProperties;
 import org.pgledger.admin.setup.DriverRegistrationService;
 import org.pgledger.admin.support.TestDriverJar;
+import org.pgledger.application.admin.OwnerAuditWriter;
+import org.pgledger.database.driver.DriverLoader;
+import org.pgledger.database.driver.DriverRegistrar;
 import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.database.driver.DriverRegistrationFile;
 import org.pgledger.database.driver.LedgerJdbcProperties;
 import org.pgledger.domain.error.InfrastructureCode;
 import org.pgledger.domain.error.InfrastructureException;
+import org.pgledger.domain.rule.OwnerAction;
 import org.pgledger.testing.OwnerOnlyFiles;
 import org.pgledger.testing.TestOwners;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionSystemException;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
@@ -73,16 +89,74 @@ class DriverRegistrationServiceTest {
                 Bindable.of(LedgerAdminProperties.class)).get();
     }
 
-    private static void withService(Path registrationFile, Path driverDirectory, String url, Body body) {
-        new ApplicationContextRunner()
+    /** The beans the service needs in setup mode (no audit writer, no transaction manager). */
+    private static ApplicationContextRunner runner(Path registrationFile, Path driverDirectory, String url) {
+        return new ApplicationContextRunner()
                 .withBean(DriverRegistrationFile.class,
                         () -> new DriverRegistrationFile(new DriverRegistrationFile.Location(registrationFile)))
                 .withBean(LedgerJdbcProperties.class, () -> new LedgerJdbcProperties(url, null, null, 1,
                         new DriverRegistration(null, null, null, null)))
                 .withBean(Clock.class, () -> CLOCK)
                 .withBean(LedgerAdminProperties.class, () -> adminProperties(registrationFile, driverDirectory))
-                .withBean(DriverRegistrationService.class)
+                .withBean(DriverLoader.class)
+                .withBean(DriverRegistrar.class, () -> new DriverRegistrar(new DriverLoader(), url, driverDirectory))
+                .withBean(DriverRegistrationService.class);
+    }
+
+    private static void withService(Path registrationFile, Path driverDirectory, String url, Body body) {
+        runner(registrationFile, driverDirectory, url)
                 .run(context -> body.accept(context.getBean(DriverRegistrationService.class)));
+    }
+
+    /** The service of a console: with the writer of the audit row and the transaction manager of its database. */
+    private static void withAuditedService(Path registrationFile, Path driverDirectory, OwnerAuditWriter writer,
+            PlatformTransactionManager transactions, Body body) {
+        runner(registrationFile, driverDirectory, TestDriverJar.url())
+                .withBean(OwnerAuditWriter.class, () -> writer)
+                .withBean(PlatformTransactionManager.class, () -> transactions)
+                .run(context -> body.accept(context.getBean(DriverRegistrationService.class)));
+    }
+
+    /**
+     * A transaction manager that does what Spring's does around a commit (it runs the synchronizations after the
+     * commit and after the completion) with nothing behind it: {@code commit} is what the test says it is.
+     */
+    private static final class CommitOf extends AbstractPlatformTransactionManager {
+
+        private static final long serialVersionUID = 1L;
+
+        private final transient Runnable atCommit;
+
+        CommitOf(Runnable atCommit) {
+            this.atCommit = atCommit;
+        }
+
+        @Override
+        protected Object doGetTransaction() {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition) {
+            // nothing to begin: there is no database
+        }
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) {
+            atCommit.run();
+        }
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status) {
+            // nothing to roll back
+        }
+    }
+
+    /** The files of a directory by name, to see that no temporary file is left. */
+    private static List<String> names(Path directory) throws IOException {
+        try (var entries = Files.list(directory)) {
+            return entries.map(entry -> entry.getFileName().toString()).sorted().toList();
+        }
     }
 
     /** The refusal every unusable jar or class gets: DRIVER_INVALID with the one fixed text and nothing else. */
@@ -150,11 +224,11 @@ class DriverRegistrationServiceTest {
         Path jar = driverJarIn(realDirectory(directory, "drivers"), "postgresql.jar");
 
         withService(file, jar.getParent(), TestDriverJar.url(), service -> {
-            assertThat(service.state().registered()).isEmpty();
+            assertThat(service.state().registered()).isInstanceOf(DriverRegistrationService.Registration.None.class);
             assertThat(service.state().restartRequired()).isFalse();
             register(service, jar.toString(), TestDriverJar.DRIVER_CLASS);
 
-            assertThat(service.state().registered()).isPresent();
+            assertThat(service.state().registered()).isInstanceOf(DriverRegistrationService.Registration.Present.class);
             assertThat(service.state().restartRequired()).isTrue();
         });
     }
@@ -327,5 +401,109 @@ class DriverRegistrationServiceTest {
                 catchThrowable(() -> register(service, jar.toString(),
                         TestDriverJar.DRIVER_CLASS)), jar));
         assertThat(file).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("ADM-PRN-01: a commit that is refused leaves the registration file byte for byte as it was, no temporary "
+            + "file, and the caller gets the failure; with no file before, none exists afterwards")
+    void admPrn01_aRefusedCommitLeavesTheFileAlone(@TempDir Path directory) throws Exception {
+        Path configuration = realDirectory(directory, "config");
+        Path file = configuration.resolve("jdbc-driver.yaml");
+        Path jar = driverJarIn(realDirectory(directory, "drivers"), "postgresql.jar");
+        OwnerAuditWriter writer = mock(OwnerAuditWriter.class);
+        PlatformTransactionManager refusing = new CommitOf(() -> {
+            throw new TransactionSystemException("the commit is refused");
+        });
+
+        String before = "the registration that was there before\n";
+        Files.writeString(file, before);
+        withAuditedService(file, jar.getParent(), writer, refusing, service -> assertThatThrownBy(
+                () -> register(service, jar.toString(), TestDriverJar.DRIVER_CLASS))
+                .isInstanceOf(TransactionSystemException.class));
+
+        verify(writer).record(eq(TestOwners.OWNER), eq(OwnerAction.DRIVER_REGISTERED), eq(TestDriverJar.DRIVER_CLASS),
+                anyString());
+        assertThat(Files.readString(file)).isEqualTo(before);
+        assertThat(names(configuration)).containsExactly("jdbc-driver.yaml");
+
+        Path fresh = configuration.resolve("fresh").resolve("jdbc-driver.yaml");
+        withAuditedService(fresh, jar.getParent(), writer, refusing, service -> assertThatThrownBy(
+                () -> register(service, jar.toString(), TestDriverJar.DRIVER_CLASS))
+                .isInstanceOf(TransactionSystemException.class));
+        assertThat(fresh).doesNotExist();
+        assertThat(names(fresh.getParent())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ADM-PRN-03: the new file is written before the transaction and moved after its commit: at the commit the "
+            + "registration file is still the old one, afterwards the new one")
+    void admPrn03_theFileIsReplacedAfterTheCommit(@TempDir Path directory) throws Exception {
+        Path configuration = realDirectory(directory, "config");
+        Path file = configuration.resolve("jdbc-driver.yaml");
+        Path jar = driverJarIn(realDirectory(directory, "drivers"), "postgresql.jar");
+        String old = "the registration that was there before\n";
+        Files.writeString(file, old);
+        List<String> seenAtTheRow = new java.util.ArrayList<>();
+        List<String> seenAtTheCommit = new java.util.ArrayList<>();
+        OwnerAuditWriter writer = mock(OwnerAuditWriter.class);
+        doAnswer(call -> {
+            seenAtTheRow.addAll(names(configuration));
+            return null;
+        }).when(writer).record(any(), any(), any(), any());
+        PlatformTransactionManager committing = new CommitOf(() -> {
+            try {
+                seenAtTheCommit.add(Files.readString(file));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
+
+        withAuditedService(file, jar.getParent(), writer, committing, service -> register(service, jar.toString(),
+                TestDriverJar.DRIVER_CLASS));
+
+        assertThat(seenAtTheRow).as("the new file already exists when the audit row is written").hasSize(2)
+                .contains("jdbc-driver.yaml");
+        assertThat(seenAtTheCommit).containsExactly(old);
+        assertThat(Files.readString(file)).contains("registered-at: \"2026-11-05T10:00:00Z\"");
+        assertThat(names(configuration)).containsExactly("jdbc-driver.yaml");
+    }
+
+    @Test
+    @DisplayName("ADM-PRN-02 (service): a replacement that fails after the commit is an error to the caller, the audit row "
+            + "was written and committed (it records the attempt), the file is as it was, no temporary file is left")
+    void admPrn02_aFailedMoveAfterTheCommitIsAnError(@TempDir Path directory) throws Exception {
+        Path configuration = realDirectory(directory, "config");
+        // a registration file that cannot be replaced: the name is a directory that is not empty
+        Path file = Files.createDirectories(configuration.resolve("jdbc-driver.yaml"));
+        Files.writeString(file.resolve("occupied"), "x");
+        Path jar = driverJarIn(realDirectory(directory, "drivers"), "postgresql.jar");
+        OwnerAuditWriter writer = mock(OwnerAuditWriter.class);
+        List<String> events = new java.util.ArrayList<>();
+        PlatformTransactionManager committing = new CommitOf(() -> events.add("commit"));
+
+        withAuditedService(file, jar.getParent(), writer, committing, service -> assertThatThrownBy(
+                () -> register(service, jar.toString(), TestDriverJar.DRIVER_CLASS))
+                .isInstanceOfSatisfying(InfrastructureException.class,
+                        e -> assertThat(e.code()).isEqualTo(InfrastructureCode.INTERNAL_ERROR)));
+
+        verify(writer).record(eq(TestOwners.OWNER), eq(OwnerAction.DRIVER_REGISTERED), eq(TestDriverJar.DRIVER_CLASS),
+                anyString());
+        assertThat(events).as("the transaction committed before the move failed").containsExactly("commit");
+        assertThat(names(configuration)).containsExactly("jdbc-driver.yaml");
+        assertThat(names(file)).containsExactly("occupied");
+    }
+
+    @Test
+    @DisplayName("ADM-PRN-04: in setup mode (no audit writer, no transaction manager) the file is replaced at once")
+    void admPrn04_setupModeReplacesTheFileAtOnce(@TempDir Path directory) throws Exception {
+        Path configuration = realDirectory(directory, "config");
+        Path file = configuration.resolve("jdbc-driver.yaml");
+        Path jar = driverJarIn(realDirectory(directory, "drivers"), "postgresql.jar");
+
+        withService(file, jar.getParent(), TestDriverJar.url(), service -> {
+            register(service, jar.toString(), TestDriverJar.DRIVER_CLASS);
+            assertThat(Files.readString(file)).contains("postgresql.jar").contains(TestDriverJar.DRIVER_CLASS);
+        });
+        assertThat(names(configuration)).containsExactly("jdbc-driver.yaml");
     }
 }

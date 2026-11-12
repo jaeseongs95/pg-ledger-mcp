@@ -110,8 +110,14 @@ class ArchitectureTest {
                 new Rule("3.8 no exception handler outside the advice",
                         methods().that().areAnnotatedWith(ExceptionHandler.class).should().beDeclaredIn(
                                 org.pgledger.admin.web.AdminHttpExceptionAdvice.class)),
-                new Rule("3.8 a filter is registered, it is not a component",
-                        noClasses().that().areAssignableTo(Filter.class).should().beAnnotatedWith(Component.class)),
+                new Rule("2.1 a filter is a component, and its registration bean holds only the URL pattern and the order",
+                        classes().that().areAssignableTo(Filter.class).should().beAnnotatedWith(Component.class)),
+                new Rule("plan 3 the owner identity of a controller comes from the argument resolver: no controller "
+                        + "takes the Authentication to build it",
+                        noClasses().that().resideInAnyPackage("org.pgledger.admin.console..", "org.pgledger.admin.setup..")
+                                .and().areAnnotatedWith(org.springframework.stereotype.Controller.class).should()
+                                .dependOnClassesThat().haveFullyQualifiedName(
+                                        "org.springframework.security.core.Authentication")),
                 new Rule("3.8 the filters and the security handlers write no response body",
                         noClasses().that().resideInAnyPackage("org.pgledger.admin.security..", "org.pgledger.admin.web..")
                                 .should().callMethodWhere(WRITES_A_BODY)),

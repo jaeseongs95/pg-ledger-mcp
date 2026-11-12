@@ -89,18 +89,13 @@ public class AdminHttpExceptionAdvice extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(Exception failure, Object body, HttpHeaders headers,
             HttpStatusCode status, WebRequest request) {
-        if (body instanceof ProblemDetail problem && problem.getProperties() == null) {
-            problem.setProperty("code", codeOf(status));
+        ResponseEntity<Object> response = super.handleExceptionInternal(failure, body, headers, status, request);
+        // the base class makes the problem of a standard exception here (the body that is passed in is null), so the
+        // code is added to what it answers with
+        if (response != null && response.getBody() instanceof ProblemDetail problem && problem.getProperties() == null) {
+            problem.setProperty("code", HttpErrorCode.of(status).name());
         }
-        return super.handleExceptionInternal(failure, body, headers, status, request);
-    }
-
-    private static String codeOf(HttpStatusCode status) {
-        return switch (status.value()) {
-            case 404 -> "NOT_FOUND";
-            case 400 -> "VALIDATION_FAILED";
-            default -> "HTTP_" + status.value();
-        };
+        return response;
     }
 
     private Object render(ProblemDetail problem, HttpServletRequest request) {

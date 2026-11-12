@@ -17,6 +17,8 @@ import java.util.List;
 import org.pgledger.admin.app.LedgerAdminProperties;
 import org.pgledger.domain.error.AdminCode;
 import org.pgledger.domain.error.AdminException;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
@@ -34,13 +36,17 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  * limit what the handler reads. The same filter guards the MCP server (its Javadoc has the same citation). The refusal
  * is not written here (principle 3.8): the exception goes to the {@link HandlerExceptionResolver} of the dispatcher,
  * which hands it to the one HTTP error advice that renders the problem detail.
+ *
+ * <p>The filter is a component; {@code AdminWebConfiguration} registers it (URL pattern and order).
  */
+@Component
 public final class RequestSizeFilter extends OncePerRequestFilter {
 
     private final long maxBytes;
     private final HandlerExceptionResolver errors;
 
-    public RequestSizeFilter(LedgerAdminProperties properties, HandlerExceptionResolver errors) {
+    public RequestSizeFilter(LedgerAdminProperties properties,
+            @Qualifier("handlerExceptionResolver") HandlerExceptionResolver errors) {
         this.maxBytes = properties.maxRequestSize().toBytes();
         this.errors = errors;
     }

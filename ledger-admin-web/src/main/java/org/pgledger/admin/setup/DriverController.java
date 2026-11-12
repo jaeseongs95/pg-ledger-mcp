@@ -1,7 +1,6 @@
 package org.pgledger.admin.setup;
 
-import org.pgledger.admin.security.OwnerActors;
-import org.springframework.security.core.Authentication;
+import org.pgledger.domain.value.OwnerIdentity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,7 +28,9 @@ public class DriverController {
     @GetMapping("/driver")
     String page(@RequestParam(name = "registered", required = false) String registered, Model model) {
         DriverRegistrationService.State state = registrations.state();
-        model.addAttribute("registered", state.registered().orElse(null));
+        if (state.registered() instanceof DriverRegistrationService.Registration.Present present) {
+            model.addAttribute("registered", present.entry());
+        }
         model.addAttribute("effective", state.effective());
         model.addAttribute("restartRequired", state.restartRequired());
         model.addAttribute("justRegistered", registered != null);
@@ -37,8 +38,8 @@ public class DriverController {
     }
 
     @PostMapping("/driver")
-    String register(@ModelAttribute DriverForm form, Authentication authentication) {
-        registrations.register(form.jar(), form.className(), OwnerActors.of(authentication));
+    String register(@ModelAttribute DriverForm form, OwnerIdentity actor) {
+        registrations.register(form.jar(), form.className(), actor);
         return "redirect:/driver?registered";
     }
 }

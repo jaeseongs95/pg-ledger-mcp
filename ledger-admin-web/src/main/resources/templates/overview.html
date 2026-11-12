@@ -38,7 +38,7 @@
         <tr th:each="item : ${overview.attention()}">
           <td th:text="#{'attention.' + ${item.kind()}}">kind</td>
           <td th:text="${item.entity()}">defect</td>
-          <td><a th:href="${item.entity() == 'defect'} ? @{/defects/{id}(id=${item.id()})} : @{/tasks/{id}(id=${item.id()})}" th:text="${item.id()}">ID</a></td>
+          <td><a th:with="page=${@links.itemPage(item.entity())}" th:href="@{${page}(id=${item.id()})}" th:text="${item.id()}">ID</a></td>
           <td th:text="${item.projectId()}">p1</td>
         </tr>
       </tbody>

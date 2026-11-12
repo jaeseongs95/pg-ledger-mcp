@@ -3,10 +3,7 @@ package org.pgledger.admin.setup;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Objects;
-import java.util.Optional;
-import org.pgledger.admin.app.LedgerAdminProperties;
 import org.pgledger.application.admin.OwnerAuditWriter;
-import org.pgledger.database.driver.DriverLoader;
 import org.pgledger.database.driver.DriverRegistrar;
 import org.pgledger.database.driver.DriverRegistration;
 import org.pgledger.database.driver.DriverRegistrationFile;
@@ -19,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -49,72 +47,84 @@ public class DriverRegistrationService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DriverRegistrationService.class);
 
+    /** Whether a driver is registered: the file holds one ({@link Present}) or nothing is registered yet ({@link None}). */
+    public sealed interface Registration {
+
+        /** The driver the registration file holds. */
+        record Present(DriverRegistrationFile.Entry entry) implements Registration {
+        }
+
+        /** Nothing is registered yet. */
+        record None() implements Registration {
+        }
+    }
+
     /** The driver in use, the registered one, and whether they differ (the products have to be restarted). */
-    public record State(DriverRegistration effective, Optional<DriverRegistrationFile.Entry> registered,
-            boolean restartRequired) {
+    public record State(DriverRegistration effective, Registration registered, boolean restartRequired) {
     }
 
     private final DriverRegistrationFile file;
-    private final LedgerJdbcProperties jdbc;
+    private final DriverRegistrar registrar;
     private final Clock clock;
-    private final LedgerAdminProperties admin;
     private final ObjectProvider<OwnerAuditWriter> audit;
     private final ObjectProvider<PlatformTransactionManager> transactions;
+    private final LedgerJdbcProperties jdbc;
 
     /**
      * @param audit        the writer of the owner's audit trail; absent in setup mode, where there is no database
      * @param transactions the transaction manager of that database; absent in setup mode
      */
-    public DriverRegistrationService(DriverRegistrationFile file, LedgerJdbcProperties jdbc, Clock clock,
-            LedgerAdminProperties admin, ObjectProvider<OwnerAuditWriter> audit,
+    public DriverRegistrationService(DriverRegistrationFile file, DriverRegistrar registrar, LedgerJdbcProperties jdbc,
+            Clock clock, ObjectProvider<OwnerAuditWriter> audit,
             ObjectProvider<PlatformTransactionManager> transactions) {
         this.file = file;
+        this.registrar = registrar;
         this.jdbc = jdbc;
         this.clock = clock;
-        this.admin = admin;
         this.audit = audit;
         this.transactions = transactions;
     }
 
     /**
-     * Registers the driver for the signed-in owner: after the checks, the audit row of the owner's trail and the
-     * replacement of the registration file are one unit (the file is written inside the transaction of the row, so a
-     * file that cannot be written leaves no row; a row that cannot be written leaves the file as it was). In setup mode
-     * there is no database and so no trail: the registration is logged at WARN with the owner and the digest instead.
+     * Registers the driver for the signed-in owner. The file is a thing a transaction cannot roll back, so it is not
+     * written inside one (principle 4.4): after the checks, {@link DriverRegistrationFile#register} writes the new file
+     * next to the old one outside any transaction, the audit row of the owner's trail is written and committed in a
+     * transaction, and the old file is replaced by the new one only after that commit. A commit that fails leaves the
+     * registration file as it was (and no row); a replacement that fails after the commit is an error to the caller and
+     * the row stays, it records the attempt. In setup mode there is no database and so no trail: the registration is logged
+     * at WARN with the owner and the digest instead, and the file is replaced at once.
+     *
+     * <p>Not to be called inside a transaction: the file registration refuses that.
      *
      * @param actor the owner who registers it ({@code token:owner}, or the OpenID Connect identity)
      * @throws InfrastructureException DRIVER_INVALID with the jar or the class missing from the form (naming the
-     *         field), or with {@link #REFUSED_REASON} when the jar or the class cannot be used
+     *         field), or with {@link #REFUSED_REASON} when the jar or the class cannot be used; INTERNAL_ERROR when the
+     *         file cannot be written or cannot replace the old one
      */
     public DriverRegistration register(String jar, String className, OwnerIdentity actor) {
-        // the loader has no state and no dependency; it is made here until the registrar becomes a bean (unit W5)
-        DriverRegistration registration = new DriverRegistrar(new DriverLoader(), jdbc.url(), admin.driverDirectory())
-                .check(jar, className, clock.instant());
-        write(registration, actor);
-        return registration;
-    }
-
-    /** The audit row and the file in one transaction when there is a database; the file and a log line otherwise. */
-    private void write(DriverRegistration registration, OwnerIdentity actor) {
+        DriverRegistration registration = registrar.check(jar, className, clock.instant());
         OwnerAuditWriter writer = audit.getIfAvailable();
         PlatformTransactionManager manager = transactions.getIfAvailable();
         String detail = "jar=" + registration.jar() + " sha256=" + registration.sha256();
         if (writer == null || manager == null) {
             LOG.warn("driver registered by {}: {} {} (setup mode has no database, so there is no row of the owner's audit "
                     + "trail)", actor.value(), registration.className(), DriverRegistrar.printable(detail));
-            file.write(registration);
-            return;
+            file.register(registration, TransactionOperations.withoutTransaction(), () -> { });
+            return registration;
         }
-        new TransactionTemplate(manager).executeWithoutResult(status -> {
-            writer.record(actor, OwnerAction.DRIVER_REGISTERED, registration.className(), detail);
-            file.write(registration);
-        });
+        file.register(registration, new TransactionTemplate(manager),
+                () -> writer.record(actor, OwnerAction.DRIVER_REGISTERED, registration.className(), detail));
+        return registration;
     }
 
     public State state() {
-        Optional<DriverRegistrationFile.Entry> registered = file.read();
+        Registration registered = file.read().<Registration>map(Registration.Present::new)
+                .orElseGet(Registration.None::new);
         DriverRegistration effective = jdbc.driver();
-        boolean restartRequired = registered.isPresent() && !sameDriver(registered.get(), effective);
+        boolean restartRequired = switch (registered) {
+            case Registration.Present present -> !sameDriver(present.entry(), effective);
+            case Registration.None none -> false;
+        };
         return new State(effective, registered, restartRequired);
     }
 
