@@ -59,16 +59,16 @@ public final class SigningAttestationVerifier implements AttestationVerifier {
     }
 
     @Override
-    public AuthorId verify(String presented, String tool, String requestId, String argumentsDigest) {
+    public Proof prove(String presented, String tool, String requestId, String argumentsDigest) {
         return check(presented, tool, requestId, argumentsDigest, false);
     }
 
     @Override
     public AuthorId verifyForWrite(String presented, String tool, String requestId, String argumentsDigest) {
-        return check(presented, tool, requestId, argumentsDigest, true);
+        return check(presented, tool, requestId, argumentsDigest, true).requireAuthor();
     }
 
-    private AuthorId check(String presented, String tool, String requestId, String argumentsDigest, boolean write) {
+    private Proof check(String presented, String tool, String requestId, String argumentsDigest, boolean write) {
         if (presented == null || presented.startsWith(AttestationToken.PREFIX + ".")
                 || presented.startsWith(AttestationToken.RETIRED_PREFIX + ".")) {
             return call(presented, tool, requestId, argumentsDigest, write);
@@ -83,9 +83,9 @@ public final class SigningAttestationVerifier implements AttestationVerifier {
         return call(token, signedTool, requestId, signedDigest, write);
     }
 
-    private AuthorId call(String token, String tool, String requestId, String argumentsDigest, boolean write) {
-        return write ? real.verifyForWrite(token, tool, requestId, argumentsDigest)
-                : real.verify(token, tool, requestId, argumentsDigest);
+    private Proof call(String token, String tool, String requestId, String argumentsDigest, boolean write) {
+        return write ? new Proof.Proven(real.verifyForWrite(token, tool, requestId, argumentsDigest))
+                : real.prove(token, tool, requestId, argumentsDigest);
     }
 
     /**
