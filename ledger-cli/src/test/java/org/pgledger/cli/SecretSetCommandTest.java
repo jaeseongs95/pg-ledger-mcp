@@ -214,7 +214,12 @@ class SecretSetCommandTest {
         assertThat(result.code()).contains(refusal.code());
         assertThat(input.reads()).isZero();
         assertThat(output.info()).isEmpty();
-        assertThat(captured.getAll()).contains(COMMAND_NAMES);
+        if (refusal.code() == ErrorCode.MISSING_COMMAND || refusal.code() == ErrorCode.UNKNOWN_COMMAND) {
+            assertThat(captured.getAll()).contains(COMMAND_NAMES);
+        } else {
+            // FUP-USG-01: the command is known, so its usage line is shown and the other commands are not
+            assertThat(captured.getAll()).contains("secret-set <").doesNotContain("token-generate <");
+        }
         assertThat(Files.exists(directory())).isFalse();
     }
 

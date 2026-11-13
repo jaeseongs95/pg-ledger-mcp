@@ -16,7 +16,7 @@ class OneXEnvironmentTest {
     private static final String ADMIN = "0f9e8d7c6b5a49382716051a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e";
 
     private static final String AS_WRITTEN_BY_1X = """
-            # written by pg-ledger-mcp deploy/install.sh; read by systemd (pg-ledger-mcp.service) and bin/ledger-admin
+            # written by pg-ledger-mcp deploy/install.sh of 1.x; read by systemd (pg-ledger-mcp.service) and bin/ledger-admin
             PGLEDGER_DB=ledger
             PGLEDGER_PGHOST=127.0.0.1
             PGLEDGER_PGPORT=5432

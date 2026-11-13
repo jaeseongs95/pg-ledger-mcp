@@ -89,6 +89,93 @@ class UsageTest {
         }
     }
 
+    /** FUP-USG-01/02: the output has the header and the usage line of this command, and the line of no other command. */
+    private static void assertUsageOfOnly(String output, CliCommand failed, Properties messages) {
+        assertThat(output).as("header").contains(messages.getProperty("usage.header"));
+        assertThat(output).as("usage line of %s", failed.cliName()).contains(messages.getProperty(failed.usageKey()));
+        for (CliCommand other : CliCommand.values()) {
+            if (other != failed) {
+                assertThat(output).as("usage line of %s, which did not fail", other.cliName())
+                        .doesNotContain(messages.getProperty(other.usageKey()));
+            }
+        }
+    }
+
+    /** FUP-USG-01/04: command lines that are refused after the command is known (the command is the first word). */
+    static Stream<Arguments> refusedKnownCommands() {
+        return Stream.concat(refusedCommandLines(), Stream.of(
+                Arguments.of(new String[] { "render-deploy" }, ErrorCode.MISSING_ARGUMENT),
+                Arguments.of(new String[] { "render-deploy", "--bogus=1" }, ErrorCode.UNKNOWN_OPTION),
+                Arguments.of(new String[] { "grant", "claude:a", "p" }, ErrorCode.MISSING_ARGUMENT),
+                Arguments.of(new String[] { "secret-set", "name", "extra" }, ErrorCode.TOO_MANY_ARGUMENTS),
+                Arguments.of(new String[] { "secret-set", "name", "--force" }, ErrorCode.UNKNOWN_OPTION)));
+    }
+
+    @ParameterizedTest(name = "{0} is {1}")
+    @MethodSource("refusedKnownCommands")
+    @DisplayName("FUP-USG-01 a usage error after the command is known prints the usage line of that command only, in English (FUP-USG-04: the deploy commands and the commands of the database too)")
+    void aKnownCommandShowsItsOwnUsage(String[] line, ErrorCode expected, Cli cli, CapturedOutput captured) throws IOException {
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+        try {
+            Outcome result = run(cli, line);
+
+            assertThat(result.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+            assertThat(result.code()).contains(expected);
+            assertUsageOfOnly(captured.getAll(), CliCommand.parse(line[0]).orElseThrow(), bundle("messages.properties"));
+            // FUP-USG-05: the refusal carries the command
+            assertThat(((UsageException) result.refusal().orElseThrow()).command()).contains(CliCommand.parse(line[0]).orElseThrow());
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
+    }
+
+    @ParameterizedTest(name = "{0} is {1}")
+    @MethodSource("refusedKnownCommands")
+    @DisplayName("FUP-USG-02 the same in Korean: the Korean header and the Korean usage line of that command only")
+    void aKnownCommandShowsItsOwnUsageInKorean(String[] line, ErrorCode expected, Cli cli, CapturedOutput captured)
+            throws IOException {
+        LocaleContextHolder.setLocale(Locale.KOREAN);
+        try {
+            Outcome result = run(cli, line);
+
+            assertThat(result.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+            assertThat(result.code()).contains(expected);
+            assertUsageOfOnly(captured.getAll(), CliCommand.parse(line[0]).orElseThrow(), bundle("messages_ko.properties"));
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("noKnownCommand")
+    @DisplayName("FUP-USG-03 without a command, or with a word that is no command, the list of every command is shown (the user has to choose one)")
+    void withoutAKnownCommandEveryCommandIsListed(String[] line, ErrorCode expected, Cli cli, CapturedOutput captured)
+            throws IOException {
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+        try {
+            Outcome result = run(cli, line);
+
+            assertThat(result.exitCode()).isEqualTo(ExitStatus.USAGE.code());
+            assertThat(result.code()).contains(expected);
+            // FUP-USG-05: no command is known, so the refusal carries none
+            assertThat(((UsageException) result.refusal().orElseThrow()).command()).isEmpty();
+            for (CliCommand command : CliCommand.values()) {
+                assertThat(captured.getAll()).as("usage line of %s", command.cliName())
+                        .contains(bundle("messages.properties").getProperty(command.usageKey()));
+            }
+        } finally {
+            LocaleContextHolder.resetLocaleContext();
+        }
+    }
+
+    static Stream<Arguments> noKnownCommand() {
+        return Stream.of(
+                Arguments.of(new String[0], ErrorCode.MISSING_COMMAND),
+                Arguments.of(new String[] { "category-add", "X" }, ErrorCode.UNKNOWN_COMMAND),
+                Arguments.of(new String[] { "SECRET-SET", "x" }, ErrorCode.UNKNOWN_COMMAND),
+                Arguments.of(new String[] { "secret-get", "x" }, ErrorCode.UNKNOWN_COMMAND));
+    }
+
     @Test
     @DisplayName("CLI-001 the usage text names the commands of the owner tool (changed by import: import-legacy is listed after migrate; changed by install, INS-029: token-generate follows secret-set and render-deploy ends the list; SEC-027: secret-import-1x follows token-generate; INS-044: prepare-host and seal-host end the list; SETUP: setup follows migrate and install-default ends the list; TLS: tls-issue and tls-renew end the list)")
     void theCommandSetIsTheOneOfThePlan() {

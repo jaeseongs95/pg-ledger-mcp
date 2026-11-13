@@ -6,7 +6,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -169,20 +172,84 @@ class ManifestTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "claude/hooks/hooks.json", "claude/.claude-plugin/plugin.json", "claude/README.md", "codex/hooks/hooks.json",
-            "codex/plugin.json", "codex/README.md", "antigravity/hooks.json", "antigravity/plugin.json", "antigravity/README.md"})
+            "claude/hooks/hooks.json", "claude/.claude-plugin/plugin.json", "claude/README.md", "claude/README.ko.md",
+            "codex/hooks/hooks.json", "codex/plugin.json", "codex/README.md", "codex/README.ko.md",
+            "antigravity/hooks.json", "antigravity/plugin.json", "antigravity/README.md", "antigravity/README.ko.md"})
     @DisplayName("HK-010 the manifests and READMEs no longer mention Node or .mjs")
     void noNode(String file) throws IOException {
         assertThat(Files.readString(CLIENTS.resolve(file))).doesNotContain(".mjs").doesNotContain("node ").doesNotContain("Node.js");
     }
 
+    /** (client, README file name): the English README and the Korean one of every client. */
+    static Stream<Arguments> readmes() {
+        return Stream.of(Client.values()).flatMap(client -> Stream.of("README.md", "README.ko.md")
+                .map(name -> Arguments.argumentSet(client + " " + name, client, name)));
+    }
+
     @ParameterizedTest
-    @EnumSource(Client.class)
-    @DisplayName("HK-010 every client README names the JDK 25 PATH requirement and the closed failure (HOST_ATTESTATION_REQUIRED)")
-    void readmesStateRequirements(Client client) throws IOException {
-        String readme = Files.readString(CLIENTS.resolve(client.argument() + "/README.md"));
+    @MethodSource("readmes")
+    @DisplayName("HK-010 / FUP-CLI-02 every client README, in both languages, names the JDK 25 PATH requirement and the closed failure (HOST_ATTESTATION_REQUIRED)")
+    void readmesStateRequirements(Client client, String name) throws IOException {
+        String readme = Files.readString(CLIENTS.resolve(client.argument() + "/" + name));
         assertThat(readme).contains("JDK 25").contains("PATH").contains("HOST_ATTESTATION_REQUIRED")
                 .contains("java -jar").contains("lib/ledger-client-hook.jar");
+    }
+
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    @DisplayName("FUP-CLI-01 each client has README.md in English (no Hangul) that links README.ko.md, and README.ko.md in Korean (Hangul); there is no other README")
+    void readmesAreEnglishAndKorean(Client client) throws IOException {
+        Path directory = CLIENTS.resolve(client.argument());
+        // the one Korean word of the English README is the text of the link to the Korean one
+        String english = Files.readString(directory.resolve("README.md")).replace("[한국어](README.ko.md)", "[Korean](README.ko.md)");
+        String korean = Files.readString(directory.resolve("README.ko.md"));
+
+        assertThat(HANGUL.matcher(english).find()).as("English README has no Hangul").isFalse();
+        assertThat(HANGUL.matcher(korean).find()).as("Korean README is Korean").isTrue();
+        assertThat(english).contains("](README.ko.md)");
+        try (Stream<Path> files = Files.list(directory)) {
+            assertThat(files.map(p -> p.getFileName().toString()).filter(n -> n.toLowerCase(Locale.ROOT).startsWith("readme")))
+                    .containsExactlyInAnyOrder("README.md", "README.ko.md");
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("readmes")
+    @DisplayName("FUP-CLI-02 every README describes the 2.0 behaviour (Ed25519 session key, session-key, key-register, LEDGER_HOOK_KEY_DIR) and not the 1.x form (the host session id put into _hostAttestation unsigned)")
+    void readmesDescribeTheSignedAttestation(Client client, String name) throws IOException {
+        String readme = Files.readString(CLIENTS.resolve(client.argument() + "/" + name));
+        assertThat(readme).contains("Ed25519").contains("session-key").contains("key-register").contains("LEDGER_HOOK_KEY_DIR")
+                .contains("_hostAttestation");
+        assertThat(readme).doesNotContain("claude:<id>").doesNotContain("codex:<id>").doesNotContain("gemini:<id>");
+    }
+
+    @ParameterizedTest
+    @EnumSource(Client.class)
+    @DisplayName("FUP-CLI-02 the English and the Korean README of a client have the same code spans (names, commands and keys are not translated)")
+    void readmeCodeSpansAreTheSameInBothLanguages(Client client) throws IOException {
+        Path directory = CLIENTS.resolve(client.argument());
+
+        assertThat(codeSpans(Files.readString(directory.resolve("README.ko.md"))))
+                .isEqualTo(codeSpans(Files.readString(directory.resolve("README.md"))));
+    }
+
+    private static final Pattern HANGUL = Pattern.compile("[\\uAC00-\\uD7A3\\u3131-\\u318E]");
+    private static final Pattern CODE_SPAN = Pattern.compile("`([^`\\n]+)`");
+
+    private static Set<String> codeSpans(String markdown) {
+        Set<String> spans = new TreeSet<>();
+        Matcher matcher = CODE_SPAN.matcher(markdown);
+        while (matcher.find()) {
+            spans.add(matcher.group(1));
+        }
+        return spans;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "claude/.claude-plugin/plugin.json", "codex/plugin.json", "antigravity/plugin.json" })
+    @DisplayName("FUP-CLI-03 the version of every plugin is the version of the release, 2.0.0")
+    void pluginVersionIsTheRelease(String file) throws IOException {
+        assertThat(read(file).path("version").stringValue()).isEqualTo("2.0.0");
     }
 
     @ParameterizedTest

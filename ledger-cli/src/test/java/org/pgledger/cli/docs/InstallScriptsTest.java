@@ -352,7 +352,7 @@ class InstallScriptsTest {
             assertThat(line).as(line).doesNotContainPattern(SECRET_OPTION);
             if (line.contains("secret-set") || line.contains("token-generate")) {
                 assertThat(line).as("only the name of the secret follows the command").matches(
-                        ".*(secret-set|token-generate) ledger\\.[a-z.-]+( --print| --if-absent| \"--copy-to=ledger\\.[a-z.-]+\")*( \\|\\| exit /b 1)?");
+                        ".*(secret-set|token-generate) ledger\\.[a-z.-]+( --print| --if-absent| %STDIN%| \"--copy-to=ledger\\.[a-z.-]+\")*( \\|\\| exit /b 1)?");
             }
         }
     }
@@ -513,6 +513,30 @@ class InstallScriptsTest {
                 .hasSize(1);
     }
 
+    @Test
+    @DisplayName("FUP-INS-01 install.sh and install.cmd have the same --stdin contract: the flag is the first argument of install.cmd (marked and shifted off, so the other positions are those of before) and goes on to secret-set ledger.jdbc.password --if-absent and then to setup, the application account password first, and to nothing else")
+    void fupIns01_bothScriptsHaveTheSameStdinContract() throws IOException {
+        List<String> sh = shCodeLines().stream().filter(line -> line.contains("$STDIN")).toList();
+        List<String> cmd = cmdCodeLines();
+        List<String> cmdUses = cmd.stream().filter(line -> line.contains("%STDIN%")).toList();
+
+        assertThat(cmd).as("an environment value STDIN of the caller is never taken for the flag").contains("set \"STDIN=\"");
+        assertThat(cmd).as("the flag is taken first and shifted off")
+                .contains("if /i \"%~1\"==\"--stdin\" set \"STDIN=--stdin\" & shift");
+        assertThat(firstIndex(cmd, "\"STDIN=--stdin\"")).as("before the arguments are counted")
+                .isLessThan(firstIndex(cmd, "if \"%~7\"==\"\""));
+        assertThat(cmdUses).hasSize(sh.size()).hasSize(2);
+        assertThat(cmdUses.get(0)).as("the application account password is read first")
+                .contains("secret-set ledger.jdbc.password --if-absent %STDIN%");
+        assertThat(cmdUses.get(1)).as("then the DDL account password").contains("%CLI% setup ").contains("%STDIN%");
+        assertThat(sh.get(0)).contains("secret-set ledger.jdbc.password --if-absent $STDIN");
+        assertThat(sh.get(1)).contains(" setup ");
+        // Java has the flag on these two commands
+        Properties usage = usageTexts();
+        assertThat(usage.getProperty(CliCommand.SECRET_SET.usageKey())).contains("--stdin");
+        assertThat(usage.getProperty(CliCommand.SETUP.usageKey())).contains("--stdin");
+    }
+
     // ---- what stays in the scripts, and why (INS-046) ----
 
     @Test
@@ -583,7 +607,8 @@ class InstallScriptsTest {
         List<String> code = cmdCodeLines();
         int setup = firstIndex(code, "%CLI% setup ");
 
-        assertThat(code).contains("%CLI% setup \"--owner-account=%~5\" \"--app-account=%~6\" || exit /b 1");
+        // changed by FUP-INS-01: the flag --stdin of the script goes on (empty when it was not given)
+        assertThat(code).contains("%CLI% setup \"--owner-account=%~5\" \"--app-account=%~6\" %STDIN% || exit /b 1");
         assertThat(code.stream().filter(line -> line.contains("migrate"))).isEmpty();
         assertThat(firstIndex(code, "driver-register")).isLessThan(setup);
         assertThat(setup).isLessThan(firstIndex(code, "sc.exe config"));

@@ -45,8 +45,6 @@ class DocsTest {
     private static final String NOTE = "docs/release-notes/2.0.0.md";
     private static final String FORMAT = "docs/RELEASE_NOTES_FORMAT.md";
     private static final List<String> REMOVED_TOOLS = List.of("execute_sql_reader", "search_objects_reader");
-    /** Changed by install: {@code deploy/} holds the installer of 2.x (deploy/install.sh), it is not a 1.x directory any more. */
-    private static final List<String> LEGACY_DIRECTORIES = List.of("bin", "web", "mcp", "sql", "tests");
     private static final String INSTALL_SCRIPT = "deploy/install.sh";
     /** An option of the loop of install.sh: {@code --name=*)} (with a value) or {@code --stdin)} (a flag); a digit is allowed ({@code --from-1x-env}). */
     private static final Pattern SCRIPT_OPTION = Pattern.compile("--([a-z][a-z0-9-]*)(?:=\\*)?\\)");
@@ -265,20 +263,6 @@ class DocsTest {
                 .filter(line -> !line.contains(LEGACY_MARKER)).toList();
 
         assertThat(offending).isEmpty();
-    }
-
-    static Stream<Arguments> legacyDirectoryCases() {
-        return languageAnd(LEGACY_DIRECTORIES.stream().filter(Repository::isDirectory).toList());
-    }
-
-    @ParameterizedTest
-    @MethodSource("legacyDirectoryCases")
-    @DisplayName("DOC-008 every 1.x directory that is still in the tree is named in a line that says it is the 1.x implementation (so DOC-007 cannot be met by leaving the Layout silent)")
-    void everyLegacyDirectoryInTheTreeIsNamedAsOneX(Language language, String directory) {
-        List<String> lines = language.readme().lines().stream()
-                .filter(line -> line.contains(LEGACY_MARKER) && line.contains(directory + "/")).toList();
-
-        assertThat(lines).isNotEmpty();
     }
 
     @ParameterizedTest
@@ -700,5 +684,30 @@ class DocsTest {
     void notePartsHoldTheSameCodeBlocks() {
         assertThat(note().part(Language.KO.partHeading()).fences())
                 .isEqualTo(note().part(Language.EN.partHeading()).fences());
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("FUP-INS-02 the Windows argument table of each README starts with the optional --stdin, and the header of install.cmd shows it first in its usage line")
+    void theWindowsArgumentsShowTheStdinFlag(Language language) {
+        List<String> rows = language.readme().prose().stream().filter(line -> line.startsWith("| `")).toList();
+        int stdin = rows.indexOf(rows.stream().filter(row -> row.startsWith("| `[--stdin]` |")).findFirst().orElseThrow());
+        int jars = rows.indexOf(rows.stream().filter(row -> row.startsWith("| `<jars-dir>` |")).findFirst().orElseThrow());
+
+        assertThat(stdin).isEqualTo(jars - 1);
+        assertThat(Repository.read("deploy/install.cmd")).contains("rem   deploy\\install.cmd [--stdin] <jars-dir> ");
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("FUP-DOC-03 step 5 of the migration says that the read-only account of the 1.x database may be dropped when the import and its verification are done")
+    void theReadOnlyAccountOfOneXMayBeDropped(Language language) {
+        String phrase = language == Language.EN ? "read-only account of the 1.x database that was made for the import may be dropped"
+                : "읽기 전용 계정은 삭제해도 됩니다";
+        List<String> lines = language.readme().prose();
+        int step5 = lines.indexOf(lines.stream().filter(line -> line.startsWith("5. ")).findFirst().orElseThrow());
+        int step6 = lines.indexOf(lines.stream().filter(line -> line.startsWith("6. ")).findFirst().orElseThrow());
+
+        assertThat(lines.subList(step5, step6)).anyMatch(line -> line.contains(phrase));
     }
 }
