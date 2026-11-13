@@ -22,16 +22,18 @@ public class CliErrorTranslator {
     public Report translate(CliException exception) {
         String description = messages.get(exception.code().messageKey(), exception.arguments().toArray(String[]::new));
         return switch (exception) {
-            case UsageException usage -> new Report(ExitStatus.USAGE, description, usageText());
+            case UsageException usage -> new Report(ExitStatus.USAGE, description, usageText(usage));
             case FailureException failure -> new Report(ExitStatus.FAILURE, description, null);
             case OperatorStepException step -> new Report(ExitStatus.OPERATOR_STEP, description, null);
         };
     }
 
-    private String usageText() {
+    /** The usage line of the refused command, or of every command when there is none (no word or a word that is no command). */
+    private String usageText(UsageException usage) {
         List<String> lines = new ArrayList<>();
         lines.add(messages.get("usage.header"));
-        for (CliCommand command : CliCommand.values()) {
+        List<CliCommand> shown = usage.command().map(List::of).orElseGet(() -> List.of(CliCommand.values()));
+        for (CliCommand command : shown) {
             lines.add(messages.get(command.usageKey()));
         }
         return String.join("\n", lines);

@@ -46,11 +46,17 @@ public class CliRunner implements ApplicationRunner {
         CliCommand command = CliCommand.parse(operands.getFirst())
                 .orElseThrow(() -> new UsageException(ErrorCode.UNKNOWN_COMMAND));
         Command target = commands.get(command);
-        for (String option : arguments.getOptionNames()) {
-            if (!option.contains(".") && !BOOT_FLAGS.contains(option) && !target.options().contains(option)) {
-                throw new UsageException(ErrorCode.UNKNOWN_OPTION);
+        try {
+            for (String option : arguments.getOptionNames()) {
+                if (!option.contains(".") && !BOOT_FLAGS.contains(option) && !target.options().contains(option)) {
+                    throw new UsageException(ErrorCode.UNKNOWN_OPTION);
+                }
             }
+            target.run(operands.subList(1, operands.size()), arguments);
+        } catch (UsageException refusal) {
+            // from here on the command is known: the report shows its usage line only (no word and an unknown word, above,
+            // are the only refusals without a command: there the user has to choose one, so the whole list is shown)
+            throw refusal.forCommand(command);
         }
-        target.run(operands.subList(1, operands.size()), arguments);
     }
 }
