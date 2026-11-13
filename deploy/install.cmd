@@ -15,7 +15,9 @@ rem the right to see that a file exists), so the accounts the agents run as cann
 rem accounts: the application account (both servers and the owner commands) and the DDL account (setup and the grants; its
 rem password is typed and not stored). WinSW.exe (2.x) is obtained by the operator and passed here, like the JDBC driver.
 rem Run in an elevated prompt (Java refuses to change the folders of the installation otherwise; there is no probe here):
-rem   deploy\install.cmd <jars-dir> <winsw.exe> <driver-jar> <driver-class> <owner-account> <app-account> "<jdbc-url>" ["<name>" ["<more render-deploy options>"]]
+rem   deploy\install.cmd [--stdin] <jars-dir> <winsw.exe> <driver-jar> <driver-class> <owner-account> <app-account> "<jdbc-url>" ["<name>" ["<more render-deploy options>"]]
+rem --stdin (first argument, as the --stdin of install.sh) gives the passwords on standard input and not at the terminal: the application
+rem account's (read only while it is not stored), then the DDL account's. It is marked and shifted off, so the other positions stay.
 rem The name of the instance (default pg-ledger-mcp) gives the services <name> and <name>-admin and the home C:\ProgramData\<name>,
 rem so two instances can live on one host with their own ports; the Java validation of the name comes before any change.
 rem A re-run is an upgrade: jars, driver jar and files are replaced and the services are recreated; secrets, tokens and
@@ -23,6 +25,8 @@ rem data are never replaced. The Java 25 check is the JVM's: the jars are compil
 rem A personal PC gives no host names (loopback only); a Windows server that is reached from outside gives them and puts a
 rem reverse proxy of its own in front. Migration from 1.x: see the README (the 1.x service is stopped by the operator).
 setlocal EnableExtensions
+set "STDIN="
+if /i "%~1"=="--stdin" set "STDIN=--stdin" & shift
 if "%~7"=="" echo install.cmd: arguments are missing: see the header of this file& exit /b 1
 for %%I in (java.exe) do set "JAVA=%%~$PATH:I"
 if not defined JAVA echo install.cmd: java is not installed& exit /b 1
@@ -54,7 +58,7 @@ rem WinSW configurations and the settings rendered: Java (no secret is read: the
 "%JAVA%" -Duser.timezone=UTC -jar "%~1\ledger-cli.jar" --ledger.secrets.home=C:/nonexistent prepare-host "--jars=%~1" "--winsw=%~2" "--driver-jar=%~3" %RENDER% || exit /b 1
 
 rem Secrets: typed with hidden input or generated, as the administrator; an existing one is kept. The tokens are shown once.
-%CLI% secret-set ledger.jdbc.password --if-absent || exit /b 1
+%CLI% secret-set ledger.jdbc.password --if-absent %STDIN% || exit /b 1
 %CLI% token-generate ledger.admin.token --print || exit /b 1
 rem The admin web must know the agents' token to refuse it: the same token under a second name.
 %CLI% token-generate ledger.mcp.token --print "--copy-to=ledger.admin.agent-token" || exit /b 1
@@ -63,7 +67,7 @@ rem The driver is registered after the secrets (a registered driver makes the co
 %CLI% driver-register "--jar=%HOME%/etc/drivers/%~nx3" "--class=%~4" || exit /b 1
 
 rem The first setup through the DDL account (schema, grants, the seed codes); its password is typed and not stored.
-%CLI% setup "--owner-account=%~5" "--app-account=%~6" || exit /b 1
+%CLI% setup "--owner-account=%~5" "--app-account=%~6" %STDIN% || exit /b 1
 
 rem WinSW registers the services from the configurations, sc.exe sets the one account (the service manager again).
 for %%S in (%SVC% %ADMIN%) do (
