@@ -82,6 +82,20 @@ class TlsDeployTest {
                 .content();
     }
 
+    /** FUP-NGX-01/02: the exact port 80 block of a name (changed by FUP-NGX: the block is hardened). */
+    static String portEighty(String host, String instance, String webroot) {
+        return "server {\n    listen 80;\n    listen [::]:80;\n    server_name " + host + ";\n\n"
+                + "    server_tokens off;\n    client_max_body_size 1k;\n    client_header_timeout 10s;\n"
+                + "    client_body_timeout 10s;\n    keepalive_timeout 10s;\n"
+                + "    limit_req zone=" + instance + "-acme-req burst=20 nodelay;\n    limit_req_status 429;\n"
+                + "    limit_conn " + instance + "-acme-conn 20;\n    limit_conn_status 429;\n\n"
+                + "    location ~ \"^/\\.well-known/acme-challenge/[A-Za-z0-9_-]+$\" {\n"
+                + "        limit_except GET { deny all; }\n        root " + webroot + ";\n        default_type text/plain;\n"
+                + "        try_files $uri =404;\n    }\n"
+                + "    location /.well-known/acme-challenge/ {\n        return 404;\n    }\n"
+                + "    location / {\n        return 301 https://" + host + "$request_uri;\n    }\n}\n";
+    }
+
     private static int count(String text, String fragment) {
         return text.split(Pattern.quote(fragment), -1).length - 1;
     }
@@ -93,17 +107,15 @@ class TlsDeployTest {
 
         assertThat(count(site, "server {")).isEqualTo(4);
         for (String host : List.of(MCP, ADMIN)) {
-            assertThat(site).contains("server {\n    listen 80;\n    listen [::]:80;\n    server_name " + host + ";\n\n"
-                    + "    location /.well-known/acme-challenge/ {\n        root /var/www/pg-ledger-mcp-acme;\n    }\n"
-                    + "    location / {\n        return 301 https://" + host + "$request_uri;\n    }\n}\n");
+            assertThat(site).contains(portEighty(host, "pg-ledger-mcp", "/var/www/pg-ledger-mcp-acme"));
             assertThat(site).contains("listen 443 ssl;\n    listen [::]:443 ssl;\n    server_name " + host + ";\n");
         }
         assertThat(count(site, "ssl_certificate /etc/pg-ledger-mcp/tls/fullchain.pem;")).isEqualTo(2);
         assertThat(count(site, "ssl_certificate_key /etc/pg-ledger-mcp/tls/privkey.pem;")).isEqualTo(2);
         assertThat(count(site, "proxy_buffering off;")).as("the MCP location only").isEqualTo(1);
         assertThat(count(site, "proxy_read_timeout 3600s;")).isEqualTo(1);
-        assertThat(site.indexOf("proxy_buffering off;")).isGreaterThan(site.indexOf("server_name " + MCP + ";\n\n    ssl_certificate"))
-                .isLessThan(site.indexOf("server_name " + ADMIN + ";\n\n    ssl_certificate"));
+        assertThat(site.indexOf("proxy_buffering off;")).isGreaterThan(site.indexOf("server_name " + MCP + ";\n\n    server_tokens off;\n    ssl_certificate"))
+                .isLessThan(site.indexOf("server_name " + ADMIN + ";\n\n    server_tokens off;\n    ssl_certificate"));
     }
 
     @Test
@@ -164,6 +176,67 @@ class TlsDeployTest {
         assertThat(files.stream().map(RenderedFile::path)).noneMatch(path -> path.contains("tls-renew"));
         assertThat(site(DeployTestBeans.parameters(operator()))).doesNotContain("listen 80", "acme-challenge")
                 .contains("ssl_certificate /etc/ssl/ledger/fullchain.pem;");
+    }
+
+    @Test
+    @DisplayName("FUP-NGX-02 a port 80 block serves the proof file for a token of base64url only (GET and HEAD), answers 404 below the proof path otherwise, redirects the rest to the fixed name, and has no $host, no proxy and no other root")
+    void fupNgx02_theLocations() {
+        String site = site(issued(automatic(), true));
+
+        for (String host : List.of(MCP, ADMIN)) {
+            String block = site.substring(site.indexOf("server_name " + host + ";\n\n    server_tokens off;"));
+            block = block.substring(0, block.indexOf("\n}\n"));
+            assertThat(block).contains("location ~ \"^/\\.well-known/acme-challenge/[A-Za-z0-9_-]+$\" {\n        limit_except GET { deny all; }")
+                    .contains("default_type text/plain;", "try_files $uri =404;")
+                    .contains("location /.well-known/acme-challenge/ {\n        return 404;\n    }")
+                    .contains("return 301 https://" + host + "$request_uri;")
+                    .doesNotContain("$host", "proxy_pass", "autoindex", "alias ");
+            assertThat(count(block, "root ")).isEqualTo(1);
+        }
+    }
+
+    @Test
+    @DisplayName("FUP-NGX-03 the 443 blocks of the automatic site hide the version; the pending site has the port 80 blocks only; the operator's certificate site has no zone, no limit and no server_tokens")
+    void fupNgx03_theOtherBlocks() {
+        String issued = site(issued(automatic(), true));
+        String pending = site(issued(automatic(), false));
+        String operator = site(DeployTestBeans.parameters(operator()));
+
+        assertThat(count(issued, "server_tokens off;")).as("four blocks").isEqualTo(4);
+        for (String host : List.of(MCP, ADMIN)) {
+            assertThat(issued).contains("    server_name " + host + ";\n\n    server_tokens off;\n    ssl_certificate ");
+        }
+        assertThat(count(pending, "server_tokens off;")).isEqualTo(2);
+        assertThat(operator).doesNotContain("server_tokens", "limit_req", "limit_conn", "client_max_body_size", "keepalive_timeout",
+                "_zone ");
+    }
+
+    @Test
+    @DisplayName("FUP-NGX-04 the two zones of the instance are declared once at the top of the file, with the instance name in their names; another instance has other names; every zone in use is declared; the numbers are explained")
+    void fupNgx04_theZones() {
+        Map<String, String> other = automatic();
+        other.put(DeployOptions.NAME, "ledger-two");
+        other.put(DeployOptions.NGINX_CONF, "/etc/nginx/conf.d/ledger-two.conf");
+        String first = site(issued(automatic(), true));
+        String second = DeployTestBeans.renderer().render(issued(other, true)).stream()
+                .filter(file -> "/etc/nginx/conf.d/ledger-two.conf".equals(file.path())).findFirst().orElseThrow().content();
+
+        for (String[] site : List.of(new String[] { first, "pg-ledger-mcp" }, new String[] { second, "ledger-two" })) {
+            String text = site[0];
+            String zones = "limit_req_zone $binary_remote_addr zone=" + site[1] + "-acme-req:1m rate=10r/s;\n"
+                    + "limit_conn_zone $binary_remote_addr zone=" + site[1] + "-acme-conn:1m;\n";
+            assertThat(count(text, "limit_req_zone ")).isEqualTo(1);
+            assertThat(count(text, "limit_conn_zone ")).isEqualTo(1);
+            assertThat(text).contains(zones);
+            assertThat(text.indexOf(zones)).as("before the first server block").isLessThan(text.indexOf("server {"));
+            assertThat(text).contains("# ").contains("each from its own address");
+            Matcher used = Pattern.compile("limit_(?:req zone=|conn )([A-Za-z0-9-]+)").matcher(text);
+            while (used.find()) {
+                assertThat(text).contains("zone=" + used.group(1) + ":");
+            }
+        }
+        assertThat(first).doesNotContain("ledger-two");
+        assertThat(second).doesNotContain("pg-ledger-mcp-acme-req");
     }
 
     private static CliException refused(Map<String, String> values) {

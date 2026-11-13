@@ -318,6 +318,29 @@ The nginx site holds only the `server` blocks of its own host names (the names o
 site, so it can live next to other services of the host. For each host name a port 80 block serves `/.well-known/acme-challenge/`
 from the web root `/var/www/<name>-acme` and redirects everything else to https; the 443 blocks use the PEM files.
 
+Port 80 is open to the whole network, so the port 80 blocks are hardened. A port 80 block serves a file of the web root only for a path
+`/.well-known/acme-challenge/<token>` whose token consists of the characters of base64url (`A-Za-z0-9_-`), and only for the methods `GET` and
+`HEAD`. It answers every other request below `/.well-known/acme-challenge/` with 404 and redirects everything else to https at the fixed
+host name of the block, never to the `Host` header of the request. It accepts `1k` of request body and waits `10s` for the header, the
+body and an idle connection. It allows each address 10 requests per second (a burst of 20) and 20 connections at the same time and
+answers `429` above that; the limits are far above what a certificate authority needs, because it checks from several places at the
+same time, each from its own address. It hides the version of nginx (`server_tokens off`, in the 443 blocks too). The two shared memory
+zones that count the addresses are declared at the top of the site file and carry the name of the instance (`<name>-acme-req` and
+`<name>-acme-conn`), so no other site and no other instance is affected. A port 80 block does not take `default_server`, does not
+change any other site, sets no global directive and proxies nothing to the services.
+
+Recommendation: when this is the only site on the host that uses port 80, add a default server of your own that closes the requests for
+names and addresses that nobody serves there, for example the following. The product does not create it.
+
+```nginx
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+```
+
 First issuance: nginx cannot load a 443 block before its certificate files exist, so `render-deploy` writes the 443 blocks only
 when `fullchain.pem` and `privkey.pem` exist. The installer therefore writes the site with the port 80 blocks, lets nginx load it,
 runs `tls-issue` as the service user, runs `render-deploy` again (now with the 443 blocks), lets nginx load the site again and

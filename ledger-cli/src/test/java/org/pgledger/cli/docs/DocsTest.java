@@ -700,7 +700,24 @@ class DocsTest {
 
     @ParameterizedTest
     @EnumSource(Language.class)
-    @DisplayName("FUP-DOC-03 step 5 of the migration says that the read-only account of the 1.x database may be dropped when the import and its verification are done")
+    @DisplayName("FUP-NGX-06 the section on the automatic certificate says what the port 80 blocks do (the limits, the proof path, 429, the version) and do not do (default_server, other sites, global directives), and recommends a default server of the operator with its example; the product does not create it")
+    void thePortEightyBlocksAreDescribed(Language language) {
+        String readme = language.readme().text();
+        String heading = language == Language.EN ? "### Automatic certificate" : "### 자동 인증서";
+        int start = readme.indexOf(heading);
+        String section = readme.substring(start, readme.indexOf("\n### ", start + heading.length()));
+
+        assertThat(start).isNotNegative();
+        assertThat(section).contains("`/.well-known/acme-challenge/<token>`", "`A-Za-z0-9_-`", "`GET`", "`HEAD`", "`1k`", "`10s`", "`429`",
+                "`server_tokens off`", "`<name>-acme-req`", "`<name>-acme-conn`", "`Host`", "`default_server`");
+        assertThat(language.readme().fences()).anySatisfy(block -> assertThat(block).containsExactly("server {",
+                "    listen 80 default_server;", "    listen [::]:80 default_server;", "    server_name _;", "    return 444;", "}"));
+        assertThat(section).contains(language == Language.EN ? "The product does not create it." : "제품은 이 설정을 만들지 않습니다.");
+    }
+
+    @ParameterizedTest
+    @EnumSource(Language.class)
+    @DisplayName("FUP-DOC-03step 5 of the migration says that the read-only account of the 1.x database may be dropped when the import and its verification are done")
     void theReadOnlyAccountOfOneXMayBeDropped(Language language) {
         String phrase = language == Language.EN ? "read-only account of the 1.x database that was made for the import may be dropped"
                 : "읽기 전용 계정은 삭제해도 됩니다";

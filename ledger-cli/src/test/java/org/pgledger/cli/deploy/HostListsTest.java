@@ -114,7 +114,8 @@ class HostListsTest {
         assertThat(count(file(pending, CONF), "server {")).isEqualTo(3);
         assertThat(count(file(issued, CONF), "server {")).isEqualTo(5);
         for (String host : List.of("a.example.org", "b.example.org", "admin.example.org")) {
-            assertThat(file(issued, CONF)).contains("    server_name " + host + ";\n\n    location /.well-known/acme-challenge/ {")
+            assertThat(file(issued, CONF)).contains("    server_name " + host + ";\n\n    server_tokens off;")
+                    .contains("    location /.well-known/acme-challenge/ {\n        return 404;")
                     .contains("return 301 https://" + host + "$request_uri;");
         }
         assertThat(file(issued, CONF)).contains("listen 443 ssl;\n    listen [::]:443 ssl;\n    server_name a.example.org b.example.org;\n");
