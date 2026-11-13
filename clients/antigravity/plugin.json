@@ -1,6 +1,6 @@
 {
   "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "pg-ledger-host-attestation",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Fill ledger host attestation from Antigravity conversation metadata."
 }

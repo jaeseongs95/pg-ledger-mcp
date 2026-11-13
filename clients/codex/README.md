@@ -1,15 +1,49 @@
-# Codex 호스트 작성자 훅 후보
+# pg-ledger-mcp plugin for Codex
 
-이 디렉터리는 실행 jar `ledger-client-hook.jar`를 `java -jar … codex`로 호출하는 플러그인 후보다. 세 클라이언트(Claude, Codex, Antigravity)가 같은 jar를 쓰며 첫 인자로 구분한다. 실행에는 JDK 25 이상이 필요하다(더 낮은 JDK는 클래스 파일 버전 69.0 오류로 즉시 실패한다). 실제 전역 설치나 운영 검증을 뜻하지 않는다. MCP 연결 설정이나 인증 정보는 포함하지 않는다.
+[한국어](README.ko.md)
 
-`plugin.json`의 `extensions.com.openai.hooks`가 `hooks/hooks.json`을 가리킨다. 명령은 플러그인 루트 환경변수로 `lib/ledger-client-hook.jar`를 찾는다(`java -jar "${PLUGIN_ROOT}/lib/ledger-client-hook.jar" codex`). Windows 명령은 `cmd.exe`를 명시한다. jar는 저장소에 커밋하지 않는다. `./gradlew :ledger-client-hook:assemble`이 `ledger-client-hook/build/client-plugins/codex/`에 jar가 든 플러그인 디렉터리를 만들며, 설치는 이 디렉터리를 호스트의 플러그인 위치에 복사하는 것이다. 호스트가 플러그인을 로드한 뒤 `/hooks`에서 정확한 정의를 검토·신뢰해야 한다. 프로젝트 훅으로 배치할 때는 `<repo>/.codex/hooks.json`에 해당 구성을 병합하고 jar 명령을 실제 절대경로로 바꾼다. 기존 훅을 덮어쓰거나 중복 설치하지 않는다.
+This directory is a Codex plugin. It proves the author of the ledger write calls that a Codex session makes. The three clients (Claude Code, Codex and Antigravity) use the same executable jar, `ledger-client-hook.jar`; the first argument selects the client. The plugin contains no MCP connection settings and no credentials.
 
-대상은 `mcp__`로 시작하고 `_ledger_` 뒤에 `save`, `transition`, `record_fix`, `record_case`, `link`, `correct`, `batch`, `review`, `review_correct`, `whoami`가 붙어 끝나는 10종이다. 서명은 이름이 `mcp__<서버>__ledger_<작업>`, `mcp__<서버>__<서버>_ledger_<작업>`(접두어는 서버 이름과 정확히 같아야 한다), 또는 Codex Apps 네임스페이스 `mcp__codex_apps__app_<앱>_ledger_<작업>`일 때만 만들고, 작업은 10종 중 하나여야 한다. Codex Apps에서는 모든 앱이 가상 서버 `codex_apps`를 공유하므로 서명 대상(audience)을 앱으로 삼아 서버 식별자를 `codex_apps.<앱>`으로 정한다. 예를 들어 `mcp__codex_apps__app_ledger_ledger_save`의 서버 식별자는 `codex_apps.ledger`다. 소유자는 이 경로의 키를 등록할 때 서버 이름으로 `codex_apps.ledger`를 쓴다: `java -jar ledger-client-hook.jar session-key codex_apps.ledger <작성자>`가 출력한 공개 키와 지문을 확인해 운영 서버에 등록한다. 다른 앱 이름(예: `app_evil_ledger_save`)은 다른 식별자(`codex_apps.evil`)와 다른 키를 쓰므로 그 서명은 `codex_apps.ledger` 키로 검증되지 않는다. 읽기 도구, 알 수 없는 작업, 앱 부분이 형식에 맞지 않는 이름은 그대로 통과시킨다. 키는 (서버 식별자, 작성자)마다 따로 만들며, 서명에는 호출 인자 전체의 다이제스트도 들어간다. 모델 인자의 own `_hostAttestation` 키는 값과 무관하게 거부한다. 없으면 호스트 `session_id`를 그대로 `codex:<id>`로 넣는다. ID는 기존 DB의 세션 부분 형식 `[A-Za-z0-9._-]{1,128}`을 따라 검사하며 누락·잘못된 형식은 명시적으로 거부한다. 구형 커넥터의 필수 인자 검사와 호환되도록 기존 `author_id`와 다른 인자는 보존하고, 없는 `author_id`를 새로 만들지 않는다. 서버는 이 구형 값을 무시하고 호스트가 넣은 `_hostAttestation`으로만 작성자를 결정한다. 대상 밖 호출에는 출력 없이 종료한다. 잘못된 JSON이나 대상의 비객체 인자는 거부 응답을 반환한다.
+## How it works
 
-Codex 공식 계약은 하위 에이전트 훅에 부모 `session_id`를 제공한다. 이 후보는 다른 식별자를 찾거나 자식별 권한·차단 계층을 만들지 않는다. `updatedInput`은 `permissionDecision: allow`와 함께 반환한다. 훅의 허용·거부 JSON 응답은 정상 종료 0이며, 프로세스 실패나 일부 우회 경로까지 서버 신원 강제를 보장하는 구성은 아니다.
+`extensions.com.openai.hooks` of `plugin.json` points to `hooks/hooks.json`. Its `PreToolUse` hook runs `java -jar "${PLUGIN_ROOT}/lib/ledger-client-hook.jar" codex` before each call of a ledger write tool (on Windows: `cmd.exe /d /c java -jar "%PLUGIN_ROOT%/lib/ledger-client-hook.jar" codex`). The hook handles only the ten write tools (`save`, `transition`, `record_fix`, `record_case`, `link`, `correct`, `batch`, `review`, `review_correct` and `whoami`). It signs a call whose tool name is one of these forms:
 
-실행 환경 요구: 훅 명령은 `java`를 `PATH`에서 찾는다. 이 클라이언트를 실행하는 호스트에 JDK 25 이상이 `PATH`에 있어야 한다. `java`가 없으면 명령 실행이 실패하고, 25 미만이면 JVM이 `UnsupportedClassVersionError`(클래스 파일 버전 69.0)로 jar를 거부한다. 두 경우 모두 훅은 `_hostAttestation`을 넣지 못한다.
+- `mcp__<server>__ledger_<op>`
+- `mcp__<server>__<server>_ledger_<op>`, where the prefix must equal the server name exactly
+- `mcp__codex_apps__app_<app>_ledger_<op>`, the namespace of Codex Apps
 
-실패 시 동작: 훅이 실패하거나 누락돼 `_hostAttestation`이 없는 쓰기 호출은 서버가 `HOST_ATTESTATION_REQUIRED`로 거절한다. 따라서 훅 실패는 작성자 신원 없는 쓰기가 저장되는 방향이 아니라 닫힌 쪽(거절)으로 끝난다.
+Read tools, unknown operations and names of any other shape pass unchanged.
 
-공식 근거: [훅 검색 경로·신뢰·입출력](https://learn.chatgpt.com/docs/hooks), [플러그인 manifest와 훅 경로](https://developers.openai.com/plugins/build/plugins). 실제 호스트 전달, Windows 실행, 운영 적용 전 보안·권한 감사는 별도 근거가 필요하다.
+For a write call the hook adds the reserved argument `_hostAttestation`. Its value is a signature, made with the Ed25519 session key of the author `codex:<session_id>` for the MCP server of the call. The signature covers the tool, the request id, the SHA-256 digest of the canonical form (RFC 8785) of all arguments, and the time. If the call has no `request_id`, the hook generates one. The other arguments are kept, and an existing `author_id` of an older connector is neither used nor copied. The hook answers `allow` together with `updatedInput`; a refusal answers `deny`. The call is denied when the model supplies `_hostAttestation` itself or when the `session_id` of the host is not valid. Malformed JSON is also denied explicitly, with exit code 0, because a failing hook process is not a reliable block. The hook gives no other permission decision.
+
+All apps of Codex Apps share the virtual server `codex_apps`, so the app is the audience of the signature and the server identity is `codex_apps.<app>`. For `mcp__codex_apps__app_ledger_ledger_save` it is `codex_apps.ledger`, and the owner uses that name when registering the key: `java -jar lib/ledger-client-hook.jar session-key codex_apps.ledger <author>`. A look-alike app such as `app_evil_ledger_save` gets another identity and another key, so its signature never verifies under the key of `codex_apps.ledger`.
+
+Codex supplies the `session_id` of the parent session to the hooks of subagents. The hook does not look for another identifier and adds no layer of its own for the subagent.
+
+## Requirements
+
+The hook command looks up `java` on the `PATH`, so the host that runs Codex needs JDK 25 or later on its `PATH`. Without `java` the command fails, and with an older JDK the JVM refuses the jar with `UnsupportedClassVersionError`. In both cases no `_hostAttestation` is added, and the server refuses the write with `HOST_ATTESTATION_REQUIRED`. A failing hook therefore never lets a write without a proven author be stored.
+
+## Installation
+
+The jar is not committed to the repository. `./gradlew :ledger-client-hook:assemble` creates `ledger-client-hook/build/client-plugins/codex/`, a plugin directory that holds the jar as `lib/ledger-client-hook.jar`. Copy this directory to the plugin location of Codex. After Codex has loaded the plugin, review and trust the exact definition of the hook in `/hooks`.
+
+To use the hook as a project hook, merge the same entry into `<repo>/.codex/hooks.json` and replace the path of the jar with its absolute path. Do not overwrite an existing hook and do not install the hook twice.
+
+## Registering the key of a session
+
+1. The first write call of an author for a server creates the key pair of that author and server. The keys are kept in an owner-only folder: `~/.pg-ledger-mcp/session-keys`, or the absolute path in `LEDGER_HOOK_KEY_DIR`. On Windows the folder gets an ACL for its owner only, and a folder or file that grants access to another principal is refused. A hook that runs elevated is refused, because the key folder then belongs to another owner.
+2. `java -jar lib/ledger-client-hook.jar session-key <server> <author>` prints the server, the author, the public key and its fingerprint. `<server>` is the name of the MCP server as Codex shows it in the tool name, for example `ledger` for `mcp__ledger__ledger_save`; for Codex Apps it is `codex_apps.<app>`.
+3. The owner compares the fingerprint with the one the session showed and registers the public key with `key-register` of `ledger-cli`, or on the grants page of the admin web. Only then do the grants of the author work.
+
+The key belongs to one server and one author. A signature made for a test server, or for a server with a similar name, never verifies on the production server; each server gets its own registration. The server checks the signature, the tool, the request id, the arguments and the time before it looks at any grant.
+
+## Limits
+
+Another process of the same operating system user can read the key file, so isolation inside one user needs separate accounts. The hook answers with exit code 0 for an allowance and for a denial. It cannot block a call when the hook process fails or when a call path avoids the hook; the refusal `HOST_ATTESTATION_REQUIRED` of the server is the defence in those cases. Delivery by the real host, execution on Windows and a security review before production use need their own evidence.
+
+## References
+
+- [Hooks: search paths, trust, input and output](https://learn.chatgpt.com/docs/hooks)
+- [Plugin manifest and hook paths](https://developers.openai.com/plugins/build/plugins)
+- [Client hooks in the main README](../../README.md)

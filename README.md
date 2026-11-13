@@ -345,6 +345,7 @@ and the installer neither bundles nor downloads it.
 
 | Argument | Meaning |
 |---|---|
+| `[--stdin]` | optional, and only as the first argument: read the passwords from standard input instead of the terminal (first the application account, only while its password is not stored, then the DDL account), as `install.sh --stdin` does; the other arguments keep their order |
 | `<jars-dir>` | the directory that holds the three jars |
 | `<winsw-exe>` | the WinSW 2.x executable |
 | `<driver-jar>` | the JDBC driver jar |
@@ -526,6 +527,7 @@ import, check. Do the steps in this order; the installer stops nothing of 1.x by
    file is printed. A name that the clients no longer use is removed from a copy of the file, and the copy is given to `--from-1x-env`.
 5. As the service user, store the password of a read-only account of the 1.x database: `secret-set ledger.import.source.password`, and run
    `import-legacy --owner-account=<account> --ledger.import.source.url=<jdbc-url> --ledger.import.source.username=<account>`.
+   When the import has finished and its verification has passed, the read-only account of the 1.x database that was made for the import may be dropped.
 6. The import reads the 1.x schema read only, copies everything in one transaction and rolls back on any failure; then it compares the
    number of rows and the SHA-256 digest of every table (`--verify-only` repeats the comparison). It runs once, on the schema that
    `migrate` and `setup` made, which is the state after the installer (the installer runs `setup`: the seed codes and the audit rows of
@@ -613,7 +615,7 @@ number, or is smaller than 1, fails the build at configuration time.
 - `docs/`: the test case catalogue, the release note format and the release notes.
 - `gradle/`, `build.gradle.kts`, `settings.gradle.kts`: the build.
 - `deploy/`: the two installers, `install.sh` (Linux) and `install.cmd` (Windows).
-- `bin/`, `web/`, `mcp/`, `sql/`, `tests/*.mjs`: the 1.x implementation (DBHub, Node and PostgreSQL functions), kept in the tree until a later stage removes it. It is not part of 2.x.
+- The 1.x implementation (DBHub, Node and PostgreSQL functions) is not part of 2.x and is no longer in the tree. Its source is available at the tag `v1.1.0`.
 
 ## License
 

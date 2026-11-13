@@ -311,6 +311,7 @@ systemd가 샌드박스 밖에서 전체 권한으로 실행합니다(systemd.se
 
 | 인자 | 뜻 |
 |---|---|
+| `[--stdin]` | 선택이며 첫 번째 인자로만 줄 수 있음. 비밀번호를 터미널 대신 표준 입력에서 읽음(먼저 앱 계정의 비밀번호, 아직 저장되어 있지 않을 때만, 그다음 DDL 계정의 비밀번호). `install.sh --stdin`과 같으며 나머지 인자의 순서는 그대로임 |
 | `<jars-dir>` | jar 세 개가 있는 디렉터리 |
 | `<winsw-exe>` | WinSW 2.x 실행 파일 |
 | `<driver-jar>` | JDBC 드라이버 jar |
@@ -468,6 +469,7 @@ SHA-256, 시각에 대한 Ed25519 서명입니다. 가로챈 토큰으로 다른
    내용은 출력하지 않습니다. 클라이언트가 더 쓰지 않는 이름은 파일의 사본에서 지우고, 그 사본을 `--from-1x-env`로 줍니다.
 5. 서비스 사용자로 1.x 데이터베이스의 읽기 전용 계정 비밀번호를 `secret-set ledger.import.source.password`로 저장하고,
    `import-legacy --owner-account=<account> --ledger.import.source.url=<jdbc-url> --ledger.import.source.username=<account>`를 실행합니다.
+   가져오기가 끝나고 검증까지 마치면, 가져오기를 위해 1.x 데이터베이스에 만든 읽기 전용 계정은 삭제해도 됩니다.
 6. 가져오기는 1.x 스키마를 읽기 전용으로 읽어 모든 행을 한 트랜잭션으로 복사하고, 하나라도 실패하면 되돌립니다. 이어서 모든 표의 행 수와 SHA-256 다이제스트를 대조합니다
    (`--verify-only`는 대조만 다시 합니다). 가져오기는 `migrate`와 `setup`이 만든 스키마, 곧 설치기를 마친 상태에서 한 번 실행합니다(설치기가 `setup`을 실행하며, 그 시드 코드와 감사 행은 받아들이고,
    1.x에도 있는 시드 코드는 1.x의 값을 따릅니다). 원장 데이터 표, 세션 키, 이전 가져오기 중 하나라도 이미 있으면 거부하며, 옛 데이터 중 새 스키마가 담을 수 없는 값은 모두 나열하고 값을 지어내지 않습니다.
@@ -540,7 +542,7 @@ JVM이 인식하는 프로세서 수를 제한할 수 있습니다. 속성은 �
 - `docs/`: 시험 사례 목록, 릴리스 노트 형식, 릴리스 노트.
 - `gradle/`, `build.gradle.kts`, `settings.gradle.kts`: 빌드.
 - `deploy/`: 설치기 두 개, `install.sh`(Linux)와 `install.cmd`(Windows)입니다.
-- `bin/`, `web/`, `mcp/`, `sql/`, `tests/*.mjs`: 1.x 구현(DBHub, Node, PostgreSQL 함수)이며 이후 단계에서 제거할 때까지 저장소에 남겨 둡니다. 2.x의 일부가 아닙니다.
+- 1.x 구현(DBHub, Node, PostgreSQL 함수)은 2.x의 일부가 아니며 더 이상 저장소에 없습니다. 소스는 태그 `v1.1.0`에서 볼 수 있습니다.
 
 ## 라이선스
 

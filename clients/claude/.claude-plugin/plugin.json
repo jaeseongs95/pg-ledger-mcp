@@ -1,5 +1,5 @@
 {
   "name": "pg-ledger-mcp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Stamp ledger MCP calls with the Claude host session id"
 }
