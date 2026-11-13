@@ -11,8 +11,8 @@ import java.util.stream.Collectors;
 /**
  * The tables of the legacy import, in the order in which they are copied (a table comes after the tables its foreign keys
  * point to): for each the table of the legacy schema {@code ledger} that is read, the table of the new schema that is
- * written, the columns on both sides and the key. The legacy side is the schema of {@code sql/10_tables.sql} with the
- * later migrations {@code 15_defect_case.sql}, {@code 16_common_code.sql} and {@code 17_created_by.sql} applied. The
+ * written, the columns on both sides and the key. The legacy side is the schema of {@code sql/10_tables.sql} of 1.x (tag v1.1.0)
+ * with the later migrations {@code 15_defect_case.sql}, {@code 16_common_code.sql} and {@code 17_created_by.sql} of 1.x applied. The
  * statements that read and write the tables are built here from the column lists and are plain ANSI SQL: a select list, a
  * table, an {@code ORDER BY}, an {@code INSERT} with one placeholder per column. The schema of the legacy side is an
  * identifier and so cannot be a bind value; the caller passes a validated name.

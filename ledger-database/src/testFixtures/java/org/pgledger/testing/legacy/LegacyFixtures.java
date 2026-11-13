@@ -2,8 +2,10 @@ package org.pgledger.testing.legacy;
 
 import static org.pgledger.testing.legacy.LegacyLedger.at;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,10 +15,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The data of the legacy ledger for the tests of the import (MIG-024): the canonical categories of
- * {@code tests/category-legacy-fixture.json} (14 codes with their Korean text; the English text is what
- * {@code sql/16_common_code.sql} gives the known codes, and the Korean text is the English fallback of a code it does not
- * know), the severities and relation kinds that installation seeds, and the data that the old admin and the old functions
- * wrote for the upgrade rehearsal of {@code tests/e2e.sh} (project {@code old} with the defects {@code OLD-D-0001..3},
+ * {@code category-legacy-fixture.json} (the class path resource next to this class; 14 codes with their Korean text; the
+ * English text is what {@code sql/16_common_code.sql} of 1.x (tag v1.1.0) gives the known codes, and the Korean text is the
+ * English fallback of a code it does not know), the severities and relation kinds that installation seeds, and the data that
+ * the old admin and the old functions wrote for the upgrade rehearsal of {@code tests/e2e.sh} of 1.x (tag v1.1.0) (project {@code old} with the defects {@code OLD-D-0001..3},
  * tasks, conditions, links, re-linked rows, cases, fixes, grants, history, receipts), plus a second project whose numbers are
  * not contiguous. {@link #rich()} holds only what the import can take as it is; the rows the import has to refuse are added
  * one kind at a time ({@link #withEmptyPurpose}, {@link #withLowerCaseIds}).
@@ -36,9 +38,9 @@ public final class LegacyFixtures {
     public record Category(String code, String name, String definition) {
     }
 
-    private static final Path CATEGORY_FIXTURE = Path.of("..", "tests", "category-legacy-fixture.json");
+    private static final String CATEGORY_FIXTURE = "category-legacy-fixture.json";
 
-    /** English name and description of the known categories, as {@code sql/16_common_code.sql} gives them. */
+    /** English name and description of the known categories, as {@code sql/16_common_code.sql} of 1.x (v1.1.0) gives them. */
     private static final Map<String, List<String>> ENGLISH = englishTexts();
 
     private LegacyFixtures() {
@@ -74,9 +76,16 @@ public final class LegacyFixtures {
         return texts;
     }
 
-    /** The canonical categories, read from {@code tests/category-legacy-fixture.json} (the tests run in a module directory). */
+    /** The canonical categories, read from the class path resource {@code category-legacy-fixture.json} (no working directory is assumed). */
     public static List<Category> categories() {
-        return List.of(JsonMapper.builder().build().readValue(CATEGORY_FIXTURE.toFile(), Category[].class));
+        try (InputStream stream = LegacyFixtures.class.getResourceAsStream(CATEGORY_FIXTURE)) {
+            if (stream == null) {
+                throw new IllegalStateException("the test fixture resource " + CATEGORY_FIXTURE + " is missing");
+            }
+            return List.of(JsonMapper.builder().build().readValue(stream, Category[].class));
+        } catch (IOException e) {
+            throw new UncheckedIOException(CATEGORY_FIXTURE + " cannot be read", e);
+        }
     }
 
     /** The English fallback of a category the old installer does not know has the Korean text. */

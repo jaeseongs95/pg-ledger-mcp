@@ -55,9 +55,7 @@ val stageTasks = stagedClients.map { client ->
     tasks.register<Copy>("stage${client.replaceFirstChar { it.uppercase() }}Plugin") {
         group = "distribution"
         description = "Stages the $client plugin directory with lib/$hookJarName."
-        from(rootProject.layout.projectDirectory.dir("clients/$client")) {
-            exclude("**/*.mjs")
-        }
+        from(rootProject.layout.projectDirectory.dir("clients/$client"))
         from(tasks.jar) { into("lib") }
         into(layout.buildDirectory.dir("client-plugins/$client"))
         includeEmptyDirs = false

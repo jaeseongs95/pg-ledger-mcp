@@ -96,7 +96,8 @@ tasks.test {
     inputs.files(rootProject.fileTree(rootProject.layout.projectDirectory) {
         include("README*.md", "docs/**/*.md", "clients/**", "settings.gradle.kts", "build.gradle.kts",
             "ledger-*/src/main/java/**/*.java", "ledger-cli/src/seed/**", "ledger-database/src/main/resources/**",
-            "deploy/*", "ledger-*/build.gradle.kts")
+            "deploy/*", "ledger-*/build.gradle.kts", "ledger-*/src/test*/java/**/*.java", "bin/**", "web/**", "mcp/**",
+            "sql/**", "tests/**")
     }).withPropertyName("documentationSources")
 }
 
