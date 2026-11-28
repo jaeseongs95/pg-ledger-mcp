@@ -112,28 +112,79 @@ public class HistoryQueryRepository {
             + "OR (h.entity = 'DELIVERABLE' AND " + DELIVERABLE_IN_PROJECT + ") "
             + "OR (h.entity = 'CRITERION_LINK' AND " + CRITERION_CHILD + "))";
 
-    private static String linkedChild(String table, UnaryOperator<String> owns) {
-        return ownedBy(table, "p.project_id = ref.project_id AND p.id = ref.item_id", owns);
-    }
-
-    private static final String ISSUE_VERSION = "(ref.item_kind = 'issue' AND ("
-            + "(h.entity = 'ISSUE' AND h.entity_id = ref.item_id) OR "
-            + "(h.entity IN ('ISSUE_CASE', 'ISSUE_TASK', 'ISSUE_RELATION', 'ISSUE_SPEC') AND "
-            + linkedChild("issue", HistoryQueryRepository::childOf) + ") OR (h.entity = 'DELIVERABLE' AND ("
-            + deliverableOf("'issue:'", linkedChild("issue", alias -> deliverableMatch(alias, "'issue:'")))
-            + " OR " + linkedChild("issue", HistoryQueryRepository::childOf) + "))))";
-    private static final String SPEC_VERSION = "(ref.item_kind = 'spec' AND ("
-            + "(h.entity = 'SPEC' AND h.entity_id = ref.item_id) OR (h.entity = 'SPEC_TASK' AND "
-            + linkedChild("spec", HistoryQueryRepository::childOf) + ") OR (h.entity = 'DELIVERABLE' AND "
-            + linkedChild("spec", alias -> childOrDeliverableOf(alias, "'spec:'")) + ")))";
-    private static final String TASK_VERSION = "(ref.item_kind = 'task' AND ("
-            + "(h.entity = 'TASK' AND h.entity_id = ref.item_id) OR (h.entity = 'DELIVERABLE' AND "
-            + linkedChild("task", alias -> childOrDeliverableOf(alias, "'task:'")) + ")))";
-    private static final String CRITERION_VERSION = "(ref.item_kind = 'criterion' AND ("
-            + "(h.entity = 'CRITERION' AND h.entity_id = ref.item_id) OR (h.entity = 'CRITERION_LINK' AND "
-            + linkedChild("milestone_criterion", HistoryQueryRepository::childOf) + ")))";
-    private static final String VERSION_OWNER = "(" + String.join(" OR ", ISSUE_VERSION, SPEC_VERSION,
-            TASK_VERSION, CRITERION_VERSION) + ")";
+    // Direct rows match the linked id. Composite rows belong to the longest matching id,
+    // including when that owner is in a different project or has no version link.
+    private static final String VERSION_OWNER = """
+            (
+              (ref.item_kind = 'issue' AND (
+                (h.entity = 'ISSUE' AND h.entity_id = ref.item_id)
+                OR (h.entity IN ('ISSUE_CASE', 'ISSUE_TASK', 'ISSUE_RELATION', 'ISSUE_SPEC', 'DELIVERABLE')
+                    AND EXISTS (
+                  SELECT 1 FROM issue p WHERE p.project_id = ref.project_id AND p.id = ref.item_id
+                    AND SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(p.id)) = p.id
+                    AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(p.id) + 1 FOR 1) IN ('@', '|')
+                ))
+                OR (h.entity = 'DELIVERABLE' AND SUBSTRING(h.entity_id FROM 1 FOR 6) = 'issue:'
+                    AND EXISTS (
+                  SELECT 1 FROM issue p WHERE p.project_id = ref.project_id AND p.id = ref.item_id
+                    AND SUBSTRING(h.entity_id FROM 7 FOR CHAR_LENGTH(p.id)) = p.id
+                    AND SUBSTRING(h.entity_id FROM 7 + CHAR_LENGTH(p.id) FOR 1) = '@'
+                ))
+              ))
+              OR (ref.item_kind = 'spec' AND (
+                (h.entity = 'SPEC' AND h.entity_id = ref.item_id)
+                OR (h.entity IN ('SPEC_TASK', 'DELIVERABLE') AND EXISTS (
+                  SELECT 1 FROM spec p WHERE p.project_id = ref.project_id AND p.id = ref.item_id
+                    AND ((SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(p.id)) = p.id
+                          AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(p.id) + 1 FOR 1) IN ('@', '|'))
+                      OR (h.entity = 'DELIVERABLE' AND SUBSTRING(h.entity_id FROM 1 FOR 5) = 'spec:'
+                          AND SUBSTRING(h.entity_id FROM 6 FOR CHAR_LENGTH(p.id)) = p.id
+                          AND SUBSTRING(h.entity_id FROM 6 + CHAR_LENGTH(p.id) FOR 1) = '@'))
+                    AND NOT EXISTS (
+                      SELECT 1 FROM spec q WHERE CHAR_LENGTH(q.id) > CHAR_LENGTH(p.id)
+                        AND ((SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(q.id)) = q.id
+                              AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(q.id) + 1 FOR 1) IN ('@', '|'))
+                          OR (h.entity = 'DELIVERABLE' AND SUBSTRING(h.entity_id FROM 1 FOR 5) = 'spec:'
+                              AND SUBSTRING(h.entity_id FROM 6 FOR CHAR_LENGTH(q.id)) = q.id
+                              AND SUBSTRING(h.entity_id FROM 6 + CHAR_LENGTH(q.id) FOR 1) = '@'))
+                    )
+                ))
+              ))
+              OR (ref.item_kind = 'task' AND (
+                (h.entity = 'TASK' AND h.entity_id = ref.item_id)
+                OR (h.entity = 'DELIVERABLE' AND EXISTS (
+                  SELECT 1 FROM task p WHERE p.project_id = ref.project_id AND p.id = ref.item_id
+                    AND ((SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(p.id)) = p.id
+                          AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(p.id) + 1 FOR 1) IN ('@', '|'))
+                      OR (SUBSTRING(h.entity_id FROM 1 FOR 5) = 'task:'
+                          AND SUBSTRING(h.entity_id FROM 6 FOR CHAR_LENGTH(p.id)) = p.id
+                          AND SUBSTRING(h.entity_id FROM 6 + CHAR_LENGTH(p.id) FOR 1) = '@'))
+                    AND NOT EXISTS (
+                      SELECT 1 FROM task q WHERE CHAR_LENGTH(q.id) > CHAR_LENGTH(p.id)
+                        AND ((SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(q.id)) = q.id
+                              AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(q.id) + 1 FOR 1) IN ('@', '|'))
+                          OR (SUBSTRING(h.entity_id FROM 1 FOR 5) = 'task:'
+                              AND SUBSTRING(h.entity_id FROM 6 FOR CHAR_LENGTH(q.id)) = q.id
+                              AND SUBSTRING(h.entity_id FROM 6 + CHAR_LENGTH(q.id) FOR 1) = '@'))
+                    )
+                ))
+              ))
+              OR (ref.item_kind = 'criterion' AND (
+                (h.entity = 'CRITERION' AND h.entity_id = ref.item_id)
+                OR (h.entity = 'CRITERION_LINK' AND EXISTS (
+                  SELECT 1 FROM milestone_criterion p
+                  WHERE p.project_id = ref.project_id AND p.id = ref.item_id
+                    AND SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(p.id)) = p.id
+                    AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(p.id) + 1 FOR 1) IN ('@', '|')
+                    AND NOT EXISTS (
+                      SELECT 1 FROM milestone_criterion q WHERE CHAR_LENGTH(q.id) > CHAR_LENGTH(p.id)
+                        AND SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(q.id)) = q.id
+                        AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(q.id) + 1 FOR 1) IN ('@', '|')
+                    )
+                ))
+              ))
+            )
+            """;
 
     private static final String PROJECT_VERSIONS = "SELECT DISTINCT h.id, pv.name FROM history h "
             + "JOIN project_version_item ref ON " + VERSION_OWNER

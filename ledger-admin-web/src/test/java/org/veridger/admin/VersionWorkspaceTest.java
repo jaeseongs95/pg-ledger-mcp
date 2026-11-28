@@ -9,11 +9,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -23,6 +25,9 @@ import org.veridger.admin.support.Browser;
 import org.veridger.admin.support.Browser.Form;
 import org.veridger.admin.support.Seeds;
 import org.veridger.application.admin.ProjectVersionService;
+import org.veridger.application.write.RecordDeliverableCommand;
+import org.veridger.application.write.RecordDeliverableService;
+import org.veridger.database.repository.HistoryQueryRepository;
 import org.veridger.domain.rule.HistoryEntity;
 
 @AdminTest
@@ -36,6 +41,10 @@ class VersionWorkspaceTest {
     private Seeds seeds;
     @Autowired
     private ProjectVersionService versions;
+    @Autowired
+    private RecordDeliverableService deliverables;
+    @Autowired
+    private HistoryQueryRepository history;
 
     static Stream<Arguments> itemForms() {
         return Stream.of(
@@ -232,6 +241,39 @@ class VersionWorkspaceTest {
                 .andExpect(status().isOk()).andExpect(content().json("[\"" + VERSION + "\"]"));
         versions.changeItemLink(project.project(), version.id(), HistoryEntity.ISSUE, linked, false);
         assertThat(html(browser, path)).contains("0 shown · 0 matching").doesNotContain(linked + "|");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HistoryEntity.class, names = {"SPEC", "TASK"})
+    void compositeHistoryUsesTheLongestOwnerAcrossProjects(HistoryEntity kind) throws Exception {
+        var project = seeds.project();
+        var external = seeds.project();
+        var version = version(project);
+        var externalVersion = version(external);
+        String shorter = project.code() + "-" + kind.token() + "-prefix";
+        String longer = shorter + "@extension";
+        if (kind == HistoryEntity.SPEC) {
+            seeds.spec(project, shorter, "Short id");
+            seeds.spec(external, longer, "Long id");
+        } else {
+            seeds.task(project, shorter, "Short id");
+            seeds.task(external, longer, "Long id");
+        }
+        versions.changeItemLink(project.project(), version.id(), kind, shorter, true);
+        var result = deliverables.recordDeliverable(Seeds.AUTHOR, new RecordDeliverableCommand(
+                UUID.randomUUID().toString(), kind.token(), longer, "code_change", "evidence-ref", Seeds.REASON,
+                "repo/evidence", "Release evidence", null, null, null, false));
+        var historyIds = List.of(result.historyId());
+
+        assertThat(history.projectVersions(historyIds)).isEmpty();
+        var browser = Browser.signedIn(mvc);
+        assertThat(html(browser, "/history?project=" + project.project() + "&entity=deliverable&projectVersion=" + VERSION))
+                .contains("0 shown · 0 matching");
+
+        versions.changeItemLink(external.project(), externalVersion.id(), kind, longer, true);
+        assertThat(history.projectVersions(historyIds)).containsEntry(result.historyId(), List.of(VERSION));
+        assertThat(html(browser, "/history?project=" + external.project() + "&entity=deliverable&projectVersion=" + VERSION))
+                .contains("1 shown · 1 matching", longer);
     }
 
     private ProjectVersionService.Version version(Seeds.Seeded project) {
