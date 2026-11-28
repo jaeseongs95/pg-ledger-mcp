@@ -48,6 +48,10 @@ public abstract class WriteOperation<C extends WriteCommand, R extends WriteResu
     /** The projects and scopes the request needs, and when the gate looks them up (see {@link Lookup}). */
     protected abstract Lookup resolve(C command);
 
+    protected Lookup resolve(C command, Channel channel) {
+        return resolve(command);
+    }
+
     /** Validates and normalises the input; the work is run only when the receipt is new. */
     protected abstract Prepared<R> prepare(C command);
 
@@ -84,7 +88,7 @@ public abstract class WriteOperation<C extends WriteCommand, R extends WriteResu
      */
     final R run(String actor, String boundOperationKey, Channel channel, C command, BatchBuffer batch) {
         AtomicReference<ReceiptService.LoadedReceipt> preloadedReceipt = new AtomicReference<>();
-        GateSession session = gate.open(actor, boundOperationKey, channel, resolve(command),
+        GateSession session = gate.open(actor, boundOperationKey, channel, resolve(command, channel),
                 (author, now) -> {
                     ReceiptService.LoadedReceipt found = receipts.find(author, command.operationKey());
                     preloadedReceipt.set(found);

@@ -272,7 +272,7 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
         String oldOwner = row.ownerActorId() == null ? null : row.ownerActorId().value();
         String newOwner = nextOwner == null ? null : nextOwner.value();
         Snapshot before = Snapshot.IssueRow.of(row);
-        if (row.status() == IssueStatus.OPEN && mark) {
+        if (row.status() == IssueStatus.OPEN && mark && !known.exists()) {
             Issue after = row.transitioned(IssueStatus.RESOLVED, null, now).ownedBy(nextOwner, now);
             long version = rows.saveIssue(after).version();
             return new TargetUpdate(HistoryOp.TRANSITION, IssueStatus.OPEN.name(), IssueStatus.RESOLVED.name(),
@@ -298,7 +298,7 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
         Snapshot before = Snapshot.SpecRow.of(row);
         boolean canComplete = row.status() == SpecStatus.DRAFT || row.status() == SpecStatus.PLANNED
                 || row.status() == SpecStatus.ACTIVE || row.status() == SpecStatus.BLOCKED;
-        if (canComplete && mark) {
+        if (canComplete && mark && !known.exists()) {
             Spec after = row.transitioned(SpecStatus.COMPLETED, now).ownedBy(nextOwner, now);
             long version = rows.saveSpec(after).version();
             return new TargetUpdate(HistoryOp.TRANSITION, row.status().name(), SpecStatus.COMPLETED.name(), oldOwner,
@@ -324,7 +324,7 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
         Snapshot before = Snapshot.TaskRow.of(row);
         boolean canComplete = row.state() == TaskState.PLANNED || row.state() == TaskState.ACTIVE
                 || row.state() == TaskState.BLOCKED;
-        TaskState nextState = canComplete && mark ? TaskState.COMPLETED : row.state();
+        TaskState nextState = canComplete && mark && !known.exists() ? TaskState.COMPLETED : row.state();
         Task after = new Task(row.id(), row.projectId(), row.title(), row.purpose(), row.successCondition(), nextState,
                 nextOwner, row.originRef(), row.originQuote(), row.version(), row.createdAt(), now, row.createdBy(),
                 row.idKey());

@@ -142,10 +142,12 @@ class ReadContractTest {
         assertThat(matching.items()).extracting(ReadOutputs.IssueRow::id).containsExactly(seed.issue());
         assertThat(matching.items().getFirst().projectVersions()).containsExactly(renamed);
         var projects = session.readItems(session.call("ledger_projects",
-                Args.of().with("include_versions", true).with("max_rows", 200)), ReadOutputs.ProjectRow.class);
-        assertThat(projects.items()).filteredOn(p -> p.id().equals(seed.project())).singleElement()
-                .satisfies(p -> assertThat(p.versions())
-                        .containsExactly(new ReadOutputs.ProjectVersion(renamed, "운영 검토에 사용")));
+                Args.of().with("project", seed.project()).with("include_versions", true)), ReadOutputs.ProjectRow.class);
+        assertThat(projects.items()).singleElement().satisfies(p -> {
+            assertThat(p.id()).isEqualTo(seed.project());
+            assertThat(p.versions())
+                    .containsExactly(new ReadOutputs.ProjectVersion(renamed, "운영 검토에 사용"));
+        });
 
         versions.changeIssueLink(seed.issue(), renamed, false);
         versions.changeIssueLink(seed.issue(), renamed, false);

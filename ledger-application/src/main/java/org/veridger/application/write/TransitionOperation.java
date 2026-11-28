@@ -27,6 +27,8 @@ import org.veridger.database.repository.DeliverableRepository;
 import org.veridger.database.repository.HistoryRepository;
 import org.veridger.database.repository.IssueCaseRepository;
 import org.veridger.database.repository.MergeChainRepository;
+import org.veridger.domain.error.TransitionCode;
+import org.veridger.domain.error.TransitionException;
 import org.veridger.domain.error.TrustCode;
 import org.veridger.domain.error.TrustException;
 import org.veridger.domain.error.ValidationException;
@@ -38,6 +40,7 @@ import org.veridger.domain.model.Issue;
 import org.veridger.domain.model.ReceiptOperation;
 import org.veridger.domain.model.Spec;
 import org.veridger.domain.model.Task;
+import org.veridger.domain.rule.Channel;
 import org.veridger.domain.rule.CriterionReports;
 import org.veridger.domain.rule.CriterionState;
 import org.veridger.domain.rule.DeliverableHistory;
@@ -108,21 +111,26 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
 
     @Override
     protected Lookup resolve(TransitionCommand c) {
+        return resolve(c, Channel.AUTHOR);
+    }
+
+    @Override
+    protected Lookup resolve(TransitionCommand c, Channel channel) {
         return Lookup.verifiable(() -> Tokens.find(c.entity(), STATEFUL).map(entity -> switch (entity) {
             case ISSUE -> IssueId.parse(c.id()).map(id -> rows.findIssue(id)
-                    .map(row -> issueTarget(row, c))
+                    .map(row -> issueTarget(row, c, channel))
                     .orElseGet(() -> Resolution.unresolved(Rows.notFound("issue", id.value()))))
                     .orElseGet(() -> Resolution.unresolved(IssueId.malformed()));
             case SPEC -> SpecId.parse(c.id()).map(id -> rows.findSpec(id)
-                    .map(row -> target(entity, row.projectId(), row.status(), c, SpecStatus.values()))
+                    .map(row -> target(entity, row.projectId(), row.status(), c, SpecStatus.values(), channel))
                     .orElseGet(() -> Resolution.unresolved(Rows.notFound("spec", id.value()))))
                     .orElseGet(() -> Resolution.unresolved(SpecId.malformed()));
             case TASK -> TaskId.parse(c.id()).map(id -> rows.findTask(id)
-                    .map(row -> target(entity, row.projectId(), row.state(), c, TaskState.values()))
+                    .map(row -> target(entity, row.projectId(), row.state(), c, TaskState.values(), channel))
                     .orElseGet(() -> Resolution.unresolved(Rows.notFound("task", id.value()))))
                     .orElseGet(() -> Resolution.unresolved(TaskId.malformed()));
             case CRITERION -> CriterionId.parse(c.id()).map(id -> rows.findCriterion(id)
-                    .map(row -> target(entity, row.projectId(), row.state(), c, CriterionState.values()))
+                    .map(row -> target(entity, row.projectId(), row.state(), c, CriterionState.values(), channel))
                     .orElseGet(() -> Resolution.unresolved(Rows.notFound("criterion", id.value()))))
                     .orElseGet(() -> Resolution.unresolved(CriterionId.malformed()));
             case DELIVERABLE, ISSUE_TASK, ISSUE_SPEC, SPEC_TASK, ISSUE_RELATION, CRITERION_LINK, ISSUE_CASE ->
@@ -130,15 +138,20 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
         }).orElseGet(() -> Resolution.unresolved(Tokens.unknown("entity", c.entity(), STATEFUL))));
     }
 
-    private Resolution issueTarget(Issue row, TransitionCommand c) {
-        return Tokens.find(c.to(), IssueStatus.values()).map(to -> {
-            Target own = new Target(row.projectId(), Scope.forTransition(HistoryEntity.ISSUE, row.status(), to));
-            if (to != IssueStatus.MERGED) {
-                return Resolution.of(own);
-            }
-            return mergeTargetProject(c).map(project -> Resolution.of(own,
-                    new Target(project, HistoryEntity.ISSUE.updateScope()))).orElseGet(() -> Resolution.of(own));
+    private Resolution issueTarget(Issue row, TransitionCommand c, Channel channel) {
+        return Tokens.find(c.to(), IssueStatus.values()).<Resolution>map(to -> {
+            List<Target> own = authorizationTargets(HistoryEntity.ISSUE, row.projectId(), row.status(), to, channel);
+            return new Resolution.Resolved(withMergeTarget(own, to, c));
         }).orElseGet(() -> Resolution.unresolved(Tokens.unknown("to", c.to(), IssueStatus.values())));
+    }
+
+    private List<Target> withMergeTarget(List<Target> own, LifecycleState to, TransitionCommand c) {
+        if (to != IssueStatus.MERGED) {
+            return own;
+        }
+        List<Target> targets = new ArrayList<>(own);
+        mergeTargetProject(c).ifPresent(project -> targets.add(new Target(project, Scope.ISSUE_UPDATE)));
+        return targets;
     }
 
     private Optional<ProjectId> mergeTargetProject(TransitionCommand c) {
@@ -147,9 +160,9 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
     }
 
     private static <S extends Enum<S> & LifecycleState> Resolution target(HistoryEntity entity, ProjectId project,
-            S from, TransitionCommand c, S[] states) {
+            S from, TransitionCommand c, S[] states, Channel channel) {
         return Tokens.find(c.to(), states)
-                .map(to -> Resolution.of(new Target(project, Scope.forTransition(entity, from, to))))
+                .<Resolution>map(to -> new Resolution.Resolved(authorizationTargets(entity, project, from, to, channel)))
                 .orElseGet(() -> Resolution.unresolved(Tokens.unknown("to", c.to(), states)));
     }
 
@@ -161,27 +174,12 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
      */
     @Override
     protected List<Target> targetsAnswered(TransitionCommand c, TransitionResult stored, List<Target> now) {
-        List<Target> answered = new ArrayList<>(now);
-        answered.set(0, new Target(now.getFirst().project(), answeredScope(stored)));
-        return answered;
-    }
-
-    private static Scope answeredScope(TransitionResult stored) {
         HistoryEntity entity = Tokens.parse("entity", stored.entity(), STATEFUL);
-        return switch (entity) {
-            case ISSUE -> scopeOf(entity, stored, IssueStatus.values());
-            case SPEC -> scopeOf(entity, stored, SpecStatus.values());
-            case TASK -> scopeOf(entity, stored, TaskState.values());
-            case CRITERION -> scopeOf(entity, stored, CriterionState.values());
-            case DELIVERABLE, ISSUE_TASK, ISSUE_SPEC, SPEC_TASK, ISSUE_RELATION, CRITERION_LINK, ISSUE_CASE ->
-                throw new IllegalStateException("Tokens.parse refused it");
-        };
-    }
-
-    private static <S extends Enum<S> & LifecycleState> Scope scopeOf(HistoryEntity entity, TransitionResult stored,
-            S[] states) {
-        return Scope.forTransition(entity, Tokens.parse("from", stored.from(), states),
-                Tokens.parse("to", stored.to(), states));
+        LifecycleState from = LifecycleState.of(entity, stored.from()).orElseThrow();
+        LifecycleState to = LifecycleState.of(entity, stored.to()).orElseThrow();
+        // Older receipts lack the flag and retain the original author-update grant for a report withdrawal.
+        Channel channel = Boolean.TRUE.equals(stored.reviewReturn()) ? Channel.REVIEWER : Channel.AUTHOR;
+        return withMergeTarget(authorizationTargets(entity, now.getFirst().project(), from, to, channel), to, c);
     }
 
     @Override
@@ -219,18 +217,49 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
         });
     }
 
-    private Scope requireChannel(WriteContext ctx, HistoryEntity entity, LifecycleState from, LifecycleState to) {
-        Scope scope = Scope.forTransition(entity, from, to);
-        if (scope == Scope.VERIFY && !ctx.session().channel().mayVerify()) {
+    private static List<Target> requireChannel(WriteContext ctx, HistoryEntity entity, ProjectId project,
+            LifecycleState from, LifecycleState to) {
+        Channel channel = ctx.session().channel();
+        List<Target> targets = authorizationTargets(entity, project, from, to, channel);
+        if (targets.getFirst().scope() == Scope.VERIFY && !channel.mayVerify()) {
             throw new TrustException(TrustCode.VERIFY_NEEDS_REVIEWER_LOGIN, List.of());
         }
-        return scope;
+        return targets;
+    }
+
+    private static List<Target> authorizationTargets(HistoryEntity entity, ProjectId project,
+            LifecycleState from, LifecycleState to, Channel channel) {
+        Scope scope = isReviewReturn(channel, from, to) ? Scope.VERIFY : Scope.forTransition(entity, from, to);
+        Target primary = new Target(project, scope);
+        if (from.verification() && switch (to) {
+            case IssueStatus state -> state == IssueStatus.MERGED || state == IssueStatus.NOT_AN_ISSUE
+                    || state == IssueStatus.DISPUTED;
+            case SpecStatus state -> state == SpecStatus.CANCELLED;
+            case TaskState state -> state == TaskState.CANCELLED;
+            case CriterionState ignored -> false;
+        }) {
+            return List.of(primary, new Target(project, entity.updateScope()));
+        }
+        return List.of(primary);
+    }
+
+    private static boolean isReviewReturn(Channel channel, LifecycleState from, LifecycleState to) {
+        return channel == Channel.REVIEWER && LifecycleState.isReviewReturn(from.name(), to.name());
+    }
+
+    private static void requireIndependentReturn(boolean reviewReturn, LifecycleState to, Evidence evidence,
+            boolean contributor) {
+        if (reviewReturn && !evidence.provided()) {
+            throw new TransitionException(TransitionCode.EVIDENCE_REQUIRED, List.of(to.name()));
+        }
+        if (reviewReturn && contributor) {
+            throw new TransitionException(TransitionCode.SAME_SESSION, List.of());
+        }
     }
 
     private void recheck(WriteContext ctx, HistoryEntity entity, ProjectId project, LifecycleState from,
             LifecycleState to) {
-        Scope scope = requireChannel(ctx, entity, from, to);
-        ctx.authorize(gate, List.of(new Target(project, scope)));
+        ctx.authorize(gate, requireChannel(ctx, entity, project, from, to));
     }
 
     private TransitionResult issue(WriteContext ctx, IssueId id, long expected, IssueStatus to, Evidence evidence,
@@ -253,14 +282,15 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
                 sourceReady = rows.guardMergeSource(id);
             }
             locked = sourceReady && targetReady;
-        } else if (to == IssueStatus.VERIFIED) {
+        } else if (to == IssueStatus.VERIFIED
+                || (ctx.session().channel() == Channel.REVIEWER && to == IssueStatus.OPEN)) {
             verifyReady = rows.guardVerifyCandidate(id);
             locked = verifyReady;
         }
         Issue row = rows.issueForWrite(id, expected);
-        Scope scope = requireChannel(ctx, HistoryEntity.ISSUE, row.status(), to);
-        List<Target> authTargets = new ArrayList<>(2);
-        authTargets.add(new Target(row.projectId(), scope));
+        boolean reviewReturn = isReviewReturn(ctx.session().channel(), row.status(), to);
+        List<Target> authTargets = new ArrayList<>(requireChannel(ctx, HistoryEntity.ISSUE, row.projectId(),
+                row.status(), to));
         MergeTarget target = null;
         if (to == IssueStatus.MERGED && mergedInto != null) {
             Issue targetRow = rows.issue(mergedInto);
@@ -272,11 +302,12 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
         } else {
             authTargets.forEach(t -> gate.requireLive(ctx.author(), t));
         }
-        List<SessionKey> contributors = sourceReady && targetReady && verifyReady
+        List<SessionKey> contributors = reviewReturn || (sourceReady && targetReady && verifyReady)
                 ? deliverableContributors(DeliverableTarget.ISSUE, id.value())
                 : List.of();
         DeliverableHistory delivHistory = new DeliverableHistory(contributors,
-                verifyReady ? reporters(row, to) : List.of());
+                reviewReturn || (verifyReady && to == IssueStatus.VERIFIED) ? reporters(row) : List.of());
+        requireIndependentReturn(reviewReturn, to, evidence, delivHistory.involves(ctx.author().sessionKey()));
         row.status().requireTransitionTo(to, evidence, delivHistory, ctx.author().sessionKey(), id, target);
         Issue saved = rows.saveIssue(row.transitioned(to, to == IssueStatus.MERGED ? mergedInto : null, now));
         if (!locked) {
@@ -288,7 +319,7 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
                 HistoryOp.TRANSITION, changes).withStates(row.status().name(), to.name()).withEvidence(evidence)
                 .withBefore(Snapshot.IssueRow.of(row)).withAttachment(attachment));
         return result(ctx, HistoryEntity.ISSUE, id.value(), row.status().name(), to.name(), saved.version(),
-                historyId);
+                historyId, reviewReturn);
     }
 
     /**
@@ -333,10 +364,7 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
         return owners;
     }
 
-    private List<SessionKey> reporters(Issue row, IssueStatus to) {
-        if (to != IssueStatus.VERIFIED) {
-            return List.of();
-        }
+    private List<SessionKey> reporters(Issue row) {
         List<Issue> sources = new ArrayList<>(List.of(row));
         mergeChain.mergedInto(row.id()).forEach(merged -> sources.add(rows.issue(merged)));
         List<SessionKey> reporters = new ArrayList<>();
@@ -385,12 +413,16 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
                 contributors.add(entry.authorId().sessionKey());
             }
         }
-        row.status().requireTransitionTo(to, evidence, ctx.author().sessionKey(), contributors, reports);
+        SessionKey actor = ctx.author().sessionKey();
+        boolean reviewReturn = isReviewReturn(ctx.session().channel(), row.status(), to);
+        requireIndependentReturn(reviewReturn, to, evidence, contributors.contains(actor) || reports.completedBy(actor));
+        row.status().requireTransitionTo(to, evidence, actor, contributors, reports);
         Spec saved = rows.saveSpec(row.transitioned(to, now));
         long historyId = ctx.appendHistory(history, HistoryWriter.Entry.of(HistoryEntity.SPEC, id.value(),
                 HistoryOp.TRANSITION, ChangeSet.empty()).withStates(row.status().name(), to.name())
                 .withEvidence(evidence).withBefore(Snapshot.SpecRow.of(row)).withAttachment(attachment));
-        return result(ctx, HistoryEntity.SPEC, id.value(), row.status().name(), to.name(), saved.version(), historyId);
+        return result(ctx, HistoryEntity.SPEC, id.value(), row.status().name(), to.name(), saved.version(), historyId,
+                reviewReturn);
     }
 
     private TransitionResult task(WriteContext ctx, TaskId id, long expected, TaskState to, Evidence evidence,
@@ -412,13 +444,16 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
                 registrants.add(entry.authorId().sessionKey());
             }
         }
-        row.state().requireTransitionTo(to, evidence, ctx.author().sessionKey(), registrants, reports);
+        SessionKey actor = ctx.author().sessionKey();
+        boolean reviewReturn = isReviewReturn(ctx.session().channel(), row.state(), to);
+        requireIndependentReturn(reviewReturn, to, evidence, registrants.contains(actor) || reports.reportedBy(actor));
+        row.state().requireTransitionTo(to, evidence, actor, registrants, reports);
         Task saved = rows.saveTask(row.transitioned(to, now));
         long historyId = ctx.appendHistory(history, HistoryWriter.Entry.of(HistoryEntity.TASK, id.value(),
                 HistoryOp.TRANSITION, ChangeSet.empty()).withStates(row.state().name(), to.name())
                 .withEvidence(evidence).withBefore(Snapshot.TaskRow.of(row)).withAttachment(attachment));
         return result(ctx, HistoryEntity.TASK, id.value(), row.state().name(), to.name(), saved.version(),
-                historyId);
+                historyId, reviewReturn);
     }
 
     private TransitionResult criterion(WriteContext ctx, CriterionId id, long expected, CriterionState to,
@@ -438,18 +473,21 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
                 contributors.add(entry.authorId().sessionKey());
             }
         }
-        row.state().requireTransitionTo(to, evidence, ctx.author().sessionKey(), contributors, reports);
+        SessionKey actor = ctx.author().sessionKey();
+        boolean reviewReturn = isReviewReturn(ctx.session().channel(), row.state(), to);
+        requireIndependentReturn(reviewReturn, to, evidence, contributors.contains(actor) || reports.completedBy(actor));
+        row.state().requireTransitionTo(to, evidence, actor, contributors, reports);
         Criterion saved = rows.saveCriterion(row.transitioned(to));
         long historyId = ctx.appendHistory(history, HistoryWriter.Entry.of(HistoryEntity.CRITERION, id.value(),
                 HistoryOp.TRANSITION, ChangeSet.empty()).withStates(row.state().name(), to.name())
                 .withEvidence(evidence).withBefore(Snapshot.CriterionRow.of(row)).withAttachment(attachment));
         return result(ctx, HistoryEntity.CRITERION, id.value(), row.state().name(), to.name(), saved.version(),
-                historyId);
+                historyId, reviewReturn);
     }
 
     private static TransitionResult result(WriteContext ctx, HistoryEntity entity, String id, String from,
-            String to, long version, long historyId) {
+            String to, long version, long historyId, boolean reviewReturn) {
         return new TransitionResult(WriteStatus.COMMITTED, entity.token(), id, from, to, version, historyId,
-                ctx.author().value(), ctx.login());
+                ctx.author().value(), ctx.login(), reviewReturn ? Boolean.TRUE : null);
     }
 }

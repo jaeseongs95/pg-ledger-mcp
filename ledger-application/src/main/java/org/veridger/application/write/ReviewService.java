@@ -9,8 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The reviewer channel: the same transition and correction as the author channel, but verifications (into or out
- * of VERIFIED, MET, NOT_MET) are recorded only here, and the history carries the reviewer login.
+ * Records verification decisions and independent returns for rework. The history carries the reviewer login.
  */
 @Service
 @Transactional
