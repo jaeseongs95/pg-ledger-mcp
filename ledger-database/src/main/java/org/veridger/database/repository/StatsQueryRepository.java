@@ -53,8 +53,10 @@ public class StatsQueryRepository {
 
     public Map<String, Long> criteriaByState(ProjectId project) {
         return counts(
-                "SELECT state AS bucket, COUNT(*) AS n FROM milestone_criterion GROUP BY state ORDER BY state",
-                "SELECT state AS bucket, COUNT(*) AS n FROM milestone_criterion WHERE project_id = :project GROUP BY state ORDER BY state",
+                "SELECT state AS bucket, COUNT(*) AS n FROM milestone_criterion c WHERE " + MilestoneArchiveRepository.ACTIVE
+                        + " GROUP BY state ORDER BY state",
+                "SELECT state AS bucket, COUNT(*) AS n FROM milestone_criterion c WHERE c.project_id = :project AND "
+                        + MilestoneArchiveRepository.ACTIVE + " GROUP BY state ORDER BY state",
                 project);
     }
 
@@ -99,8 +101,9 @@ public class StatsQueryRepository {
 
     /** Single-table milestone criterion count for a project (or the whole ledger when {@code project} is null). */
     public long countCriteria(ProjectId project) {
-        return countTable("SELECT COUNT(*) FROM milestone_criterion",
-                "SELECT COUNT(*) FROM milestone_criterion WHERE project_id = :project", project);
+        return countTable("SELECT COUNT(*) FROM milestone_criterion c WHERE " + MilestoneArchiveRepository.ACTIVE,
+                "SELECT COUNT(*) FROM milestone_criterion c WHERE c.project_id = :project AND "
+                        + MilestoneArchiveRepository.ACTIVE, project);
     }
 
     private long countTable(String allSql, String byProjectSql, ProjectId project) {

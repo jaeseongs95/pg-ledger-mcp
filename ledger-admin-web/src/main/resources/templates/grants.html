@@ -57,12 +57,21 @@
         </select>
       </div>
       <div class="filter-field">
-        <label for="grant-scope-filter" th:text="#{grants.filter.scope}">Permission</label>
-        <select id="grant-scope-filter">
-          <option value="" th:text="#{common.any}">Any</option>
-          <option th:each="scope : ${scopes}" th:value="${scope.token()}"
-                  th:text="#{${'grants.scope.' + scope.token()}}">Issue</option>
-        </select>
+        <span id="grant-scope-label" class="filter-label" th:text="#{grants.filter.scope}">Permission</span>
+        <details id="grant-scope-filter" class="scope-filter"
+                 th:attr="data-any-label=#{common.any},data-count-pattern=#{grants.filter.selected}">
+          <summary class="scope-filter-trigger" aria-labelledby="grant-scope-label grant-scope-selection">
+            <span id="grant-scope-selection" th:text="#{common.any}">Any</span>
+          </summary>
+          <div class="scope-filter-options" role="group" aria-labelledby="grant-scope-label"
+               aria-describedby="grant-scope-hint">
+            <p id="grant-scope-hint" class="hint" th:text="#{grants.filter.anySelected}">Matches any selected permission.</p>
+            <label th:each="scope : ${scopes}" class="scope-filter-option">
+              <input type="checkbox" th:value="${scope.token()}">
+              <span th:text="#{${'grants.scope.' + scope.token()}}">Issue</span>
+            </label>
+          </div>
+        </details>
       </div>
       <div class="filter-actions">
         <button type="button" class="secondary btn-sm" data-session-filter-reset th:text="#{common.resetFilters}">Reset filters</button>

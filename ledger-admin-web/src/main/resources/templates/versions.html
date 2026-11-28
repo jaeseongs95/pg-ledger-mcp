@@ -46,6 +46,7 @@
     <section class="card">
       <h2 th:text="#{versions.list}">Registered versions</h2>
       <p th:if="${#lists.isEmpty(versions)}" class="hint" th:text="#{versions.empty}">No versions have been added.</p>
+      <p class="results-count" th:text="#{common.rowCount(${versions.size()})}">0 records</p>
       <ul th:unless="${#lists.isEmpty(versions)}" class="version-list">
         <li th:each="v, row : ${versions}">
           <div class="version-summary">

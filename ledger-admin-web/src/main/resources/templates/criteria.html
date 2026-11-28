@@ -17,14 +17,24 @@
   </div>
 
   <th:block th:if="${choice.selected() != null}">
+    <div class="view-switch">
+      <a class="button secondary btn-sm" th:href="@{/criteria(project=${choice.selected()},projectVersion=${filter.projectVersion()})}"
+         th:attr="aria-current=${!filter.showsArchived() ? 'page' : null}" th:text="#{criteria.current}">Current</a>
+      <a class="button secondary btn-sm" th:href="@{/criteria(project=${choice.selected()},projectVersion=${filter.projectVersion()},archived=true)}"
+         th:attr="aria-current=${filter.showsArchived() ? 'page' : null}" th:text="#{criteria.archived}">Archived</a>
+    </div>
     <form method="get" th:action="@{/criteria}" class="filters list-filters">
+      <input th:if="${filter.showsArchived()}" type="hidden" name="archived" value="true">
       <div class="filter-grid">
         <div class="filter-field">
           <label for="project" th:text="#{common.project}">Project</label>
-          <select id="project" name="project">
+          <select id="project" name="project" data-version-source>
+            <option th:unless="${choice.listed()}" th:value="${choice.selected()}"
+                    th:text="${choice.selected()}" selected>Project</option>
             <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.displayName()}" th:selected="${p.id() == choice.selected()}">p1</option>
           </select>
         </div>
+        <div th:replace="~{fragments :: versionFilter(${choice.selected()}, ${filter.projectVersion()})}"></div>
         <div class="filter-field">
           <label for="state" th:text="#{common.state}">State</label>
           <select id="state" name="state">
@@ -67,11 +77,10 @@
         </span>
       </summary>
       <div class="rollup-grid" role="region" tabindex="0" th:attr="aria-label=#{criteria.rollup.heading}">
-        <a th:each="r : ${rollups}"
-           th:with="selected=${r.milestone() == filter.milestone()},
-                    href=${selected ? @links.projectHref('/criteria', choice.selected()) : @links.statHref(choice.selected(), '/criteria', 'milestone', r.milestone())}"
-           th:href="${href}"
-           th:class="${selected} ? 'rollup-card rollup-card-active' : 'rollup-card'">
+        <article th:each="r : ${rollups}" class="rollup-card"
+                 th:classappend="${r.milestone() == filter.milestone() ? 'rollup-card-active' : ''}">
+          <a th:href="@{/criteria(project=${choice.selected()},projectVersion=${filter.projectVersion()},milestone=${r.milestone() == filter.milestone() ? null : r.milestone()},archived=${filter.showsArchived() ? true : null})}"
+             class="rollup-card-link">
           <span class="rollup-name" th:text="${r.milestone()}">v1.0</span>
           <span class="rollup-pct" th:text="#{criteria.rollup.progress(${r.met()}, ${r.total()}, ${r.metPercent()})}">0 / 0 met (0%)</span>
           <progress class="gate-progress" th:value="${r.met()}" th:max="${r.total() > 0 ? r.total() : 1}"
@@ -86,13 +95,15 @@
             <span th:if="${r.planned() > 0}" class="badge badge-PLANNED"
                   th:text="#{criteria.rollup.planned(${r.planned()})}">1 planned</span>
           </div>
-        </a>
+          </a>
+          <button type="button" class="ghost btn-sm" data-modal-open="modal-milestone-archive"
+                  th:attr="data-milestone=${r.milestone()},data-archive=${!filter.showsArchived()}"
+                  th:text="${filter.showsArchived()} ? #{criteria.restore} : #{criteria.archive}">Archive</button>
+        </article>
       </div>
     </details>
 
-    <th:block th:if="${paging.hasPrevious() or paging.hasNext()}">
-      <nav th:replace="~{fragments :: pager(${paging}, ${total})}"></nav>
-    </th:block>
+    <p th:replace="~{fragments :: listTotals(${page})}"></p>
     <div th:if="${!#lists.isEmpty(page.items())}" class="table-wrap results-table" role="region" tabindex="0" th:attr="aria-label=#{criteria.title}">
       <table class="criteria-table">
         <caption class="sr-only" th:text="#{criteria.title}">Release gates</caption>
@@ -100,6 +111,7 @@
           <tr>
             <th scope="col" th:text="#{col.id}">ID</th>
             <th scope="col" th:text="#{criteria.text}">Criterion</th>
+            <th scope="col" class="version-col" th:text="#{versions.column}">Version</th>
             <th scope="col" th:text="#{common.state}">State</th>
             <th scope="col" th:text="#{criteria.milestone}">Milestone</th>
             <th scope="col" th:text="#{criteria.goal}">Goal</th>
@@ -114,6 +126,7 @@
             <td class="cell-id"><a class="criterion-id-link" th:href="@{/criteria/detail(id=${c.id()})}"
                                    th:title="${c.id()}" th:text="${c.id()}">ID</a></td>
             <td class="cell-criterion"><th:block th:replace="~{fragments :: textPreview(${c.criterionText()}, 80)}"></th:block></td>
+            <td th:replace="~{fragments :: versionCell(${itemVersions[c.id()]}, null, null)}"></td>
             <td class="cell-nowrap"><span th:class="'badge badge-' + ${c.state()}" th:text="${@labels.criterionState(c.state())}">Unknown</span></td>
             <td><th:block th:replace="~{fragments :: textPreview(${c.milestoneName()}, 48)}"></th:block></td>
             <td><th:block th:replace="~{fragments :: textPreview(${c.goalLabel()}, 48)}"></th:block></td>
@@ -133,7 +146,7 @@
       </table>
     </div>
 
-    <div th:if="${#lists.isEmpty(page.items()) and !hasFilters}" class="empty-state">
+    <div th:if="${#lists.isEmpty(page.items()) and !hasFilters and !filter.showsArchived()}" class="empty-state">
       <p class="empty-state-title" th:text="#{criteria.empty.title}">No release gates defined yet</p>
       <p class="hint" th:text="#{criteria.empty.help}">Use release gates when you want verifiable Go/No-Go acceptance checks.</p>
       <ol class="onboarding-steps">
@@ -143,7 +156,32 @@
       </ol>
     </div>
     <th:block th:if="${#lists.isEmpty(page.items()) and hasFilters}"><th:block th:replace="~{fragments :: emptyState(${hasFilters}, ${resetHref})}"></th:block></th:block>
-    <th:block th:if="${!#lists.isEmpty(page.items()) or hasFilters}"><nav th:replace="~{fragments :: pager(${paging}, ${total})}"></nav></th:block>
+    <p th:if="${filter.showsArchived() and #lists.isEmpty(page.items()) and !hasFilters}"
+       class="empty-state" th:text="#{criteria.archived.empty}">No archived milestones.</p>
+    <nav th:replace="~{fragments :: pager(${paging})}"></nav>
+    <dialog id="modal-milestone-archive" class="modal-dialog" aria-labelledby="milestone-action-title">
+      <div class="modal-header">
+        <h2 id="milestone-action-title" th:text="${filter.showsArchived()} ? #{criteria.restore} : #{criteria.archive}">Archive milestone</h2>
+        <button type="button" class="ghost btn-sm modal-close" data-modal-close th:attr="aria-label=#{common.close}">×</button>
+      </div>
+      <div class="modal-body">
+        <p><strong id="milestone-action-name"></strong></p>
+        <p class="hint" th:text="${filter.showsArchived()} ? #{criteria.restoreHelp} : #{criteria.archiveHelp}">The criteria and their history are kept.</p>
+        <form method="post" th:action="@{/criteria/milestone/archive}">
+          <input type="hidden" name="project" th:value="${choice.selected()}">
+          <input th:if="${!#strings.isEmpty(filter.projectVersion())}" type="hidden" name="projectVersion"
+                 th:value="${filter.projectVersion()}">
+          <input id="milestone-action-milestone" type="hidden" name="milestone">
+          <input id="milestone-action-archive" type="hidden" name="archive">
+          <div class="modal-footer">
+            <div class="modal-footer-actions">
+              <button type="button" class="secondary" data-modal-close th:text="#{common.cancel}">Cancel</button>
+              <button type="submit" th:text="${filter.showsArchived()} ? #{criteria.restore} : #{criteria.archive}">Archive</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </dialog>
   </th:block>
 </main>
 <th:block th:replace="~{fragments :: footer}"></th:block>

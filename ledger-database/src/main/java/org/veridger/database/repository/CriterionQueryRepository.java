@@ -28,7 +28,11 @@ import org.springframework.stereotype.Repository;
 public class CriterionQueryRepository {
 
     /** Optional filters. */
-    public record Filter(CriterionState state, String milestone) {
+    public record Filter(CriterionState state, String milestone, boolean archived) {
+        public Filter(CriterionState state, String milestone) {
+            this(state, milestone, false);
+        }
+
         public static final Filter NONE = new Filter(null, null);
     }
 
@@ -73,21 +77,8 @@ public class CriterionQueryRepository {
     public KeysetPage<CriterionSummary> page(ProjectId project, Filter filter, MaxRows maxRows, DateQuery dates,
             Position after, String projectVersionId) {
         StringBuilder sql = new StringBuilder("SELECT c.id, c.milestone_name, c.goal_label, c.code, c.criterion_text, "
-                + "c.state, c.version, dates.created_at, dates.updated_at FROM milestone_criterion c "
-                + "LEFT JOIN (SELECT h.entity_id, "
-                + "MIN(CASE WHEN h.op IN ('CREATE', 'IMPORT') THEN h.occurred_at END) AS created_at, "
-                + "MAX(h.occurred_at) AS updated_at "
-                + "FROM history h WHERE h.entity = 'CRITERION' AND h.entity_id IN "
-                + "(SELECT id FROM milestone_criterion WHERE project_id = :project) GROUP BY h.entity_id) dates "
-                + "ON dates.entity_id = c.id WHERE c.project_id = :project");
-        if (filter.state() != null) {
-            sql.append(" AND state = :state");
-        }
-        if (filter.milestone() != null) {
-            sql.append(" AND milestone_name = :milestone");
-        }
-        ProjectVersionRepository.appendItemFilter(sql, projectVersionId, "c.id", HistoryEntity.CRITERION);
-        dates.appendRange(sql);
+                + "c.state, c.version, dates.created_at, dates.updated_at ");
+        appendMatching(sql, filter, dates, projectVersionId);
         if (dates.sort() != null) {
             if (after != null) {
                 dates.appendSeek(sql, "c.id", after.at(), true);
@@ -99,15 +90,8 @@ public class CriterionQueryRepository {
             }
             sql.append(" ORDER BY c.id DESC");
         }
-        JdbcClient.StatementSpec spec = jdbc.sql(sqlBuilder.applyLimit(sql.toString(), ":row_count"))
-                .param("project", project.value()).param("row_count", maxRows.value() + 1);
-        if (filter.state() != null) {
-            spec = spec.param("state", filter.state().name());
-        }
-        if (filter.milestone() != null) {
-            spec = spec.param("milestone", filter.milestone());
-        }
-        spec = dates.bindRange(ProjectVersionRepository.bindItemFilter(spec, projectVersionId));
+        JdbcClient.StatementSpec spec = bindMatching(jdbc.sql(sqlBuilder.applyLimit(sql.toString(), ":row_count"))
+                .param("row_count", maxRows.value() + 1), project, filter, dates, projectVersionId);
         if (after != null) {
             spec = dates.sort() == null ? spec.param("after", after.id().value())
                     : dates.bindSeek(spec, after.at(), after.id().value());
@@ -119,14 +103,59 @@ public class CriterionQueryRepository {
         return KeysetPage.of(fetched, maxRows.value());
     }
 
+    public long count(ProjectId project, Filter filter, DateQuery dates, String projectVersionId) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        return bindMatching(jdbc.sql(sql.toString()), project, filter, dates, projectVersionId)
+                .query(Long.class).single();
+    }
+
+    private static void appendMatching(StringBuilder sql, Filter filter, DateQuery dates, String projectVersionId) {
+        sql.append("FROM milestone_criterion c "
+                + "LEFT JOIN (SELECT h.entity_id, "
+                + "MIN(CASE WHEN h.op IN ('CREATE', 'IMPORT') THEN h.occurred_at END) AS created_at, "
+                + "MAX(h.occurred_at) AS updated_at "
+                + "FROM history h WHERE h.entity = 'CRITERION' AND h.entity_id IN "
+                + "(SELECT id FROM milestone_criterion WHERE project_id = :project) GROUP BY h.entity_id) dates "
+                + "ON dates.entity_id = c.id WHERE c.project_id = :project AND ")
+                .append(filter.archived() ? MilestoneArchiveRepository.ARCHIVED : MilestoneArchiveRepository.ACTIVE);
+        if (filter.state() != null) {
+            sql.append(" AND state = :state");
+        }
+        if (filter.milestone() != null) {
+            sql.append(" AND milestone_name = :milestone");
+        }
+        ProjectVersionRepository.appendItemFilter(sql, projectVersionId, "c.id", HistoryEntity.CRITERION);
+        dates.appendRange(sql);
+    }
+
+    private static JdbcClient.StatementSpec bindMatching(JdbcClient.StatementSpec spec, ProjectId project,
+            Filter filter, DateQuery dates, String projectVersionId) {
+        spec = spec.param("project", project.value());
+        if (filter.state() != null) {
+            spec = spec.param("state", filter.state().name());
+        }
+        if (filter.milestone() != null) {
+            spec = spec.param("milestone", filter.milestone());
+        }
+        return dates.bindRange(ProjectVersionRepository.bindItemFilter(spec, projectVersionId));
+    }
+
     /**
      * Per-milestone readiness rollups for a project, ordered alphabetically by milestone name.
      */
     public List<MilestoneRollup> milestoneRollups(ProjectId project) {
+        return milestoneRollups(project, false, null);
+    }
+
+    public List<MilestoneRollup> milestoneRollups(ProjectId project, boolean archived, String projectVersionId) {
         Map<String, long[]> buckets = new LinkedHashMap<>();
-        jdbc.sql("SELECT milestone_name, state, COUNT(*) AS cnt FROM milestone_criterion "
-                + "WHERE project_id = :project GROUP BY milestone_name, state ORDER BY milestone_name, state")
-                .param("project", project.value())
+        StringBuilder sql = new StringBuilder("SELECT milestone_name, state, COUNT(*) AS cnt FROM milestone_criterion c "
+                + "WHERE c.project_id = :project AND "
+                + (archived ? MilestoneArchiveRepository.ARCHIVED : MilestoneArchiveRepository.ACTIVE));
+        ProjectVersionRepository.appendItemFilter(sql, projectVersionId, "c.id", HistoryEntity.CRITERION);
+        sql.append(" GROUP BY milestone_name, state ORDER BY milestone_name, state");
+        ProjectVersionRepository.bindItemFilter(jdbc.sql(sql.toString()).param("project", project.value()), projectVersionId)
                 .query(rs -> {
                     String milestone = rs.getString("milestone_name");
                     CriterionState state = CriterionState.valueOf(rs.getString("state"));

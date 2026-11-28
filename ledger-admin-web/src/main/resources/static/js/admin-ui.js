@@ -390,12 +390,19 @@ function initializeAdminPage() {
       if (form) { form.reset(); }
     }
 
-    if (modalId === "modal-project-rename") {
-      setField("rename-project", trigger.dataset.project);
-      setField("rename-project-version", trigger.dataset.version);
-      setField("rename-project-name", trigger.dataset.name);
-      const error = dialog.querySelector("[data-project-rename-error]");
+    if (modalId === "modal-project-edit") {
+      setField("edit-project", trigger.dataset.project);
+      setField("edit-project-version", trigger.dataset.version);
+      setField("edit-project-name", trigger.dataset.name);
+      setField("edit-project-description", trigger.dataset.description);
+      const error = dialog.querySelector("[data-project-edit-error]");
       if (error) { error.hidden = true; }
+    }
+
+    if (modalId === "modal-milestone-archive") {
+      setField("milestone-action-milestone", trigger.dataset.milestone);
+      setField("milestone-action-archive", trigger.dataset.archive);
+      setText("milestone-action-name", trigger.dataset.milestone);
     }
 
     // Grants: Edit project scopes matrix modal
@@ -620,8 +627,10 @@ function initializeAdminPage() {
     const projectInput = document.getElementById("grant-project-filter");
     const searchInput = document.getElementById("session-search");
     const hostSelect = document.getElementById("grant-host-filter");
-    const scopeSelect = document.getElementById("grant-scope-filter");
-    const fields = [projectInput, searchInput, hostSelect, scopeSelect];
+    const scopeFilter = document.getElementById("grant-scope-filter");
+    const scopeInputs = Array.from(scopeFilter.querySelectorAll('input[type="checkbox"]'));
+    const scopeSummary = document.getElementById("grant-scope-selection");
+    const fields = [projectInput, searchInput, hostSelect];
     const cards = Array.from(document.querySelectorAll("[data-session-card]"), (element) => ({
       element,
       projects: Array.from(element.querySelectorAll("[data-project-grant]"))
@@ -639,18 +648,24 @@ function initializeAdminPage() {
     }
     fields.forEach((field) => { field.value = listFilterValues.get(field.id) ?? field.value; });
 
+    const savedScopes = listFilterValues.get(scopeFilter.id) ?? [];
+    scopeInputs.forEach((input) => { input.checked = savedScopes.includes(input.value); });
+
     function applySessionFilters() {
       fields.forEach((field) => { listFilterValues.set(field.id, field.value); });
       const project = projectInput.value.trim().toLowerCase();
       const session = searchInput.value.trim().toLowerCase();
       const host = hostSelect.value;
-      const scope = scopeSelect.value;
+      const scopes = scopeInputs.filter((input) => input.checked).map((input) => input.value);
+      listFilterValues.set(scopeFilter.id, scopes);
+      scopeSummary.textContent = scopes.length === 0 ? scopeFilter.dataset.anyLabel
+        : scopeFilter.dataset.countPattern.replace("{0}", String(scopes.length));
       let visible = 0;
       cards.forEach(({ element, projects }) => {
         let matchingProject = false;
         projects.forEach((row) => {
           const matches = row.dataset.projectName.toLowerCase().includes(project)
-            && (!scope || row.dataset.scopes.split(",").includes(scope));
+            && (scopes.length === 0 || row.dataset.scopes.split(",").some((scope) => scopes.includes(scope)));
           row.hidden = !matches;
           matchingProject ||= matches;
         });
@@ -667,9 +682,12 @@ function initializeAdminPage() {
       input.addEventListener("compositionend", applySessionFilters);
       input.addEventListener("input", (event) => { if (!event.isComposing) { applySessionFilters(); } });
     });
-    [hostSelect, scopeSelect].forEach((select) => select.addEventListener("change", applySessionFilters));
+    hostSelect.addEventListener("change", applySessionFilters);
+    scopeFilter.addEventListener("change", applySessionFilters);
     resetBtn.addEventListener("click", () => {
       restoredHostOption?.remove();
+      scopeInputs.forEach((input) => { input.checked = false; });
+      scopeFilter.open = false;
       fields.forEach((field) => { field.value = ""; });
       applySessionFilters();
       projectInput.focus();
@@ -747,15 +765,6 @@ function initializeAdminPage() {
   const historyJsonMeta = document.getElementById("history-json-meta");
   const historyJsonCopy = document.getElementById("history-json-copy");
 
-  function formatDiffScalar(value) {
-    if (value === null || value === undefined) { return "—"; }
-    if (typeof value === "string") {
-      return value.length > 44 ? value.slice(0, 44) + "…" : value;
-    }
-    const serialized = JSON.stringify(value);
-    return serialized.length > 44 ? serialized.slice(0, 44) + "…" : serialized;
-  }
-
   function openHistoryJsonModal(trigger, formattedJson, rowMeta) {
     if (!historyJsonDialog || !historyJsonPre) { return; }
     historyJsonPre.textContent = formattedJson;
@@ -797,76 +806,45 @@ function initializeAdminPage() {
     }
 
     const formatted = JSON.stringify(parsed, null, 2);
-    const container = document.createElement("div");
-    container.className = "changes-summary";
-
-    const list = document.createElement("div");
-    list.className = "changes-list";
-
-    const maxPreview = 1;
-    keys.slice(0, maxPreview).forEach((key) => {
-      const val = parsed[key];
-      const line = document.createElement("div");
-      line.className = "diff-line";
-      const keyEl = document.createElement("span");
-      keyEl.className = "diff-key";
-      keyEl.textContent = key;
-      line.appendChild(keyEl);
-
-      const valEl = document.createElement("span");
-      valEl.className = "diff-val";
-      if (Array.isArray(val) && val.length === 2) {
-        const before = val[0];
-        const after = val[1];
-        if (before === null || before === undefined) {
-          valEl.textContent = formatDiffScalar(after);
-        } else {
-          valEl.textContent = formatDiffScalar(before) + " → " + formatDiffScalar(after);
-        }
-      } else if (val && typeof val === "object" && ("from" in val || "to" in val)) {
-        valEl.textContent = formatDiffScalar(val.from) + " → " + formatDiffScalar(val.to);
-      } else {
-        valEl.textContent = formatDiffScalar(val);
-      }
-      line.appendChild(valEl);
-      list.appendChild(line);
-    });
-    container.appendChild(list);
-
-    const actions = document.createElement("div");
-    actions.className = "changes-actions";
-    if (keys.length > maxPreview) {
-      const more = document.createElement("span");
-      more.className = "diff-more";
-      const morePattern = cell.dataset.morePattern || "+{0} more";
-      more.textContent = morePattern.replace("{0}", String(keys.length - maxPreview));
-      actions.appendChild(more);
-    }
-
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "secondary btn-sm";
     btn.setAttribute("data-open-history-json", "");
-    btn.textContent = cell.dataset.rawLabel || "Raw JSON";
+    btn.textContent = cell.dataset.changeCount.replace("{0}", String(keys.length));
     const rowMeta = [cell.dataset.rowId, cell.dataset.rowTarget, cell.dataset.rowOp, cell.dataset.rowAuthor]
       .filter(Boolean).join(" · ");
     btn.addEventListener("click", () => {
       openHistoryJsonModal(btn, formatted, rowMeta);
     });
-    actions.appendChild(btn);
-    container.appendChild(actions);
-
-    cell.textContent = "";
-    cell.appendChild(container);
+    cell.replaceChildren(btn);
   });
-  document.querySelectorAll("select[data-reset-filter]").forEach((source) => {
-    const dependent = document.getElementById(source.dataset.resetFilter);
-    if (!dependent) return;
-    const renderedValue = source.value;
-    source.addEventListener("change", () => {
-      dependent.value = "";
-      dependent.disabled = source.value !== renderedValue;
-    });
+  document.querySelectorAll("select[data-version-source]").forEach(initializeVersionFilter);
+}
+
+function initializeVersionFilter(source) {
+  const select = source.form?.querySelector("select[data-options-url]");
+  if (!select) return;
+
+  let revision = 0;
+  source.addEventListener("change", async () => {
+    const request = ++revision;
+    const placeholder = new Option(source.value ? select.dataset.any : select.dataset.unscoped, "");
+    select.replaceChildren(placeholder);
+    select.disabled = true;
+    if (!source.value) return;
+
+    try {
+      const url = new URL(select.dataset.optionsUrl, window.location.href);
+      url.searchParams.set("project", source.value);
+      const response = await fetch(url, {cache: "no-store", headers: {Accept: "application/json"}});
+      if (!response.ok) throw new Error("Version choices request failed");
+      const names = await response.json();
+      if (revision !== request) return;
+      select.append(...names.map((name) => new Option(name, name)));
+      select.disabled = false;
+    } catch {
+      if (revision === request) placeholder.text = select.dataset.loadError;
+    }
   });
 }
 

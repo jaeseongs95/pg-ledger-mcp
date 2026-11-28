@@ -4,7 +4,9 @@ package org.veridger.database.repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 import org.veridger.database.time.UtcTime;
 import org.veridger.domain.rule.ActorAssurance;
 import org.veridger.domain.rule.HistoryEntity;
@@ -50,9 +52,13 @@ public class HistoryQueryRepository {
      * @param owns the condition that the row of the entity named by the alias given belongs to it
      */
     private static String ownedInProject(String table, UnaryOperator<String> owns) {
-        return "EXISTS (SELECT 1 FROM " + table + " p WHERE p.project_id = :project AND " + owns.apply("p")
-                + " AND NOT EXISTS (SELECT 1 FROM " + table + " q WHERE CHAR_LENGTH(q.id) > CHAR_LENGTH(p.id) AND "
-                + owns.apply("q") + "))";
+        return ownedBy(table, "p.project_id = :project", owns);
+    }
+
+    private static String ownedBy(String table, String scope, UnaryOperator<String> owns) {
+        return "EXISTS (SELECT 1 FROM " + table + " p WHERE " + scope + " AND " + owns.apply("p")
+                + ("issue".equals(table) ? "" : " AND NOT EXISTS (SELECT 1 FROM " + table
+                        + " q WHERE CHAR_LENGTH(q.id) > CHAR_LENGTH(p.id) AND " + owns.apply("q") + ")") + ")";
     }
 
     /**
@@ -106,6 +112,96 @@ public class HistoryQueryRepository {
             + "OR (h.entity = 'DELIVERABLE' AND " + DELIVERABLE_IN_PROJECT + ") "
             + "OR (h.entity = 'CRITERION_LINK' AND " + CRITERION_CHILD + "))";
 
+    // Direct rows match the linked id. Composite rows belong to the longest matching id,
+    // including when that owner is in a different project or has no version link.
+    private static final String VERSION_OWNER = """
+            (
+              (ref.item_kind = 'issue' AND (
+                (h.entity = 'ISSUE' AND h.entity_id = ref.item_id)
+                OR (h.entity IN ('ISSUE_CASE', 'ISSUE_TASK', 'ISSUE_RELATION', 'ISSUE_SPEC', 'DELIVERABLE')
+                    AND EXISTS (
+                  SELECT 1 FROM issue p WHERE p.project_id = ref.project_id AND p.id = ref.item_id
+                    AND SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(p.id)) = p.id
+                    AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(p.id) + 1 FOR 1) IN ('@', '|')
+                ))
+                OR (h.entity = 'DELIVERABLE' AND SUBSTRING(h.entity_id FROM 1 FOR 6) = 'issue:'
+                    AND EXISTS (
+                  SELECT 1 FROM issue p WHERE p.project_id = ref.project_id AND p.id = ref.item_id
+                    AND SUBSTRING(h.entity_id FROM 7 FOR CHAR_LENGTH(p.id)) = p.id
+                    AND SUBSTRING(h.entity_id FROM 7 + CHAR_LENGTH(p.id) FOR 1) = '@'
+                ))
+              ))
+              OR (ref.item_kind = 'spec' AND (
+                (h.entity = 'SPEC' AND h.entity_id = ref.item_id)
+                OR (h.entity IN ('SPEC_TASK', 'DELIVERABLE') AND EXISTS (
+                  SELECT 1 FROM spec p WHERE p.project_id = ref.project_id AND p.id = ref.item_id
+                    AND ((SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(p.id)) = p.id
+                          AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(p.id) + 1 FOR 1) IN ('@', '|'))
+                      OR (h.entity = 'DELIVERABLE' AND SUBSTRING(h.entity_id FROM 1 FOR 5) = 'spec:'
+                          AND SUBSTRING(h.entity_id FROM 6 FOR CHAR_LENGTH(p.id)) = p.id
+                          AND SUBSTRING(h.entity_id FROM 6 + CHAR_LENGTH(p.id) FOR 1) = '@'))
+                    AND NOT EXISTS (
+                      SELECT 1 FROM spec q WHERE CHAR_LENGTH(q.id) > CHAR_LENGTH(p.id)
+                        AND ((SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(q.id)) = q.id
+                              AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(q.id) + 1 FOR 1) IN ('@', '|'))
+                          OR (h.entity = 'DELIVERABLE' AND SUBSTRING(h.entity_id FROM 1 FOR 5) = 'spec:'
+                              AND SUBSTRING(h.entity_id FROM 6 FOR CHAR_LENGTH(q.id)) = q.id
+                              AND SUBSTRING(h.entity_id FROM 6 + CHAR_LENGTH(q.id) FOR 1) = '@'))
+                    )
+                ))
+              ))
+              OR (ref.item_kind = 'task' AND (
+                (h.entity = 'TASK' AND h.entity_id = ref.item_id)
+                OR (h.entity = 'DELIVERABLE' AND EXISTS (
+                  SELECT 1 FROM task p WHERE p.project_id = ref.project_id AND p.id = ref.item_id
+                    AND ((SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(p.id)) = p.id
+                          AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(p.id) + 1 FOR 1) IN ('@', '|'))
+                      OR (SUBSTRING(h.entity_id FROM 1 FOR 5) = 'task:'
+                          AND SUBSTRING(h.entity_id FROM 6 FOR CHAR_LENGTH(p.id)) = p.id
+                          AND SUBSTRING(h.entity_id FROM 6 + CHAR_LENGTH(p.id) FOR 1) = '@'))
+                    AND NOT EXISTS (
+                      SELECT 1 FROM task q WHERE CHAR_LENGTH(q.id) > CHAR_LENGTH(p.id)
+                        AND ((SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(q.id)) = q.id
+                              AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(q.id) + 1 FOR 1) IN ('@', '|'))
+                          OR (SUBSTRING(h.entity_id FROM 1 FOR 5) = 'task:'
+                              AND SUBSTRING(h.entity_id FROM 6 FOR CHAR_LENGTH(q.id)) = q.id
+                              AND SUBSTRING(h.entity_id FROM 6 + CHAR_LENGTH(q.id) FOR 1) = '@'))
+                    )
+                ))
+              ))
+              OR (ref.item_kind = 'criterion' AND (
+                (h.entity = 'CRITERION' AND h.entity_id = ref.item_id)
+                OR (h.entity = 'CRITERION_LINK' AND EXISTS (
+                  SELECT 1 FROM milestone_criterion p
+                  WHERE p.project_id = ref.project_id AND p.id = ref.item_id
+                    AND SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(p.id)) = p.id
+                    AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(p.id) + 1 FOR 1) IN ('@', '|')
+                    AND NOT EXISTS (
+                      SELECT 1 FROM milestone_criterion q WHERE CHAR_LENGTH(q.id) > CHAR_LENGTH(p.id)
+                        AND SUBSTRING(h.entity_id FROM 1 FOR CHAR_LENGTH(q.id)) = q.id
+                        AND SUBSTRING(h.entity_id FROM CHAR_LENGTH(q.id) + 1 FOR 1) IN ('@', '|')
+                    )
+                ))
+              ))
+            )
+            """;
+
+    private static final String PROJECT_VERSIONS = "SELECT DISTINCT h.id, pv.name FROM history h "
+            + "JOIN project_version_item ref ON " + VERSION_OWNER
+            + " JOIN project_version pv ON pv.project_id = ref.project_id AND pv.id = ref.version_id"
+            + " WHERE h.id IN (:ids) ORDER BY h.id, pv.name";
+
+    /** Current versions of a page of history targets, including the owners of related records. */
+    public Map<Long, List<String>> projectVersions(List<Long> historyIds) {
+        if (historyIds.isEmpty()) {
+            return Map.of();
+        }
+        return jdbc.sql(PROJECT_VERSIONS).param("ids", historyIds)
+                .query((rs, row) -> Map.entry(rs.getLong(1), rs.getString(2))).list().stream()
+                .collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.mapping(Map.Entry::getValue,
+                        Collectors.toList())));
+    }
+
     /** Narrows the project ownership predicate to the single requested entity branch when {@code entity} is fixed. */
     private static String inProjectFor(HistoryEntity entity) {
         if (entity == null) {
@@ -153,7 +249,43 @@ public class HistoryQueryRepository {
 
     /** Ordered row keys. The service loads the full history rows only after applying the page limit. */
     public KeysetPage<Position> positions(Filter filter, MaxRows maxRows, DateQuery dates, Position after) {
-        StringBuilder sql = new StringBuilder("SELECT h.id, h.occurred_at FROM history h WHERE h.id > 0");
+        return positions(filter, maxRows, dates, after, null);
+    }
+
+    public KeysetPage<Position> positions(Filter filter, MaxRows maxRows, DateQuery dates, Position after,
+            String projectVersionId) {
+        StringBuilder sql = new StringBuilder("SELECT h.id, h.occurred_at ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        if (dates.sort() != null) {
+            if (after != null) {
+                dates.appendSeek(sql, "h.id", after.at(), false);
+            }
+            dates.appendOrder(sql, "h.id", false);
+        } else {
+            if (after != null) {
+                sql.append(" AND h.id > :after");
+            }
+            sql.append(" ORDER BY h.id");
+        }
+        JdbcClient.StatementSpec spec = bindMatching(jdbc.sql(sqlBuilder.applyLimit(sql.toString(), ":row_count"))
+                .param("row_count", maxRows.value() + 1), filter, dates, projectVersionId);
+        if (after != null) {
+            spec = dates.sort() == null ? spec.param("after", after.id())
+                    : dates.bindSeek(spec, after.at(), after.id());
+        }
+        return KeysetPage.of(spec.query((rs, n) -> new Position(rs.getLong("id"),
+                UtcTime.read(rs, "occurred_at"))).list(), maxRows.value());
+    }
+
+    public long count(Filter filter, DateQuery dates, String projectVersionId) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        return bindMatching(jdbc.sql(sql.toString()), filter, dates, projectVersionId)
+                .query(Long.class).single();
+    }
+
+    private static void appendMatching(StringBuilder sql, Filter filter, DateQuery dates, String projectVersionId) {
+        sql.append("FROM history h WHERE h.id > 0");
         if (!filter.ids().isEmpty()) {
             sql.append(" AND h.id IN (:ids)");
         }
@@ -169,7 +301,10 @@ public class HistoryQueryRepository {
         if (filter.entityId() != null) {
             sql.append(" AND h.entity_id = :entityId");
         }
-        if (filter.project() != null) {
+        if (projectVersionId != null) {
+            sql.append(" AND EXISTS (SELECT 1 FROM project_version_item ref WHERE ref.project_id = :project "
+                    + "AND ref.version_id = :projectVersionId AND ").append(VERSION_OWNER).append(")");
+        } else if (filter.project() != null) {
             sql.append(" AND ").append(inProjectFor(filter.entity()));
         }
         if (filter.op() != null) {
@@ -185,19 +320,10 @@ public class HistoryQueryRepository {
             sql.append(" AND h.occurred_at <= :atTo");
         }
         dates.appendRange(sql);
-        if (dates.sort() != null) {
-            if (after != null) {
-                dates.appendSeek(sql, "h.id", after.at(), false);
-            }
-            dates.appendOrder(sql, "h.id", false);
-        } else {
-            if (after != null) {
-                sql.append(" AND h.id > :after");
-            }
-            sql.append(" ORDER BY h.id");
-        }
-        JdbcClient.StatementSpec spec = jdbc.sql(sqlBuilder.applyLimit(sql.toString(), ":row_count"))
-                .param("row_count", maxRows.value() + 1);
+    }
+
+    private static JdbcClient.StatementSpec bindMatching(JdbcClient.StatementSpec spec, Filter filter, DateQuery dates,
+            String projectVersionId) {
         if (!filter.ids().isEmpty()) {
             spec = spec.param("ids", filter.ids());
         }
@@ -216,6 +342,7 @@ public class HistoryQueryRepository {
         if (filter.project() != null) {
             spec = spec.param("project", filter.project().value());
         }
+        spec = ProjectVersionRepository.bindItemFilter(spec, projectVersionId);
         if (filter.op() != null) {
             spec = spec.param("op", filter.op().name());
         }
@@ -228,13 +355,7 @@ public class HistoryQueryRepository {
         if (filter.atTo() != null) {
             spec = spec.param("atTo", UtcTime.toDb(filter.atTo()));
         }
-        spec = dates.bindRange(spec);
-        if (after != null) {
-            spec = dates.sort() == null ? spec.param("after", after.id())
-                    : dates.bindSeek(spec, after.at(), after.id());
-        }
-        return KeysetPage.of(spec.query((rs, n) -> new Position(rs.getLong("id"),
-                UtcTime.read(rs, "occurred_at"))).list(), maxRows.value());
+        return dates.bindRange(spec);
     }
 
     /** Lightweight transition projection (omitting {@code before_data} and {@code changes} blobs), oldest first. */

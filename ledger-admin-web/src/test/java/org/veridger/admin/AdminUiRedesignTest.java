@@ -174,9 +174,83 @@ class AdminUiRedesignTest {
         assertThat(issuesPage).contains("value=\"" + project.project() + "\" selected=\"selected\">새 프로젝트명</option>");
         String overviewPage = browser.perform(browser.get("/").param("project", project.project()))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(overviewPage).contains("<td>새 프로젝트명</td>");
+        assertThat(overviewPage).contains(">새 프로젝트명</option>");
         assertThat(originalId).isEqualTo(project.issueId(1));
         assertThat(seeds.issue(project, "After rename")).isEqualTo(project.issueId(2));
+    }
+
+    @Test
+    void projectEditSavesBothFieldsAndRejectsStalePayloads() throws Exception {
+        Seeded project = seeds.project();
+        Browser browser = Browser.signedIn(mvc);
+        String version = jdbc.sql("SELECT version FROM project WHERE id = :id").param("id", project.project())
+                .query(Long.class).single().toString();
+        String csrf = browser.csrfOf("/projects");
+        var edit = Form.of("id", project.project(), "displayName", "Updated name", "title", "Updated description",
+                "version", version);
+        browser.perform(browser.form("/projects/edit", edit, csrf)).andExpect(redirectedUrl("/projects"));
+        var stale = Form.of("id", project.project(), "displayName", "Uncommitted form name",
+                "title", "Uncommitted form description", "version", version);
+        String conflict = browser.perform(browser.form("/projects/edit", stale, csrf)).andExpect(status().isConflict())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(conflict).contains("Uncommitted form name", "Uncommitted form description",
+                "data-open-on-load=\"true\"");
+        assertThat(browser.perform(browser.get("/projects")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()).contains("Updated name", "Updated description");
+    }
+
+    @Test
+    void milestoneArchiveKeepsCriteriaAndHistoryAndOnlyHidesTheSelectedProjectGroup() throws Exception {
+        Seeded project = seeds.project();
+        Seeded other = seeds.project();
+        String milestone = "Recovery plan #2";
+        String target = seeds.criterion(project, "1", milestone, "ARCHIVE-1");
+        String remaining = seeds.criterion(project, "2", "Current plan", "CURRENT-1");
+        String otherTarget = seeds.criterion(other, "1", milestone, "OTHER-1");
+        Browser browser = Browser.signedIn(mvc);
+        String csrf = browser.csrfOf("/criteria?project=" + project.project());
+        var archive = Form.of("project", project.project(), "milestone", milestone, "archive", "true");
+        browser.perform(browser.form("/criteria/milestone/archive", archive, csrf))
+                .andExpect(redirectedUrl("/criteria?project=" + project.project()));
+        browser.perform(browser.form("/criteria/milestone/archive", archive, csrf))
+                .andExpect(status().is3xxRedirection());
+        assertThat(browser.perform(browser.get("/criteria").param("project", project.project()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .contains(remaining, "1 shown · 1 matching").doesNotContain(target);
+        assertThat(browser.perform(browser.get("/criteria").param("project", project.project()).param("archived", "true"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .contains(target, "Restore milestone").doesNotContain(remaining);
+        assertThat(browser.perform(browser.get("/criteria").param("project", other.project()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).contains(otherTarget);
+        browser.perform(browser.get("/criteria/detail").param("id", target)).andExpect(status().isOk());
+        assertThat(browser.perform(browser.get("/history").param("project", project.project()).param("entityId", target))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).contains(target);
+        var restore = Form.of("project", project.project(), "milestone", milestone, "archive", "false");
+        browser.perform(browser.form("/criteria/milestone/archive", restore, csrf))
+                .andExpect(redirectedUrl("/criteria?project=" + project.project() + "&archived=true"));
+        assertThat(browser.perform(browser.get("/criteria").param("project", project.project()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).contains(target, remaining);
+        var missing = Form.of("project", project.project(), "milestone", "missing", "archive", "true");
+        browser.perform(browser.form("/criteria/milestone/archive", missing, csrf)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void pagedListsShowMatchingTotalsEvenWhenNoRowsMatch() throws Exception {
+        Seeded project = seeds.project();
+        seeds.issue(project, "Issue");
+        seeds.task(project, "Task");
+        seeds.spec(project, "Specification");
+        seeds.criterion(project, "1", "Original milestone", "A");
+        Browser browser = Browser.signedIn(mvc);
+        for (String route : List.of("/issues", "/tasks", "/specs", "/criteria")) {
+            String rendered = browser.perform(browser.get(route).param("project", project.project()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            assertThat(rendered).contains("1 shown · 1 matching");
+        }
+        assertThat(browser.perform(browser.get("/issues").param("project", project.project()).param("status", "RESOLVED"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).contains("0 shown · 0 matching");
+        assertThat(browser.perform(browser.get("/history").param("project", project.project()).param("entity", "issue"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).contains("1 shown · 1 matching");
     }
 
     @Test

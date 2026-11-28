@@ -176,7 +176,29 @@
   <script th:src="@{/js/admin-navigation.js}" defer></script>
 </th:block>
 
-<!-- an instant: UTC in the markup (ISO-8601 with Z), shown in the zone of the browser by the script -->
+<div th:fragment="versionFilter(project, selected)" class="filter-field">
+  <label for="project-version" th:text="#{versions.column}">Version</label>
+  <select id="project-version" name="projectVersion" th:disabled="${#strings.isEmpty(project)}"
+          th:attr="data-options-url=@{/projects/versions/options},data-any=#{common.any},
+                   data-unscoped=#{versions.chooseProject},data-load-error=#{versions.loadError}">
+    <option value="" th:text="${#strings.isEmpty(project)} ? #{versions.chooseProject} : #{common.any}">Any</option>
+    <option th:unless="${versionListed}" th:value="${selected}" th:text="${selected}" selected>Version</option>
+    <option th:each="name : ${versionOptions}" th:value="${name}" th:text="${name}"
+            th:selected="${name == selected}">Version</option>
+  </select>
+</div>
+
+<td th:fragment="versionCell(names, path, project)" class="cell-versions">
+  <span th:if="${names == null or names.isEmpty()}" class="muted" th:text="#{common.noneValue}">—</span>
+  <span th:unless="${names == null or names.isEmpty()}" class="version-tags">
+    <th:block th:each="name : ${names}">
+      <a th:if="${path != null}" class="version-tag" th:href="@{${path}(project=${project},projectVersion=${name})}"
+         th:text="${name}">Version</a>
+      <span th:if="${path == null}" class="version-tag" th:text="${name}">Version</span>
+    </th:block>
+  </span>
+</td>
+
 <th:block th:fragment="relatedVersions(project, kind)">
   <dt th:text="#{versions.related}">Related versions</dt>
   <dd class="issue-version-tags">
@@ -187,6 +209,7 @@
   </dd>
 </th:block>
 
+<!-- an instant: UTC in the markup (ISO-8601 with Z), shown in the zone of the browser by the script -->
 <time th:fragment="time(instant)" th:if="${instant != null}" th:attr="datetime=${instant}" th:text="${instant}">2026-01-01T00:00:00Z</time>
 
 <!-- a link for an evidence address: only http and https become links, anything else stays plain text -->
@@ -291,11 +314,12 @@
   </th:block>
 </th:block>
 
+<p th:fragment="listTotals(page)" class="list-totals results-count" th:text="#{paging.results(${page.items().size()}, ${page.matchingCount()})}">0 shown · 0 matching</p>
+
 <!-- previous and next of a paged list; page-size is part of the filter form of the page -->
-<nav th:fragment="pager(paging, total)" class="pager" th:attr="aria-label=#{paging.label}">
+<nav th:fragment="pager(paging)" class="pager" th:attr="aria-label=#{paging.label}">
   <div class="pager-meta">
     <p class="page-info" th:text="#{paging.info(${paging.number()}, ${paging.limit()})}">Page 1, 50 rows per page</p>
-    <p class="page-info" th:if="${total != null}" th:text="#{paging.total(${total})}">Total: 0</p>
   </div>
   <div class="pager-nav">
     <a th:if="${paging.hasPrevious()}" th:href="${paging.previousHref()}" rel="prev" th:text="#{paging.previous}">Previous</a>

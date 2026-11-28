@@ -152,7 +152,7 @@ class PagesTest {
         Browser browser = Browser.signedIn(mvc);
 
         String first = page(browser, "/tasks?project=" + project.project() + "&limit=1");
-        assertThat(first).contains(newest).doesNotContain(middle).contains("Rows in the project: 3").contains("Page 1, 1 rows");
+        assertThat(first).contains(newest).doesNotContain(middle).contains("1 shown · 3 matching").contains("Page 1, 1 rows");
         assertThat(count(first, "aria-disabled=\"true\"")).isEqualTo(1);
         String next = href(first, "rel=\"next\"");
 

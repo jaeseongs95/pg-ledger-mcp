@@ -20,23 +20,14 @@
       <div class="filter-grid">
         <div class="filter-field">
           <label for="project" th:text="#{common.project}">Project</label>
-          <select id="project" name="project" data-reset-filter="issue-version">
-            <option th:unless="${projectListed}" th:value="${choice.selected()}"
+          <select id="project" name="project" data-version-source>
+            <option th:unless="${choice.listed()}" th:value="${choice.selected()}"
                     th:text="${choice.selected()}" selected>Project</option>
             <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:selected="${p.id() == choice.selected()}"
                     th:text="${p.displayName()}">Project</option>
           </select>
         </div>
-        <div class="filter-field">
-          <label for="issue-version" th:text="#{versions.related}">Related versions</label>
-          <select id="issue-version" name="projectVersion">
-            <option value="" th:text="#{common.any}">Any</option>
-            <option th:unless="${versionListed}" th:value="${filter.projectVersion()}"
-                    th:text="${filter.projectVersion()}" selected>Version</option>
-            <option th:each="v : ${versions}" th:value="${v.name()}" th:text="${v.name()}"
-                    th:selected="${v.name() == filter.projectVersion()}">Version</option>
-          </select>
-        </div>
+        <div th:replace="~{fragments :: versionFilter(${choice.selected()}, ${filter.projectVersion()})}"></div>
         <div class="filter-field">
           <label for="status" th:text="#{common.status}">Status</label>
           <select id="status" name="status">
@@ -89,6 +80,7 @@
       </div>
     </form>
 
+    <p th:replace="~{fragments :: listTotals(${page})}"></p>
     <div th:if="${!#lists.isEmpty(page.items())}" class="table-wrap results-table" role="region" tabindex="0" th:attr="aria-label=#{issues.title}">
       <table class="issues-table">
         <caption class="sr-only" th:text="#{issues.title}">Issues</caption>
@@ -96,6 +88,7 @@
           <tr>
             <th scope="col" th:text="#{col.id}">ID</th>
             <th scope="col" th:text="#{col.title}">Title</th>
+            <th scope="col" class="version-col" th:text="#{versions.column}">Version</th>
             <th scope="col" th:text="#{common.status}">Status</th>
             <th scope="col" th:text="#{common.severity}">Severity</th>
             <th scope="col" th:text="#{common.category}">Category</th>
@@ -107,14 +100,8 @@
         <tbody>
           <tr th:each="i : ${page.items()}">
             <td class="cell-id"><a th:href="@{/issues/{id}(id=${i.id()})}" th:text="${i.id()}">ID</a></td>
-            <td class="cell-title">
-              <span th:text="${i.title()}">Title</span>
-              <div th:unless="${#lists.isEmpty(i.projectVersions())}" class="issue-version-tags"
-                   th:attr="aria-label=#{versions.related}">
-                <a th:each="name : ${i.projectVersions()}" class="badge"
-                   th:href="@{/issues(project=${choice.selected()},projectVersion=${name})}" th:text="${name}">Version</a>
-              </div>
-            </td>
+            <td class="cell-title" th:text="${i.title()}">Title</td>
+            <td th:replace="~{fragments :: versionCell(${i.projectVersions()}, '/issues', ${choice.selected()})}"></td>
             <td class="cell-nowrap"><span th:class="'badge badge-' + ${i.status()}" th:text="${@labels.issueStatus(i.status())}">Open</span></td>
             <td class="cell-nowrap"><span th:class="'badge badge-' + ${i.severity()}" th:attr="title=${i.severity()}" th:text="${@labels.codeName('ISSUE_SEVERITY', i.severity())}">P1</span></td>
             <td class="cell-nowrap" th:attr="title=${i.category()}" th:text="${@labels.codeName('ISSUE_CATEGORY', i.category())}">ARC</td>
@@ -126,7 +113,7 @@
       </table>
     </div>
     <th:block th:if="${#lists.isEmpty(page.items())}"><th:block th:replace="~{fragments :: emptyState(${hasFilters}, ${resetHref})}"></th:block></th:block>
-    <nav th:replace="~{fragments :: pager(${paging}, ${total})}"></nav>
+    <nav th:replace="~{fragments :: pager(${paging})}"></nav>
   </th:block>
 </main>
 <th:block th:replace="~{fragments :: footer}"></th:block>

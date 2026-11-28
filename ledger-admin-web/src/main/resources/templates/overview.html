@@ -100,6 +100,35 @@
         </div>
       </a>
 
+        <article th:class="${console.blockedDisputed() > 0} ? 'cockpit-tile cockpit-tile-alert' : 'cockpit-tile'">
+        <div class="cockpit-tile-head">
+          <span class="cockpit-tile-label" th:text="#{overview.tile.blocked}">Blocked &amp; disputed</span>
+        </div>
+        <div class="cockpit-tile-value" th:text="${console.blockedDisputed()}">0</div>
+        <div class="cockpit-tile-links">
+          <a th:if="${console.issuesDisputed() > 0}" class="cockpit-sublink"
+             th:with="href=${@links.statHref(overview.project(), '/issues', 'status', 'DISPUTED')}" th:href="${href}">
+            <span th:text="#{overview.kpi.issues}">Issues</span>
+            <strong th:text="${console.issuesDisputed()}">0</strong>
+          </a>
+          <a th:if="${console.specsBlocked() > 0}" class="cockpit-sublink"
+             th:with="href=${@links.statHref(overview.project(), '/specs', 'status', 'BLOCKED')}" th:href="${href}">
+            <span th:text="#{overview.kpi.specs}">Specs</span>
+            <strong th:text="${console.specsBlocked()}">0</strong>
+          </a>
+          <a th:if="${console.tasksBlocked() > 0}" class="cockpit-sublink"
+             th:with="href=${@links.statHref(overview.project(), '/tasks', 'state', 'BLOCKED')}" th:href="${href}">
+            <span th:text="#{overview.kpi.tasks}">Tasks</span>
+            <strong th:text="${console.tasksBlocked()}">0</strong>
+          </a>
+          <a th:if="${console.criteriaNotMet() > 0}" class="cockpit-sublink"
+             th:with="href=${@links.statHref(overview.project(), '/criteria', 'state', 'NOT_MET')}" th:href="${href}">
+            <span th:text="#{overview.kpi.criteria}">Release gates</span>
+            <strong th:text="${console.criteriaNotMet()}">0</strong>
+          </a>
+          <span th:if="${console.blockedDisputed() == 0}" class="muted" th:text="#{overview.tile.allClear}">None</span>
+        </div>
+      </article>
       <article class="cockpit-tile">
         <div class="cockpit-tile-head">
           <span class="cockpit-tile-label" th:text="#{overview.tile.activeWork}">Active work</span>
@@ -130,36 +159,33 @@
         </div>
       </article>
 
-      <article th:class="${console.blockedDisputed() > 0} ? 'cockpit-tile cockpit-tile-alert' : 'cockpit-tile'">
-        <div class="cockpit-tile-head">
-          <span class="cockpit-tile-label" th:text="#{overview.tile.blocked}">Blocked &amp; disputed</span>
-        </div>
-        <div class="cockpit-tile-value" th:text="${console.blockedDisputed()}">0</div>
-        <div class="cockpit-tile-links">
-          <a th:if="${console.issuesDisputed() > 0}" class="cockpit-sublink"
-             th:with="href=${@links.statHref(overview.project(), '/issues', 'status', 'DISPUTED')}" th:href="${href}">
-            <span th:text="#{overview.kpi.issues}">Issues</span>
-            <strong th:text="${console.issuesDisputed()}">0</strong>
-          </a>
-          <a th:if="${console.specsBlocked() > 0}" class="cockpit-sublink"
-             th:with="href=${@links.statHref(overview.project(), '/specs', 'status', 'BLOCKED')}" th:href="${href}">
-            <span th:text="#{overview.kpi.specs}">Specs</span>
-            <strong th:text="${console.specsBlocked()}">0</strong>
-          </a>
-          <a th:if="${console.tasksBlocked() > 0}" class="cockpit-sublink"
-             th:with="href=${@links.statHref(overview.project(), '/tasks', 'state', 'BLOCKED')}" th:href="${href}">
-            <span th:text="#{overview.kpi.tasks}">Tasks</span>
-            <strong th:text="${console.tasksBlocked()}">0</strong>
-          </a>
-          <a th:if="${console.criteriaNotMet() > 0}" class="cockpit-sublink"
-             th:with="href=${@links.statHref(overview.project(), '/criteria', 'state', 'NOT_MET')}" th:href="${href}">
-            <span th:text="#{overview.kpi.criteria}">Release gates</span>
-            <strong th:text="${console.criteriaNotMet()}">0</strong>
-          </a>
-          <span th:if="${console.blockedDisputed() == 0}" class="muted" th:text="#{overview.tile.allClear}">None</span>
-        </div>
-      </article>
     </div>
+
+    <section class="card" th:if="${!versionReadiness.isEmpty()}">
+      <div class="card-header">
+        <h2 th:text="#{overview.versions}">Version readiness</h2>
+        <a th:href="@{/projects/versions(project=${overview.project()})}" class="button secondary btn-sm"
+           th:text="#{versions.title}">Project versions</a>
+      </div>
+      <div class="version-readiness-grid">
+        <article class="version-readiness" th:each="v : ${versionReadiness}">
+          <a th:href="@{/projects/versions/{id}(id=${v.id()},project=${overview.project()})}" th:text="${v.name()}">1.0.0</a>
+          <div class="version-readiness-gates">
+            <span th:if="${v.gates() == 0}" class="muted" th:text="#{overview.versions.noGates}">No release criteria</span>
+            <th:block th:if="${v.gates() > 0}">
+              <span th:text="#{overview.versions.met(${v.met()}, ${v.gates()})}">2 of 3 criteria met</span>
+              <progress class="gate-progress" th:value="${v.met()}" th:max="${v.gates()}"
+                        th:attr="aria-label=#{overview.versions.met(${v.met()}, ${v.gates()})}"></progress>
+            </th:block>
+          </div>
+          <div class="version-readiness-items">
+            <span><th:block th:text="#{nav.issues}">Issues</th:block> <b th:text="${v.issues()}">3</b></span>
+            <span><th:block th:text="#{nav.specs}">Specs</th:block> <b th:text="${v.specs()}">2</b></span>
+            <span><th:block th:text="#{nav.tasks}">Tasks</th:block> <b th:text="${v.tasks()}">4</b></span>
+          </div>
+        </article>
+      </div>
+    </section>
 
     <!-- Needs Attention Queue -->
     <section id="attention" th:if="${#lists.isEmpty(console.attentionItems())}" class="calm-banner" role="status">
@@ -175,6 +201,7 @@
     <section id="attention" th:if="${!#lists.isEmpty(console.attentionItems())}" class="card">
       <div class="card-header">
         <h2 th:text="#{overview.attention}">Needs attention</h2>
+        <span class="muted" th:text="#{common.rowCount(${console.attentionItems().size()})}">25 records</span>
       </div>
       <ul th:if="${!#lists.isEmpty(console.activeAttentionCounts())}" class="counts-grid">
         <li th:each="c : ${console.activeAttentionCounts()}">
@@ -199,7 +226,7 @@
               <th scope="col" th:text="#{col.title}">Title</th>
               <th scope="col" th:text="#{common.owner}">Owner</th>
               <th scope="col" th:text="#{col.updated}">Updated</th>
-              <th scope="col" th:text="#{col.project}">Project</th>
+              <th th:if="${overview.project() == null}" scope="col" th:text="#{col.project}">Project</th>
             </tr>
           </thead>
           <tbody>
@@ -207,13 +234,13 @@
               <td th:text="#{'attention.' + ${item.kind()}}">kind</td>
               <td class="cell-nowrap"><span class="badge" th:text="${@labels.entity(item.entity())}">Issue</span></td>
               <td class="cell-id"><a th:with="page=${@links.itemPage(item.entity())}" th:href="@{${page}(id=${item.id()})}" th:text="${item.id()}">ID</a></td>
-              <td class="cell-title" th:text="${item.title() != null} ? ${item.title()} : #{common.noneValue}">Title</td>
+              <td class="cell-title"><th:block th:replace="~{fragments :: textPreview(${item.title()}, 96)}"></th:block></td>
               <td class="cell-owner" th:text="${item.owner() != null} ? ${item.owner()} : #{common.noneValue}">owner</td>
               <td class="cell-time">
                 <th:block th:if="${item.updatedAt() != null}"><time th:replace="~{fragments :: time(${item.updatedAt()})}">t</time></th:block>
                 <span th:if="${item.updatedAt() == null}" class="muted" th:text="#{common.noneValue}">—</span>
               </td>
-              <td th:text="${projectNames.getOrDefault(item.projectId(), item.projectId())}">p1</td>
+              <td th:if="${overview.project() == null}" th:text="${projectNames.getOrDefault(item.projectId(), item.projectId())}">p1</td>
             </tr>
           </tbody>
         </table>
@@ -221,12 +248,8 @@
     </section>
 
     <!-- Work & Gate Breakdown (non-zero pills only) -->
-    <section id="stats">
-      <div class="page-header">
-        <div class="page-header-text">
-          <h2 th:text="#{overview.stats}">Work &amp; gate breakdown</h2>
-        </div>
-      </div>
+    <details id="stats" class="disclosure card overview-breakdown">
+      <summary><span th:text="#{overview.stats}">Work &amp; gate breakdown</span></summary>
       <div class="breakdown-grid">
         <article class="breakdown-card">
           <div class="breakdown-card-head">
@@ -300,7 +323,7 @@
           </div>
         </article>
       </div>
-    </section>
+    </details>
   </th:block>
 </main>
 <th:block th:replace="~{fragments :: footer}"></th:block>

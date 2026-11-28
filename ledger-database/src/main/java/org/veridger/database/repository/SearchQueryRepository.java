@@ -140,7 +140,10 @@ public class SearchQueryRepository {
         StringBuilder sql = new StringBuilder("SELECT ").append(kind).append(" AS kind, id, project_id, ")
                 .append(title).append(" AS title, ").append(state).append(" AS state, ")
                 .append(created).append(" AS created_at FROM ").append(table)
-                .append(" WHERE 1 = 1");
+                .append(" c WHERE 1 = 1");
+        if (entity == HistoryEntity.CRITERION) {
+            sql.append(" AND ").append(MilestoneArchiveRepository.ACTIVE);
+        }
         if (filter.project() != null) {
             sql.append(" AND project_id = :project");
         }

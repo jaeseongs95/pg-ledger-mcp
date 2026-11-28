@@ -37,7 +37,7 @@
 
   <div th:if="${!#lists.isEmpty(projects)}" class="table-wrap" data-table-wrap="project-rows"
        role="region" tabindex="0" th:attr="aria-label=#{projects.title}">
-    <table>
+    <table class="projects-table">
       <caption class="sr-only" th:text="#{projects.title}">Projects</caption>
       <thead>
         <tr>
@@ -52,14 +52,17 @@
             th:attr="data-search-text=${p.id() + ' ' + p.displayName() + ' ' + p.code() + ' ' + p.title()}">
           <td class="code" th:text="${p.id()}">p1</td>
           <td>
-            <span th:text="${p.displayName()}">P1</span>
-            <button type="button" class="ghost btn-sm" data-modal-open="modal-project-rename"
-                    th:attr="data-project=${p.id()},data-name=${p.displayName()},data-version=${p.version()}"
-                    th:text="#{projects.rename}">Rename</button>
+            <a class="project-name-link" th:href="@{/(project=${p.id()})}" th:text="${p.displayName()}">P1</a>
           </td>
-          <td th:text="${p.title()}">Title</td>
+          <td class="project-description" th:text="${p.title()}">Title</td>
           <td class="cell-actions">
-            <span class="project-links">
+            <div class="project-actions">
+              <button type="button" class="secondary btn-sm" data-modal-open="modal-project-edit"
+                      th:attr="data-project=${p.id()},data-name=${p.displayName()},data-description=${p.title()},data-version=${p.version()}"
+                      th:text="#{projects.action.edit}">Edit</button>
+              <details class="disclosure project-links">
+                <summary class="button secondary btn-sm" th:text="#{projects.open}">Quick links</summary>
+                <div class="project-links-list">
               <a class="button secondary btn-sm" th:href="@{/(project=${p.id()})}" th:text="#{nav.overview}">Overview</a>
               <a class="button secondary btn-sm" th:href="@{/issues(project=${p.id()})}" th:text="#{nav.issues}">Issues</a>
               <a class="button secondary btn-sm" th:href="@{/projects/versions(project=${p.id()})}" th:text="#{versions.title}">Project versions</a>
@@ -67,7 +70,9 @@
               <a class="button secondary btn-sm" th:href="@{/tasks(project=${p.id()})}" th:text="#{nav.tasks}">Tasks</a>
               <a class="button secondary btn-sm" th:href="@{/criteria(project=${p.id()})}" th:text="#{nav.criteria}">Release gates</a>
               <a class="button secondary btn-sm" th:href="@{/history(project=${p.id()})}" th:text="#{nav.history}">History</a>
-            </span>
+                </div>
+              </details>
+            </div>
           </td>
         </tr>
       </tbody>
@@ -80,6 +85,7 @@
   </div>
 
   <div th:if="${#lists.isEmpty(projects)}" class="empty-state">
+    <p class="results-count" th:text="#{common.rowCount(0)}">0 records</p>
     <p class="empty-state-title" th:text="#{projects.none}">No project yet.</p>
     <button type="button" data-modal-open="modal-project-add" data-modal-reset="true"
             th:text="#{projects.action.add}">+ Add project</button>
@@ -137,23 +143,28 @@
       </form>
     </div>
   </dialog>
-  <dialog id="modal-project-rename" class="modal-dialog" aria-labelledby="modal-project-rename-title"
-          th:attr="data-open-on-load=${renameForm != null}">
+  <dialog id="modal-project-edit" class="modal-dialog" aria-labelledby="modal-project-edit-title"
+          th:attr="data-open-on-load=${editForm != null}">
     <div class="modal-header">
-      <h2 id="modal-project-rename-title" th:text="#{projects.rename}">Rename project</h2>
+      <h2 id="modal-project-edit-title" th:text="#{projects.edit}">Edit project</h2>
       <button type="button" class="ghost btn-sm modal-close" data-modal-close th:attr="aria-label=#{common.close}">×</button>
     </div>
     <div class="modal-body">
-      <p th:if="${renameForm != null and formErrorDetail != null}" class="alert alert-danger"
-         data-project-rename-error role="alert" th:text="${formErrorDetail}">Could not rename the project.</p>
-      <form method="post" th:action="@{/projects/rename}" class="form-wide">
-        <input id="rename-project" name="id" type="hidden" th:value="${renameForm != null} ? ${renameForm.id()}">
-        <input id="rename-project-version" name="version" type="hidden"
-               th:value="${renameForm != null} ? ${renameForm.version()}">
+      <p th:if="${editForm != null and formErrorDetail != null}" class="alert alert-danger"
+         data-project-edit-error role="alert" th:text="${formErrorDetail}">Could not edit the project.</p>
+      <form method="post" th:action="@{/projects/edit}" class="form-wide">
+        <input id="edit-project" name="id" type="hidden" th:value="${editForm != null} ? ${editForm.id()}">
+        <input id="edit-project-version" name="version" type="hidden"
+               th:value="${editForm != null} ? ${editForm.version()}">
         <div class="form-field">
-          <label for="rename-project-name" th:text="#{projects.name}">Project name</label>
-          <input id="rename-project-name" name="displayName" type="text" required maxlength="200" autofocus
-                 th:value="${renameForm != null} ? ${renameForm.displayName()}">
+          <label for="edit-project-name" th:text="#{projects.name}">Project name</label>
+          <input id="edit-project-name" name="displayName" type="text" required maxlength="200" autofocus
+                 th:value="${editForm != null} ? ${editForm.displayName()}">
+        </div>
+        <div class="form-field">
+          <label for="edit-project-description" th:text="#{projects.description}">Project description</label>
+          <textarea id="edit-project-description" name="title" required maxlength="200" rows="3"
+                    th:text="${editForm != null ? editForm.title() : ''}"></textarea>
         </div>
         <div class="modal-footer">
           <div class="modal-footer-actions">

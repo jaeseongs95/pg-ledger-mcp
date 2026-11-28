@@ -56,7 +56,33 @@ public class TaskQueryRepository {
     public KeysetPage<TaskSummary> page(ProjectId project, Filter filter, MaxRows maxRows, DateQuery dates,
             Position after, String projectVersionId) {
         StringBuilder sql = new StringBuilder("SELECT id, title, state, owner_actor_id, version, created_at, "
-                + "updated_at FROM task WHERE project_id = :project");
+                + "updated_at ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        DateQuery order = dates.defaultOrder(DateQuery.Column.CREATED, false);
+        if (after != null) {
+            order.appendSeek(sql, "id", after.at(), false);
+        }
+        order.appendOrder(sql, "id", false);
+        JdbcClient.StatementSpec spec = bindMatching(jdbc.sql(sqlBuilder.applyLimit(sql.toString(), ":row_count"))
+                .param("row_count", maxRows.value() + 1), project, filter, dates, projectVersionId);
+        if (after != null) {
+            spec = order.bindSeek(spec, after.at(), after.id().value());
+        }
+        List<TaskSummary> fetched = spec.query((rs, n) -> new TaskSummary(TaskId.of(rs.getString("id")),
+                rs.getString("title"), TaskState.valueOf(rs.getString("state")), rs.getString("owner_actor_id"),
+                rs.getLong("version"), UtcTime.read(rs, "created_at"), UtcTime.read(rs, "updated_at"))).list();
+        return KeysetPage.of(fetched, maxRows.value());
+    }
+
+    public long count(ProjectId project, Filter filter, DateQuery dates, String projectVersionId) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        return bindMatching(jdbc.sql(sql.toString()), project, filter, dates, projectVersionId)
+                .query(Long.class).single();
+    }
+
+    private static void appendMatching(StringBuilder sql, Filter filter, DateQuery dates, String projectVersionId) {
+        sql.append("FROM task WHERE project_id = :project");
         if (filter.state() != null) {
             sql.append(" AND state = :state");
         }
@@ -68,26 +94,18 @@ public class TaskQueryRepository {
         }
         ProjectVersionRepository.appendItemFilter(sql, projectVersionId, "id", HistoryEntity.TASK);
         dates.appendRange(sql);
-        DateQuery order = dates.defaultOrder(DateQuery.Column.CREATED, false);
-        if (after != null) {
-            order.appendSeek(sql, "id", after.at(), false);
-        }
-        order.appendOrder(sql, "id", false);
-        JdbcClient.StatementSpec spec = jdbc.sql(sqlBuilder.applyLimit(sql.toString(), ":row_count"))
-                .param("project", project.value()).param("row_count", maxRows.value() + 1);
+    }
+
+    private static JdbcClient.StatementSpec bindMatching(JdbcClient.StatementSpec spec, ProjectId project,
+            Filter filter, DateQuery dates, String projectVersionId) {
+        spec = spec.param("project", project.value());
         if (filter.state() != null) {
             spec = spec.param("state", filter.state().name());
         }
         if (filter.owner() != null) {
             spec = spec.param("owner", filter.owner());
         }
-        spec = dates.bindRange(ProjectVersionRepository.bindItemFilter(spec, projectVersionId));
-        if (after != null) {
-            spec = order.bindSeek(spec, after.at(), after.id().value());
-        }
-        List<TaskSummary> fetched = spec.query((rs, n) -> new TaskSummary(TaskId.of(rs.getString("id")),
-                rs.getString("title"), TaskState.valueOf(rs.getString("state")), rs.getString("owner_actor_id"),
-                rs.getLong("version"), UtcTime.read(rs, "created_at"), UtcTime.read(rs, "updated_at"))).list();
-        return KeysetPage.of(fetched, maxRows.value());
+        return dates.bindRange(ProjectVersionRepository.bindItemFilter(spec, projectVersionId));
     }
+
 }

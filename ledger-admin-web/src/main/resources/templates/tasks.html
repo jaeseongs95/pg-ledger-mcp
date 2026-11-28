@@ -20,10 +20,13 @@
       <div class="filter-grid">
         <div class="filter-field">
           <label for="project" th:text="#{common.project}">Project</label>
-          <select id="project" name="project">
+          <select id="project" name="project" data-version-source>
+            <option th:unless="${choice.listed()}" th:value="${choice.selected()}"
+                    th:text="${choice.selected()}" selected>Project</option>
             <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.displayName()}" th:selected="${p.id() == choice.selected()}">p1</option>
           </select>
         </div>
+        <div th:replace="~{fragments :: versionFilter(${choice.selected()}, ${filter.projectVersion()})}"></div>
         <div class="filter-field">
           <label for="state" th:text="#{common.state}">State</label>
           <select id="state" name="state">
@@ -58,6 +61,7 @@
       </div>
     </form>
 
+    <p th:replace="~{fragments :: listTotals(${page})}"></p>
     <div th:if="${!#lists.isEmpty(page.items())}" class="table-wrap results-table" role="region" tabindex="0" th:attr="aria-label=#{tasks.title}">
       <table class="tasks-table">
         <caption class="sr-only" th:text="#{tasks.title}">Tasks</caption>
@@ -65,6 +69,7 @@
           <tr>
             <th scope="col" th:text="#{col.id}">ID</th>
             <th scope="col" th:text="#{col.title}">Title</th>
+            <th scope="col" class="version-col" th:text="#{versions.column}">Version</th>
             <th scope="col" th:text="#{common.state}">State</th>
             <th scope="col" th:text="#{common.owner}">Owner</th>
             <th th:replace="~{fragments :: dateHeader(#{col.created}, ${createdSort})}">Registered</th>
@@ -75,6 +80,7 @@
           <tr th:each="t : ${page.items()}">
             <td class="cell-id"><a th:href="@{/tasks/detail(id=${t.id()})}" th:text="${t.id()}">ID</a></td>
             <td class="cell-title" th:text="${t.title()}">Title</td>
+            <td th:replace="~{fragments :: versionCell(${itemVersions[t.id()]}, '/tasks', ${choice.selected()})}"></td>
             <td class="cell-nowrap"><span th:class="'badge badge-' + ${t.state()}" th:text="${@labels.taskState(t.state())}">Active</span></td>
             <td class="cell-owner" th:text="${t.ownerActorId() != null} ? ${t.ownerActorId()} : #{common.noneValue}">owner</td>
             <td th:replace="~{fragments :: dateCell(${t.createdAt()})}">t</td>
@@ -84,7 +90,7 @@
       </table>
     </div>
     <th:block th:if="${#lists.isEmpty(page.items())}"><th:block th:replace="~{fragments :: emptyState(${hasFilters}, ${resetHref})}"></th:block></th:block>
-    <nav th:replace="~{fragments :: pager(${paging}, ${total})}"></nav>
+    <nav th:replace="~{fragments :: pager(${paging})}"></nav>
   </th:block>
 </main>
 <th:block th:replace="~{fragments :: footer}"></th:block>

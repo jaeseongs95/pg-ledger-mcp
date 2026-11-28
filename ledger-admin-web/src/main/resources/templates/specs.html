@@ -20,10 +20,13 @@
       <div class="filter-grid">
         <div class="filter-field">
           <label for="project" th:text="#{common.project}">Project</label>
-          <select id="project" name="project">
+          <select id="project" name="project" data-version-source>
+            <option th:unless="${choice.listed()}" th:value="${choice.selected()}"
+                    th:text="${choice.selected()}" selected>Project</option>
             <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.displayName()}" th:selected="${p.id() == choice.selected()}">p1</option>
           </select>
         </div>
+        <div th:replace="~{fragments :: versionFilter(${choice.selected()}, ${filter.projectVersion()})}"></div>
         <div class="filter-field">
           <label for="status" th:text="#{common.status}">Status</label>
           <select id="status" name="status">
@@ -62,6 +65,7 @@
       </div>
     </form>
 
+    <p th:replace="~{fragments :: listTotals(${page})}"></p>
     <div th:if="${!#lists.isEmpty(page.items())}" class="table-wrap results-table" role="region" tabindex="0" th:attr="aria-label=#{specs.title}">
       <table class="specs-table">
         <caption class="sr-only" th:text="#{specs.title}">Specifications</caption>
@@ -69,6 +73,7 @@
           <tr>
             <th scope="col" th:text="#{col.id}">ID</th>
             <th scope="col" th:text="#{col.title}">Title</th>
+            <th scope="col" class="version-col" th:text="#{versions.column}">Version</th>
             <th scope="col" th:text="#{common.status}">Status</th>
             <th scope="col" th:text="#{specs.priority}">Priority</th>
             <th scope="col" th:text="#{common.owner}">Owner</th>
@@ -80,6 +85,7 @@
           <tr th:each="s : ${page.items()}">
             <td class="cell-id"><a th:href="@{/specs/detail(id=${s.id()})}" th:text="${s.id()}">ID</a></td>
             <td class="cell-title" th:text="${s.title()}">Title</td>
+            <td th:replace="~{fragments :: versionCell(${itemVersions[s.id()]}, '/specs', ${choice.selected()})}"></td>
             <td class="cell-nowrap"><span th:class="'badge badge-' + ${s.status()}" th:text="${@labels.specStatus(s.status())}">Draft</span></td>
             <td class="cell-nowrap">
               <span th:if="${s.priority() != null}" th:class="'badge badge-' + ${s.priority()}" th:text="${s.priority()}">P1</span>
@@ -93,7 +99,7 @@
       </table>
     </div>
     <th:block th:if="${#lists.isEmpty(page.items())}"><th:block th:replace="~{fragments :: emptyState(${hasFilters}, ${resetHref})}"></th:block></th:block>
-    <nav th:replace="~{fragments :: pager(${paging}, ${total})}"></nav>
+    <nav th:replace="~{fragments :: pager(${paging})}"></nav>
   </th:block>
 </main>
 <th:block th:replace="~{fragments :: footer}"></th:block>

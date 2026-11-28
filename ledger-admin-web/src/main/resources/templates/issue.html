@@ -26,36 +26,6 @@
 
   <div class="detail-layout">
     <div class="detail-main">
-      <section id="project-versions" class="card">
-        <div class="card-header">
-          <h2 th:text="#{versions.related}">Related versions</h2>
-          <a class="button secondary btn-sm" th:href="@{/projects/versions(project=${issue.projectId()})}"
-             th:text="#{versions.title}">Project versions</a>
-        </div>
-        <p th:if="${formErrorDetail != null}" class="alert alert-danger" role="alert" th:text="${formErrorDetail}">Could not save the relationship.</p>
-        <p th:if="${linkedVersions.isEmpty()}" class="hint" th:text="#{versions.noneRelated}">No versions are linked.</p>
-        <ul th:unless="${linkedVersions.isEmpty()}" class="version-links">
-          <li th:each="v : ${linkedVersions}">
-            <a th:href="@{/projects/versions/{id}(id=${v.id()},project=${issue.projectId()},kind='issue')}" th:text="${v.name()}">Version</a>
-            <form method="post" th:action="@{/issues/{id}/versions(id=${issue.id()})}" data-spa-anchor="project-versions">
-              <input type="hidden" name="name" th:value="${v.name()}">
-              <button class="secondary btn-sm" name="remove" value="true" type="submit"
-                      th:attr="aria-label=#{versions.unlinkNamed(${v.name()})}" th:text="#{versions.unlink}">Unlink</button>
-            </form>
-          </li>
-        </ul>
-        <form th:if="${!#lists.isEmpty(availableVersions)}" method="post"
-              th:action="@{/issues/{id}/versions(id=${issue.id()})}" class="version-link-form" data-spa-anchor="project-versions">
-          <div class="form-field">
-            <label for="link-version" th:text="#{versions.name}">Version name</label>
-            <select id="link-version" name="name" required>
-              <option value="" th:text="#{versions.select}">Select a version</option>
-              <option th:each="v : ${availableVersions}" th:value="${v.name()}" th:text="${v.name()}">Version</option>
-            </select>
-          </div>
-          <button type="submit" th:text="#{versions.link}">Link version</button>
-        </form>
-      </section>
       <section class="card">
         <h2 th:text="#{issue.symptom}">Symptom</h2>
         <p th:if="${issue.symptom() != null and !#strings.isEmpty(issue.symptom())}" class="prewrap" th:text="${issue.symptom()}">symptom</p>
@@ -119,6 +89,40 @@
     </div>
 
     <aside class="detail-aside">
+      <section id="project-versions" class="card compact-version-card">
+        <div class="card-header">
+          <h2 th:text="#{versions.related}">Related versions</h2>
+          <span class="muted" th:text="#{common.rowCount(${linkedVersions.size()})}">0 records</span>
+          <a class="button secondary btn-sm" th:href="@{/projects/versions(project=${issue.projectId()})}"
+             th:text="#{versions.title}">Project versions</a>
+        </div>
+        <p th:if="${formErrorDetail != null}" class="alert alert-danger" role="alert" th:text="${formErrorDetail}">Could not save the relationship.</p>
+        <ul th:unless="${linkedVersions.isEmpty()}" class="version-links">
+          <li th:each="v : ${linkedVersions}">
+            <a th:href="@{/projects/versions/{id}(id=${v.id()},project=${issue.projectId()},kind='issue')}" th:text="${v.name()}">Version</a>
+            <form method="post" th:action="@{/issues/{id}/versions(id=${issue.id()})}" data-spa-anchor="project-versions">
+              <input type="hidden" name="name" th:value="${v.name()}">
+              <button class="secondary btn-sm" name="remove" value="true" type="submit"
+                      th:attr="aria-label=#{versions.unlinkNamed(${v.name()})}" th:text="#{versions.unlink}">Unlink</button>
+            </form>
+          </li>
+        </ul>
+        <details th:if="${!#lists.isEmpty(availableVersions)}" class="disclosure">
+          <summary th:text="#{versions.link}">Link version</summary>
+          <form method="post"
+              th:action="@{/issues/{id}/versions(id=${issue.id()})}" class="version-link-form" data-spa-anchor="project-versions">
+          <div class="form-field">
+            <label for="link-version" th:text="#{versions.name}">Version name</label>
+            <select id="link-version" name="name" required>
+              <option value="" th:text="#{versions.select}">Select a version</option>
+              <option th:each="v : ${availableVersions}" th:value="${v.name()}" th:text="${v.name()}">Version</option>
+            </select>
+          </div>
+          <button type="submit" th:text="#{versions.link}">Link version</button>
+          </form>
+        </details>
+      </section>
+
       <section class="card">
         <h2 th:text="#{item.metadata}">Details</h2>
         <dl class="facts">

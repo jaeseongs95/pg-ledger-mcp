@@ -117,7 +117,12 @@ public class ListService {
     }
 
     public record CriteriaQuery(String project, String state, String milestone, Number maxRows, String cursor,
-            String projectVersion) {
+            String projectVersion, boolean archived) {
+
+        public CriteriaQuery(String project, String state, String milestone, Number maxRows, String cursor,
+                String projectVersion) {
+            this(project, state, milestone, maxRows, cursor, projectVersion, false);
+        }
 
         public CriteriaQuery(String project, String state, String milestone, Number maxRows, String cursor) {
             this(project, state, milestone, maxRows, cursor, null);
@@ -190,6 +195,10 @@ public class ListService {
     }
 
     public Page<IssueItem> issues(IssuesQuery q, DateQuery dates) {
+        return issues(q, dates, false);
+    }
+
+    public Page<IssueItem> issues(IssuesQuery q, DateQuery dates, boolean countMatches) {
         ProjectId project = requireProject(q.project());
         IssueStatus status = q.status() == null ? null : Tokens.parseName("status", q.status(), IssueStatus.values());
         CodeValue severity = q.severity() == null ? null : CodeValue.of(q.severity());
@@ -212,16 +221,17 @@ public class ListService {
                 .map(ListService::issuePosition);
         String versionId = versionId(project, q.projectVersion());
         if (q.projectVersion() != null && versionId == null) {
-            return new Page<>(List.of(), false, null);
+            return new Page<>(List.of(), false, null, countMatches ? 0L : null);
         }
         var page = after.map(position -> issues.page(project, filter, maxRows, order, dates, position, versionId))
                 .orElseGet(() -> issues.page(project, filter, maxRows, order, dates, null, versionId));
         Map<String, List<String>> related = versions.namesForIssues(project.value(),
                 page.rows().stream().map(row -> row.id().value()).toList());
-        return cursors.page(page, PageCursor.Kind.ISSUES, criteriaKey,
+        var result = cursors.page(page, PageCursor.Kind.ISSUES, criteriaKey,
                 r -> toIssueItem(r, related.getOrDefault(r.id().value(), List.of())),
                 r -> dates.sortKey(r.createdAt(), r.updatedAt()).toString(),
                 r -> r.id().value());
+        return countMatches ? result.withMatchingCount(issues.count(project, filter, dates, versionId)) : result;
     }
 
     public Page<SpecItem> specs(SpecsQuery q) {
@@ -229,6 +239,10 @@ public class ListService {
     }
 
     public Page<SpecItem> specs(SpecsQuery q, DateQuery dates) {
+        return specs(q, dates, false);
+    }
+
+    public Page<SpecItem> specs(SpecsQuery q, DateQuery dates, boolean countMatches) {
         ProjectId project = requireProject(q.project());
         SpecStatus status = q.status() == null ? null : Tokens.parseName("status", q.status(), SpecStatus.values());
         SpecId parentId = q.parentId() == null ? null : SpecId.of(q.parentId());
@@ -242,14 +256,15 @@ public class ListService {
         var after = cursors.decode(q.cursor(), PageCursor.Kind.SPECS, criteriaKey).map(ListService::specPosition);
         String versionId = versionId(project, q.projectVersion());
         if (q.projectVersion() != null && versionId == null) {
-            return new Page<>(List.of(), false, null);
+            return new Page<>(List.of(), false, null, countMatches ? 0L : null);
         }
         var page = after.map(position -> specs.page(project, filter, maxRows, dates, position, versionId))
                 .orElseGet(() -> specs.page(project, filter, maxRows, dates, null, versionId));
-        return cursors.page(page, PageCursor.Kind.SPECS, criteriaKey,
+        var result = cursors.page(page, PageCursor.Kind.SPECS, criteriaKey,
                 ListService::toSpecItem,
                 r -> dates.sortKey(r.createdAt(), r.updatedAt()).toString(),
                 r -> r.id().value());
+        return countMatches ? result.withMatchingCount(specs.count(project, filter, dates, versionId)) : result;
     }
 
     public Page<TaskItem> tasks(TasksQuery q) {
@@ -257,6 +272,10 @@ public class ListService {
     }
 
     public Page<TaskItem> tasks(TasksQuery q, DateQuery dates) {
+        return tasks(q, dates, false);
+    }
+
+    public Page<TaskItem> tasks(TasksQuery q, DateQuery dates, boolean countMatches) {
         ProjectId project = requireProject(q.project());
         TaskState state = q.state() == null ? null : Tokens.parseName("state", q.state(), TaskState.values());
         String owner = checkOwner(q.owner());
@@ -267,15 +286,16 @@ public class ListService {
         var after = cursors.decode(q.cursor(), PageCursor.Kind.TASKS, criteriaKey).map(ListService::taskPosition);
         String versionId = versionId(project, q.projectVersion());
         if (q.projectVersion() != null && versionId == null) {
-            return new Page<>(List.of(), false, null);
+            return new Page<>(List.of(), false, null, countMatches ? 0L : null);
         }
         var page = after.map(position -> tasks.page(project, filter, maxRows, dates, position, versionId))
                 .orElseGet(() -> tasks.page(project, filter, maxRows, dates, null, versionId));
-        return cursors.page(page, PageCursor.Kind.TASKS, criteriaKey,
+        var result = cursors.page(page, PageCursor.Kind.TASKS, criteriaKey,
                 r -> new TaskItem(r.id().value(), r.title(), r.state().name(), r.ownerActorId(), r.version(),
                         r.createdAt(), r.updatedAt()),
                 r -> dates.sortKey(r.createdAt(), r.updatedAt()).toString(),
                 r -> r.id().value());
+        return countMatches ? result.withMatchingCount(tasks.count(project, filter, dates, versionId)) : result;
     }
 
     public Page<CriterionItem> criteria(CriteriaQuery q) {
@@ -283,31 +303,41 @@ public class ListService {
     }
 
     public Page<CriterionItem> criteria(CriteriaQuery q, DateQuery dates) {
+        return criteria(q, dates, false);
+    }
+
+    public Page<CriterionItem> criteria(CriteriaQuery q, DateQuery dates, boolean countMatches) {
         ProjectId project = requireProject(q.project());
         CriterionState state = q.state() == null ? null
                 : Tokens.parseName("state", q.state(), CriterionState.values());
         MaxRows maxRows = cursors.maxRows(q.maxRows());
-        CriterionQueryRepository.Filter filter = new CriterionQueryRepository.Filter(state, q.milestone());
+        CriterionQueryRepository.Filter filter = new CriterionQueryRepository.Filter(state, q.milestone(), q.archived());
         Object criteriaKey = dates.cursorCriteria(versionKey(project, filter, q.projectVersion()));
         var after = cursors.decode(q.cursor(), PageCursor.Kind.CRITERIA, criteriaKey)
                 .map(pos -> criterionPosition(pos, dates));
         String versionId = versionId(project, q.projectVersion());
         if (q.projectVersion() != null && versionId == null) {
-            return new Page<>(List.of(), false, null);
+            return new Page<>(List.of(), false, null, countMatches ? 0L : null);
         }
         var page = after.map(position -> criteria.page(project, filter, maxRows, dates, position, versionId))
                 .orElseGet(() -> criteria.page(project, filter, maxRows, dates, null, versionId));
-        return cursors.page(page, PageCursor.Kind.CRITERIA, criteriaKey,
+        var result = cursors.page(page, PageCursor.Kind.CRITERIA, criteriaKey,
                 r -> new CriterionItem(r.id().value(), r.milestone(), r.goalLabel(), r.code(),
                         Texts.orEmpty(r.criterionText()), r.state().name(), r.version(), r.createdAt(), r.updatedAt()),
                 r -> criterionSortKey(r, dates),
                 r -> r.id().value());
+        return countMatches ? result.withMatchingCount(criteria.count(project, filter, dates, versionId)) : result;
     }
 
     /** Per-milestone readiness rollups for a project, ordered by milestone name. */
-    public List<MilestoneRollup> milestoneRollups(String project) {
+    public List<MilestoneRollup> milestoneRollups(String project, boolean archived, String projectVersion) {
         ProjectId projectId = requireProject(project);
-        return criteria.milestoneRollups(projectId).stream()
+        String name = TextRule.PROJECT_VERSION_NAME.optional(projectVersion);
+        String versionId = versionId(projectId, name);
+        if (name != null && versionId == null) {
+            return List.of();
+        }
+        return criteria.milestoneRollups(projectId, archived, versionId).stream()
                 .map(r -> new MilestoneRollup(r.milestone(), r.total(), r.met(), r.completed(), r.active(),
                         r.planned(), r.notMet(), r.unknown()))
                 .toList();

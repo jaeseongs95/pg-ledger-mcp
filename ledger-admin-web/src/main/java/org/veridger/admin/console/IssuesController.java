@@ -5,13 +5,11 @@ package org.veridger.admin.console;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Objects;
 import org.veridger.admin.web.AdminHttpExceptionAdvice;
 import org.veridger.application.admin.ProjectVersionService;
 import org.veridger.application.read.DetailService;
 import org.veridger.application.read.ListService;
 import org.veridger.application.read.ListService.IssuesQuery;
-import org.veridger.application.read.StatsService;
 import org.veridger.domain.rule.AttentionKind;
 import org.veridger.domain.rule.CodeGroup;
 import org.veridger.domain.rule.IssueStatus;
@@ -37,16 +35,14 @@ public class IssuesController {
     private final Choices choices;
     private final ListService lists;
     private final DetailService details;
-    private final StatsService stats;
     private final Links links;
     private final ProjectVersionService versions;
 
-    public IssuesController(Choices choices, ListService lists, DetailService details, StatsService stats,
+    public IssuesController(Choices choices, ListService lists, DetailService details,
             Links links, ProjectVersionService versions) {
         this.choices = choices;
         this.lists = lists;
         this.details = details;
-        this.stats = stats;
         this.links = links;
         this.versions = versions;
     }
@@ -69,14 +65,10 @@ public class IssuesController {
         model.addAttribute("hasFilters", hasFilters);
         model.addAttribute("resetHref", links.projectHref("/issues", project.selected()));
         if (project.selected() != null) {
-            var projectVersions = versions.list(project.selected());
-            model.addAttribute("versions", projectVersions);
-            model.addAttribute("projectListed", project.projects().stream().anyMatch(p -> Objects.equals(p.id(), project.selected())));
-            model.addAttribute("versionListed", !StringUtils.hasText(filter.projectVersion())
-                    || projectVersions.stream().anyMatch(v -> Objects.equals(v.name(), filter.projectVersion())));
+            choices.versionFilter(model, project.selected(), filter.projectVersion());
             var page = lists.issues(new IssuesQuery(project.selected(), filter.status(), filter.severity(),
                     filter.category(), null, null, filter.owner(), filter.attention(), filter.taskId(), null,
-                    Paging.limitOf(filter.limit()), filter.cursor(), filter.projectVersion()), dates.query(false));
+                    Paging.limitOf(filter.limit()), filter.cursor(), filter.projectVersion()), dates.query(false), true);
             Map<String, String> filters = new LinkedHashMap<>();
             filters.put("project", project.selected());
             filters.put("status", filter.status());
@@ -90,9 +82,6 @@ public class IssuesController {
             model.addAttribute("page", page);
             model.addAttribute("paging", Paging.of("/issues", filters, filter.limit(), filter.cursor(),
                     filter.back(), page.nextCursor()));
-            if (!hasFilters) {
-                model.addAttribute("total", stats.countIssues(project.selected()));
-            }
         }
         return "issues";
     }

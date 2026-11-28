@@ -49,7 +49,37 @@ public class SpecQueryRepository {
     public KeysetPage<SpecSummary> page(ProjectId project, Filter filter, MaxRows maxRows, DateQuery dates,
             Position after, String projectVersionId) {
         StringBuilder sql = new StringBuilder("SELECT id, parent_id, title, status, priority, owner_actor_id, "
-                + "version, created_at, updated_at FROM spec WHERE project_id = :project");
+                + "version, created_at, updated_at ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        DateQuery order = dates.defaultOrder(DateQuery.Column.CREATED, false);
+        if (after != null) {
+            order.appendSeek(sql, "id", after.at(), false);
+        }
+        order.appendOrder(sql, "id", false);
+        JdbcClient.StatementSpec stmt = bindMatching(jdbc.sql(sqlBuilder.applyLimit(sql.toString(), ":row_count"))
+                .param("row_count", maxRows.value() + 1), project, filter, dates, projectVersionId);
+        if (after != null) {
+            stmt = order.bindSeek(stmt, after.at(), after.id().value());
+        }
+        List<SpecSummary> fetched = stmt.query((rs, n) -> {
+            String rawParent = rs.getString("parent_id");
+            return new SpecSummary(SpecId.of(rs.getString("id")), rawParent == null ? null : SpecId.of(rawParent),
+                    rs.getString("title"), SpecStatus.valueOf(rs.getString("status")), rs.getString("priority"),
+                    rs.getString("owner_actor_id"), rs.getLong("version"), UtcTime.read(rs, "created_at"),
+                    UtcTime.read(rs, "updated_at"));
+        }).list();
+        return KeysetPage.of(fetched, maxRows.value());
+    }
+
+    public long count(ProjectId project, Filter filter, DateQuery dates, String projectVersionId) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        return bindMatching(jdbc.sql(sql.toString()), project, filter, dates, projectVersionId)
+                .query(Long.class).single();
+    }
+
+    private static void appendMatching(StringBuilder sql, Filter filter, DateQuery dates, String projectVersionId) {
+        sql.append("FROM spec WHERE project_id = :project");
         if (filter.status() != null) {
             sql.append(" AND status = :status");
         }
@@ -67,13 +97,11 @@ public class SpecQueryRepository {
         }
         ProjectVersionRepository.appendItemFilter(sql, projectVersionId, "id", HistoryEntity.SPEC);
         dates.appendRange(sql);
-        DateQuery order = dates.defaultOrder(DateQuery.Column.CREATED, false);
-        if (after != null) {
-            order.appendSeek(sql, "id", after.at(), false);
-        }
-        order.appendOrder(sql, "id", false);
-        JdbcClient.StatementSpec stmt = jdbc.sql(sqlBuilder.applyLimit(sql.toString(), ":row_count"))
-                .param("project", project.value()).param("row_count", maxRows.value() + 1);
+    }
+
+    private static JdbcClient.StatementSpec bindMatching(JdbcClient.StatementSpec stmt, ProjectId project,
+            Filter filter, DateQuery dates, String projectVersionId) {
+        stmt = stmt.param("project", project.value());
         if (filter.status() != null) {
             stmt = stmt.param("status", filter.status().name());
         }
@@ -86,17 +114,7 @@ public class SpecQueryRepository {
         if (filter.owner() != null) {
             stmt = stmt.param("owner", filter.owner());
         }
-        stmt = dates.bindRange(ProjectVersionRepository.bindItemFilter(stmt, projectVersionId));
-        if (after != null) {
-            stmt = order.bindSeek(stmt, after.at(), after.id().value());
-        }
-        List<SpecSummary> fetched = stmt.query((rs, n) -> {
-            String rawParent = rs.getString("parent_id");
-            return new SpecSummary(SpecId.of(rs.getString("id")), rawParent == null ? null : SpecId.of(rawParent),
-                    rs.getString("title"), SpecStatus.valueOf(rs.getString("status")), rs.getString("priority"),
-                    rs.getString("owner_actor_id"), rs.getLong("version"), UtcTime.read(rs, "created_at"),
-                    UtcTime.read(rs, "updated_at"));
-        }).list();
-        return KeysetPage.of(fetched, maxRows.value());
+        return dates.bindRange(ProjectVersionRepository.bindItemFilter(stmt, projectVersionId));
     }
+
 }

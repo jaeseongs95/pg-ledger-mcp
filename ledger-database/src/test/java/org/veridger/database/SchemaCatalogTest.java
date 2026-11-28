@@ -48,7 +48,7 @@ class SchemaCatalogTest {
             "code_revision", "id_counter", "schema_history", "driver_audit_key", "owner_passkey_user",
             "owner_passkey", "owner_passkey_counter", "owner_passkey_revocation", "owner_passkey_code",
             "upload_staging", "upload_quota_gate", "attachment", "attachment_file", "attachment_storage",
-            "project_version", "issue_project_version", "project_version_item");
+            "project_version", "issue_project_version", "project_version_item", "milestone_archive");
 
     /** The timestamp columns of the schema, exactly as the catalogue lists them (SCH-018). */
     static final Set<String> TIMESTAMP_COLUMNS = Set.of("issue.created_at", "issue.updated_at", "spec.created_at",

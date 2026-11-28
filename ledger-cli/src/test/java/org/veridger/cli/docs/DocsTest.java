@@ -687,7 +687,9 @@ class DocsTest {
     @DisplayName("DOC-020 every relative link in the README and guide points to a file or directory of the repository")
     void relativeLinksResolve(Language language) {
         assertRelativeLinks(language.readme(), language.readmeFile());
-        assertRelativeLinks(language.guide(), language.guideFile());
+        for (String file : language.guideFiles()) {
+            assertRelativeLinks(Markdown.of(Repository.read(file)), file);
+        }
     }
 
     private static void assertRelativeLinks(Markdown markdown, String document) {

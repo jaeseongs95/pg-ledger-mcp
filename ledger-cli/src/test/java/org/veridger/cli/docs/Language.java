@@ -116,7 +116,14 @@ enum Language {
         };
     }
 
+    List<String> guideFiles() {
+        String suffix = this == KO ? ".ko.md" : ".md";
+        return List.of(guideFile(), "docs/concepts" + suffix, "docs/mcp" + suffix, "docs/architecture" + suffix,
+                "docs/installation" + suffix, "docs/administration" + suffix, "docs/client-hooks" + suffix,
+                "docs/migration" + suffix, "docs/development" + suffix);
+    }
+
     Markdown guide() {
-        return Markdown.of(Repository.read(guideFile()));
+        return Markdown.of(String.join("\n\n", guideFiles().stream().map(Repository::read).toList()));
     }
 }

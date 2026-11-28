@@ -20,7 +20,7 @@ public class HistoryController {
 
     /** The filters and the paging position of the history list; an absent project means every project. */
     public record HistoryFilter(String project, String entity, String entityId, String op, String authorId,
-            Integer limit, String cursor, String back) {
+            String projectVersion, Integer limit, String cursor, String back) {
     }
 
     private final Choices choices;
@@ -38,22 +38,25 @@ public class HistoryController {
             Model model) {
         var page = history.history(new HistoryQuery(null, null, null, filter.entity(), filter.entityId(),
                 filter.project(), filter.op(), filter.authorId(), null, null, null, Paging.limitOf(filter.limit()),
-                filter.cursor()), dates.query(true));
+                filter.cursor()), dates.query(true), true, filter.projectVersion());
         Map<String, String> filters = new LinkedHashMap<>();
         filters.put("project", filter.project());
+        filters.put("projectVersion", filter.projectVersion());
         filters.put("entity", filter.entity());
         filters.put("entityId", filter.entityId());
         filters.put("op", filter.op());
         filters.put("authorId", filter.authorId());
         dates.populate(model, "/history", filters, filter.limit(), null);
         model.addAttribute("choice", choices.project(null));
+        choices.versionFilter(model, filter.project(), filter.projectVersion());
         model.addAttribute("entities", HistoryEntity.values());
         model.addAttribute("ops", HistoryOp.values());
         model.addAttribute("sizes", Paging.SIZES);
         model.addAttribute("page", page);
+        model.addAttribute("itemVersions", history.projectVersions(page.items()));
         boolean hasFilters = StringUtils.hasText(filter.project()) || StringUtils.hasText(filter.entity())
                 || StringUtils.hasText(filter.entityId()) || StringUtils.hasText(filter.op())
-                || StringUtils.hasText(filter.authorId()) || dates.hasRange();
+                || StringUtils.hasText(filter.authorId()) || StringUtils.hasText(filter.projectVersion()) || dates.hasRange();
         model.addAttribute("hasFilters", hasFilters);
         model.addAttribute("resetHref", "/history");
         Map<Long, String> pointing = new LinkedHashMap<>();

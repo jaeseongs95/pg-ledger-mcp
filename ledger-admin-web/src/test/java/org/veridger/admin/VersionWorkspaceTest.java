@@ -3,24 +3,31 @@
 package org.veridger.admin;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.veridger.admin.support.AdminTest;
 import org.veridger.admin.support.Browser;
 import org.veridger.admin.support.Browser.Form;
 import org.veridger.admin.support.Seeds;
 import org.veridger.application.admin.ProjectVersionService;
+import org.veridger.application.write.RecordDeliverableCommand;
+import org.veridger.application.write.RecordDeliverableService;
+import org.veridger.database.repository.HistoryQueryRepository;
 import org.veridger.domain.rule.HistoryEntity;
 
 @AdminTest
@@ -34,6 +41,10 @@ class VersionWorkspaceTest {
     private Seeds seeds;
     @Autowired
     private ProjectVersionService versions;
+    @Autowired
+    private RecordDeliverableService deliverables;
+    @Autowired
+    private HistoryQueryRepository history;
 
     static Stream<Arguments> itemForms() {
         return Stream.of(
@@ -84,6 +95,23 @@ class VersionWorkspaceTest {
             default -> throw new AssertionError("Unexpected version item kind");
         };
         assertThat(html(browser, details)).contains("href=\"" + path + "?project=" + project.project());
+
+        String listing = switch (kind) {
+            case SPEC -> "/specs";
+            case ISSUE -> "/issues";
+            case TASK -> "/tasks";
+            case CRITERION -> "/criteria";
+            default -> throw new AssertionError("Unexpected version item kind");
+        };
+        versions.add(project.project(), "6.1.0 pilot", "A second linked version");
+        var second = versions.list(project.project()).getLast();
+        versions.changeItemLink(project.project(), second.id(), kind, id, true);
+        String filter = "?project=" + project.project() + "&projectVersion=" + VERSION;
+        assertThat(html(browser, listing + filter)).contains("class=\"version-col\"", "name=\"projectVersion\"",
+                ">" + VERSION + "</", ">6.1.0 pilot</",
+                id, "1 shown · 1 matching");
+        assertThat(html(browser, "/history" + filter + "&entity=" + kind.token())).contains(id,
+                "<span class=\"version-tag\">" + VERSION + "</span>", "<span class=\"version-tag\">6.1.0 pilot</span>");
     }
 
     @Test
@@ -158,15 +186,94 @@ class VersionWorkspaceTest {
         var browser = Browser.signedIn(mvc);
         String issues = "/issues?project=" + project.project();
 
-        browser.perform(browser.get(issues)).andExpect(status().isOk())
-                .andExpect(model().attribute("projectListed", true)).andExpect(model().attribute("total", 1L));
+        assertThat(html(browser, issues)).contains("1 shown · 1 matching");
         browser.perform(browser.get(issues).param("projectVersion", "Unavailable"))
-                .andExpect(status().isOk()).andExpect(model().attribute("versionListed", false))
-                .andExpect(model().attributeDoesNotExist("total"));
-        assertThat(html(browser, issues + "&projectVersion=Unavailable")).contains("value=\"Unavailable\"")
+                .andExpect(status().isOk()).andExpect(model().attribute("versionListed", false));
+        assertThat(html(browser, issues + "&projectVersion=Unavailable")).contains("value=\"Unavailable\"", "0 shown · 0 matching")
                 .doesNotContain(TITLE);
-        browser.perform(browser.get("/issues?project=unavailable-project")).andExpect(status().isOk())
-                .andExpect(model().attribute("projectListed", false));
+        assertThat(html(browser, "/issues?project=unavailable-project"))
+                .containsPattern("value=\"unavailable-project\"\\s+selected>unavailable-project</option>");
+    }
+
+    @Test
+    void overviewShowsVersionReadinessForTheSelectedProject() throws Exception {
+        var project = seeds.project();
+        var version = version(project);
+        String issue = seeds.issue(project, TITLE);
+        String task = seeds.task(project, "Validate recovery");
+        String criterion = seeds.criterion(project, "1", "Pilot", "RC-01");
+        versions.changeItemLink(project.project(), version.id(), HistoryEntity.ISSUE, issue, true);
+        versions.changeItemLink(project.project(), version.id(), HistoryEntity.TASK, task, true);
+        versions.changeItemLink(project.project(), version.id(), HistoryEntity.CRITERION, criterion, true);
+        var summary = versions.readiness(project.project());
+        assertThat(summary).singleElement().satisfies(row -> {
+            assertThat(row.issues()).isEqualTo(1);
+            assertThat(row.specs()).isZero();
+            assertThat(row.tasks()).isEqualTo(1);
+            assertThat(row.gates()).isEqualTo(1);
+            assertThat(row.met()).isZero();
+        });
+        var browser = Browser.signedIn(mvc);
+        assertThat(html(browser, "/?project=" + project.project()))
+                .contains("Version readiness", "0 of 1 criteria met", version.id());
+    }
+
+    @Test
+    void versionHistoryIncludesRelatedRecordsAndExcludesUnlinkedOrOutOfProjectRecords() throws Exception {
+        var project = seeds.project();
+        var external = seeds.project();
+        var version = version(project);
+        var otherVersion = version(external);
+        String linked = seeds.issue(project, TITLE);
+        String unlinked = seeds.issue(project, "An unlinked issue");
+        String outside = seeds.issue(external, "An outside issue");
+        for (String id : new String[] {linked, unlinked, outside}) {
+            seeds.observe(id, "Case for " + id, "https://example.org/evidence");
+        }
+        versions.changeItemLink(project.project(), version.id(), HistoryEntity.ISSUE, linked, true);
+        versions.changeItemLink(external.project(), otherVersion.id(), HistoryEntity.ISSUE, outside, true);
+        var browser = Browser.signedIn(mvc);
+        String path = "/history?project=" + project.project() + "&entity=issue_case&projectVersion=" + VERSION;
+        assertThat(html(browser, path)).contains(linked + "|", "1 shown · 1 matching")
+                .doesNotContain(unlinked + "|", outside + "|");
+        browser.perform(browser.get("/projects/versions/options").param("project", project.project())
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk()).andExpect(content().json("[\"" + VERSION + "\"]"));
+        versions.changeItemLink(project.project(), version.id(), HistoryEntity.ISSUE, linked, false);
+        assertThat(html(browser, path)).contains("0 shown · 0 matching").doesNotContain(linked + "|");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HistoryEntity.class, names = {"SPEC", "TASK"})
+    void compositeHistoryUsesTheLongestOwnerAcrossProjects(HistoryEntity kind) throws Exception {
+        var project = seeds.project();
+        var external = seeds.project();
+        var version = version(project);
+        var externalVersion = version(external);
+        String shorter = project.code() + "-" + kind.token() + "-prefix";
+        String longer = shorter + "@extension";
+        if (kind == HistoryEntity.SPEC) {
+            seeds.spec(project, shorter, "Short id");
+            seeds.spec(external, longer, "Long id");
+        } else {
+            seeds.task(project, shorter, "Short id");
+            seeds.task(external, longer, "Long id");
+        }
+        versions.changeItemLink(project.project(), version.id(), kind, shorter, true);
+        var result = deliverables.recordDeliverable(Seeds.AUTHOR, new RecordDeliverableCommand(
+                UUID.randomUUID().toString(), kind.token(), longer, "code_change", "evidence-ref", Seeds.REASON,
+                "repo/evidence", "Release evidence", null, null, null, false));
+        var historyIds = List.of(result.historyId());
+
+        assertThat(history.projectVersions(historyIds)).isEmpty();
+        var browser = Browser.signedIn(mvc);
+        assertThat(html(browser, "/history?project=" + project.project() + "&entity=deliverable&projectVersion=" + VERSION))
+                .contains("0 shown · 0 matching");
+
+        versions.changeItemLink(external.project(), externalVersion.id(), kind, longer, true);
+        assertThat(history.projectVersions(historyIds)).containsEntry(result.historyId(), List.of(VERSION));
+        assertThat(html(browser, "/history?project=" + external.project() + "&entity=deliverable&projectVersion=" + VERSION))
+                .contains("1 shown · 1 matching", longer);
     }
 
     private ProjectVersionService.Version version(Seeds.Seeded project) {

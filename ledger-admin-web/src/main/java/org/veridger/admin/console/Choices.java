@@ -6,7 +6,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
+import org.veridger.application.admin.ProjectVersionService;
 import org.veridger.application.read.Page;
 import org.veridger.application.read.CatalogService;
 import org.veridger.application.read.CatalogService.CodeView;
@@ -14,8 +16,10 @@ import org.veridger.application.read.CatalogService.CodesQuery;
 import org.veridger.application.read.CatalogService.ProjectView;
 import org.veridger.application.read.CatalogService.ProjectsQuery;
 import org.veridger.domain.rule.CodeGroup;
+import org.veridger.domain.rule.HistoryEntity;
 import org.veridger.domain.value.ProjectId;
 import org.springframework.stereotype.Component;
+import org.springframework.ui.Model;
 import org.springframework.util.StringUtils;
 
 /**
@@ -30,13 +34,18 @@ public class Choices {
     public static final int ALL = 1000;
 
     private final CatalogService catalog;
+    private final ProjectVersionService versions;
 
-    public Choices(CatalogService catalog) {
+    public Choices(CatalogService catalog, ProjectVersionService versions) {
         this.catalog = catalog;
+        this.versions = versions;
     }
 
     /** The projects, and the one the page works on: the one asked for, else the first (absent when there is none). */
     public record ProjectChoice(List<ProjectView> projects, String selected) {
+        public boolean listed() {
+            return projects.stream().anyMatch(project -> Objects.equals(project.id(), selected));
+        }
     }
 
     public ProjectChoice project(String requested) {
@@ -49,6 +58,20 @@ public class Choices {
     /** Every project. */
     public List<ProjectView> projects() {
         return all(cursor -> catalog.projects(new ProjectsQuery(ALL, cursor)));
+    }
+
+    void versionFilter(Model model, String project, String selected) {
+        var names = StringUtils.hasText(project) ? versionNames(project) : List.<String>of();
+        model.addAttribute("versionOptions", names);
+        model.addAttribute("versionListed", !StringUtils.hasText(selected) || names.contains(selected));
+    }
+
+    List<String> versionNames(String project) {
+        return versions.list(project).stream().map(ProjectVersionService.Version::name).toList();
+    }
+
+    <T> void itemVersions(Model model, String project, HistoryEntity kind, List<T> rows, Function<T, String> id) {
+        model.addAttribute("itemVersions", versions.namesForItems(project, kind, rows.stream().map(id).toList()));
     }
 
     /** Display names for a page that already loaded its project choices. */

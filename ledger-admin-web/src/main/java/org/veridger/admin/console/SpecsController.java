@@ -7,8 +7,8 @@ import java.util.Map;
 import org.veridger.application.read.DetailService;
 import org.veridger.application.read.ListService;
 import org.veridger.application.read.ListService.SpecsQuery;
-import org.veridger.application.read.StatsService;
 import org.veridger.domain.rule.AttentionKind;
+import org.veridger.domain.rule.HistoryEntity;
 import org.veridger.domain.rule.SpecStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -23,20 +23,18 @@ public class SpecsController {
 
     /** The filters and the paging position of the specification list. */
     public record SpecFilter(String project, String status, String priority, String owner, String attention,
-            Integer limit, String cursor, String back) {
+            String projectVersion, Integer limit, String cursor, String back) {
     }
 
     private final Choices choices;
     private final ListService lists;
     private final DetailService details;
-    private final StatsService stats;
     private final Links links;
 
-    public SpecsController(Choices choices, ListService lists, DetailService details, StatsService stats, Links links) {
+    public SpecsController(Choices choices, ListService lists, DetailService details, Links links) {
         this.choices = choices;
         this.lists = lists;
         this.details = details;
-        this.stats = stats;
         this.links = links;
     }
 
@@ -49,14 +47,19 @@ public class SpecsController {
         model.addAttribute("attentions", new AttentionKind[] {AttentionKind.SPEC_COMPLETED_NOT_VERIFIED});
         model.addAttribute("sizes", Paging.SIZES);
         boolean hasFilters = StringUtils.hasText(filter.status()) || StringUtils.hasText(filter.priority())
-                || StringUtils.hasText(filter.owner()) || StringUtils.hasText(filter.attention()) || dates.hasRange();
+                || StringUtils.hasText(filter.owner()) || StringUtils.hasText(filter.attention())
+                || StringUtils.hasText(filter.projectVersion()) || dates.hasRange();
         model.addAttribute("hasFilters", hasFilters);
         model.addAttribute("resetHref", links.projectHref("/specs", project.selected()));
         if (project.selected() != null) {
+            choices.versionFilter(model, project.selected(), filter.projectVersion());
             var page = lists.specs(new SpecsQuery(project.selected(), filter.status(), null, filter.priority(),
-                    filter.owner(), filter.attention(), Paging.limitOf(filter.limit()), filter.cursor()), dates.query(false));
+                    filter.owner(), filter.attention(), Paging.limitOf(filter.limit()), filter.cursor(),
+                    filter.projectVersion()), dates.query(false), true);
+            choices.itemVersions(model, project.selected(), HistoryEntity.SPEC, page.items(), ListService.SpecItem::id);
             Map<String, String> filters = new LinkedHashMap<>();
             filters.put("project", project.selected());
+            filters.put("projectVersion", filter.projectVersion());
             filters.put("status", filter.status());
             filters.put("priority", filter.priority());
             filters.put("owner", filter.owner());
@@ -65,7 +68,6 @@ public class SpecsController {
             model.addAttribute("page", page);
             model.addAttribute("paging", Paging.of("/specs", filters, filter.limit(), filter.cursor(),
                     filter.back(), page.nextCursor()));
-            model.addAttribute("total", stats.countSpecs(project.selected()));
         }
         return "specs";
     }

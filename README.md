@@ -12,18 +12,40 @@
 
 Veridger is a work ledger for AI agents and their operators. Agents record issues, specifications, tasks, release criteria, and deliverables over MCP. Operators use the admin console to manage projects, grant session permissions, and review the audit history.
 
+## Admin console
+
+The screens show a demo project with fictional records.
+
+### Project overview
+
+Track issues, specifications, tasks, and release readiness for each version. The action queue highlights records that need a decision.
+
+![Project overview with version progress and an action queue](docs/screenshots/project-overview.png)
+
+### Issue detail
+
+Review the symptom, cause, observations, linked evidence, and change history in one place.
+
+![Issue detail with observations, evidence, and change history](docs/screenshots/issue-detail.png)
+
+### Release criteria
+
+Review Go/No-Go evidence by milestone and check which criteria passed independent verification.
+
+![Release criteria with milestone progress and verification states](docs/screenshots/release-criteria.png)
+
 ## Getting started
 
 1. Download the [latest release](https://github.com/jaeseongs95/veridger/releases/latest). Prepare Java 25, PostgreSQL, and its JDBC driver. Windows also requires WinSW.
-2. Run the installer for your host. See the [Linux instructions](docs/guide.md#linux-server) or [Windows instructions](docs/guide.md#windows-a-personal-pc-or-a-server).
-3. Create a project in the admin console, connect your agent to the `/mcp` endpoint, install its hook, and grant the session the permissions it needs. [Client setup](docs/guide.md#client-hooks)
+2. Run the installer for your host. See the [Linux instructions](docs/installation.md#linux-server) or [Windows instructions](docs/installation.md#windows-a-personal-pc-or-a-server).
+3. Create a project in the admin console, connect your agent to the `/mcp` endpoint, install its hook, and grant the session the permissions it needs. [Client setup](docs/client-hooks.md)
 
 ## Documentation
 
-- [Installation and administration](docs/guide.md#installation)
-- [MCP tools and examples](docs/guide.md#mcp-tools)
-- [Build and test](docs/guide.md#build-and-test)
-- [Release notes](docs/release-notes/)
+- [Installation](docs/installation.md) · [Administration](docs/administration.md)
+- [MCP tools and examples](docs/mcp.md#mcp-tools)
+- [Architecture](docs/architecture.md) · [Build and test](docs/development.md#build-and-test)
+- [Documentation index](docs/guide.md#contents) · [Release notes](docs/release-notes/)
 
 ## License
 

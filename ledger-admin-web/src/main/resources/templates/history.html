@@ -14,11 +14,12 @@
     <div class="filter-grid">
       <div class="filter-field">
         <label for="project" th:text="#{common.project}">Project</label>
-        <select id="project" name="project">
+        <select id="project" name="project" data-version-source>
           <option value="" th:text="#{common.allProjects}">All projects</option>
           <option th:each="p : ${choice.projects()}" th:value="${p.id()}" th:text="${p.displayName()}" th:selected="${p.id() == filter.project()}">p1</option>
         </select>
       </div>
+      <div th:replace="~{fragments :: versionFilter(${filter.project()}, ${filter.projectVersion()})}"></div>
       <div class="filter-field">
         <label for="entity" th:text="#{history.entity}">Entity</label>
         <select id="entity" name="entity">
@@ -57,9 +58,7 @@
     </div>
   </form>
 
-  <th:block th:if="${paging.hasPrevious() or paging.hasNext()}">
-    <nav th:replace="~{fragments :: pager(${paging}, ${null})}"></nav>
-  </th:block>
+  <p th:replace="~{fragments :: listTotals(${page})}"></p>
   <div th:if="${!#lists.isEmpty(page.items())}" class="table-wrap results-table" role="region" tabindex="0" th:attr="aria-label=#{history.title}">
     <table class="history-table">
       <caption class="sr-only" th:text="#{history.title}">History</caption>
@@ -67,6 +66,7 @@
         <tr>
           <th scope="col" th:text="#{col.id}">ID</th>
           <th scope="col" th:text="#{history.target}">Target</th>
+          <th scope="col" class="version-col" th:title="#{history.version.help}" th:text="#{versions.column}">Version</th>
           <th scope="col" th:text="#{history.op}">Operation</th>
           <th th:replace="~{fragments :: dateHeader(#{col.created}, ${createdSort})}">Registered</th>
           <th scope="col" th:text="#{history.states}">States</th>
@@ -87,6 +87,7 @@
                 <span th:unless="${@links.hasItemPage(h.entity())}" class="code" th:text="${h.entityId()}">ID</span>
               </span>
             </td>
+            <td th:replace="~{fragments :: versionCell(${itemVersions[h.id()]}, null, null)}"></td>
             <td class="cell-nowrap" th:attr="title=${h.op()}" th:text="${@labels.historyOp(h.op())}">Create</td>
             <td class="cell-time"><time th:replace="~{fragments :: time(${h.at()})}">t</time></td>
             <td class="cell-nowrap">
@@ -106,9 +107,8 @@
             </td>
             <td class="cell-changes" data-changes-json
                 th:with="rowTarget=${@labels.entity(h.entity()) + ' ' + h.entityId()}, rowOp=${@labels.historyOp(h.op())}"
-                th:attr="data-raw-label=#{history.changes.raw},
+                th:attr="data-change-count=#{history.changes.count},
                          data-none-label=#{history.changes.none},
-                         data-more-pattern=#{history.changes.more},
                          data-row-id='#' + ${h.id()},
                          data-row-target=${rowTarget},
                          data-row-op=${rowOp},
@@ -116,7 +116,7 @@
                 th:text="${h.changes() == null} ? '' : ${h.changes().text()}">{}</td>
           </tr>
           <tr class="attachment-row" th:if="${attachments.containsKey(h.id())}" th:with="a=${attachments.get(h.id())}">
-            <td colspan="8">
+            <td colspan="9">
               <section class="attachment-panel" th:attr="aria-label=#{history.attachment}">
                 <h2 class="attachment-title" th:text="#{history.attachment}">Attachment</h2>
                 <p th:if="${a.state().name() == 'NOT_FOUND'}" class="hint" th:text="#{history.attachment.notFound}">None</p>
@@ -164,7 +164,7 @@
     </table>
   </div>
   <th:block th:if="${#lists.isEmpty(page.items())}"><th:block th:replace="~{fragments :: emptyState(${hasFilters}, ${resetHref})}"></th:block></th:block>
-  <nav th:replace="~{fragments :: pager(${paging}, ${null})}"></nav>
+  <nav th:replace="~{fragments :: pager(${paging})}"></nav>
 
   <!-- Native Raw JSON Diff Modal -->
   <dialog id="modal-history-json" class="modal-dialog modal-dialog-wide" aria-labelledby="history-json-title">

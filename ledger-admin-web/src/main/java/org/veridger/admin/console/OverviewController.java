@@ -2,6 +2,8 @@
 
 package org.veridger.admin.console;
 
+import java.util.List;
+import org.veridger.application.admin.ProjectVersionService;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,8 +15,11 @@ public class OverviewController {
 
     private final OverviewService overview;
 
-    public OverviewController(OverviewService overview) {
+    private final ProjectVersionService versions;
+
+    public OverviewController(OverviewService overview, ProjectVersionService versions) {
         this.overview = overview;
+        this.versions = versions;
     }
 
     @GetMapping("/")
@@ -23,6 +28,8 @@ public class OverviewController {
         model.addAttribute("console", console);
         model.addAttribute("overview", console.base());
         model.addAttribute("projectNames", Choices.projectNames(console.base().projects()));
+        String scope = console.base().project();
+        model.addAttribute("versionReadiness", scope == null ? List.of() : versions.readiness(scope));
         return "overview";
     }
 }

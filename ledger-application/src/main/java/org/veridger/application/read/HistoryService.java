@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import org.veridger.database.repository.DateQuery;
 import org.veridger.database.repository.HistoryQueryRepository;
 import org.veridger.database.repository.HistoryRepository;
+import org.veridger.database.repository.ProjectVersionRepository;
 import org.veridger.domain.error.ValidationException;
 import org.veridger.domain.error.ValidationReason;
 import org.veridger.domain.model.HistoryEntry;
@@ -22,6 +23,7 @@ import org.veridger.domain.value.JsonDocument;
 import org.veridger.domain.value.MaxRows;
 import org.veridger.domain.value.PageCursor;
 import org.veridger.domain.value.ProjectId;
+import org.veridger.domain.value.TextRule;
 import org.veridger.domain.value.Tokens;
 import org.veridger.domain.value.UtcInstant;
 import org.springframework.stereotype.Service;
@@ -71,11 +73,14 @@ public class HistoryService {
     private final HistoryQueryRepository queries;
     private final HistoryRepository rows;
     private final Cursors cursors;
+    private final ProjectVersionRepository versions;
 
-    public HistoryService(HistoryQueryRepository queries, HistoryRepository rows, Cursors cursors) {
+    public HistoryService(HistoryQueryRepository queries, HistoryRepository rows, Cursors cursors,
+            ProjectVersionRepository versions) {
         this.queries = queries;
         this.rows = rows;
         this.cursors = cursors;
+        this.versions = versions;
     }
 
     public Page<HistoryView> history(@Valid HistoryQuery q) {
@@ -83,6 +88,10 @@ public class HistoryService {
     }
 
     public Page<HistoryView> history(@Valid HistoryQuery q, DateQuery dates) {
+        return history(q, dates, false, null);
+    }
+
+    public Page<HistoryView> history(@Valid HistoryQuery q, DateQuery dates, boolean countMatches, String projectVersion) {
         // @Size counts the list and does not look at its items: an item that is null is refused here, as a blank keyword of a
         // search is, and does not reach the filter (whose copy of the list refuses a null with a NullPointerException)
         if (q.ids() != null && q.ids().stream().anyMatch(Objects::isNull)) {
@@ -97,13 +106,26 @@ public class HistoryService {
                 q.atFrom() == null ? null : UtcInstant.parse("at_from", q.atFrom()).value(),
                 q.atTo() == null ? null : UtcInstant.parse("at_to", q.atTo()).value());
         MaxRows maxRows = cursors.maxRows(q.maxRows());
-        Object criteriaKey = dates.cursorCriteria(filter);
-        var positions = cursors.decode(q.cursor(), PageCursor.Kind.HISTORY, criteriaKey)
-                .map(pos -> historyPosition(pos, dates))
-                .map(after -> queries.positions(filter, maxRows, dates, after))
-                .orElseGet(() -> queries.positions(filter, maxRows, dates, null));
+        String name = TextRule.PROJECT_VERSION_NAME.optional(projectVersion);
+        if (name != null && filter.project() == null) {
+            throw ValidationException.invalid("project", ValidationReason.REQUIRED);
+        }
+        Object criteriaKey = dates.cursorCriteria(name == null ? filter : List.of(filter, name));
+        var after = cursors.decode(q.cursor(), PageCursor.Kind.HISTORY, criteriaKey).map(pos -> historyPosition(pos, dates));
+        String versionId = null;
+        if (name != null) {
+            var found = versions.find(filter.project().value(), name);
+            if (found.isEmpty()) {
+                return new Page<>(List.of(), false, null, countMatches ? 0L : null);
+            }
+            versionId = found.orElseThrow().id();
+        }
+        String selectedVersionId = versionId;
+        var positions = after.map(pos -> queries.positions(filter, maxRows, dates, pos, selectedVersionId))
+                .orElseGet(() -> queries.positions(filter, maxRows, dates, null, selectedVersionId));
+        Long matchingCount = countMatches ? queries.count(filter, dates, versionId) : null;
         if (positions.rows().isEmpty()) {
-            return new Page<>(List.of(), false, null);
+            return new Page<>(List.of(), false, null, matchingCount);
         }
         List<Long> ids = positions.rows().stream().map(HistoryQueryRepository.Position::id).toList();
         Map<Long, HistoryEntry> entries = rows.findByIdIn(ids).stream()
@@ -116,7 +138,11 @@ public class HistoryService {
         var last = positions.rows().getLast();
         String next = positions.truncated() ? cursors.encode(PageCursor.Kind.HISTORY, criteriaKey,
                 dates.sort() == null ? null : last.at().toString(), Long.toString(last.id())) : null;
-        return new Page<>(views, positions.truncated(), next);
+        return new Page<>(views, positions.truncated(), next, matchingCount);
+    }
+
+    public Map<Long, List<String>> projectVersions(List<HistoryView> page) {
+        return queries.projectVersions(page.stream().map(HistoryView::id).toList());
     }
 
     private static HistoryQueryRepository.Position historyPosition(Cursors.Position pos, DateQuery dates) {

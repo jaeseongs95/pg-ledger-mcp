@@ -75,7 +75,7 @@ class LabelsAndPasskeyUnitTest {
                 new CodeView("PRIORITY", "P2", "높음", "", null, null, 2, CodeState.ACTIVE, null),
                 new CodeView("PRIORITY", "P3", "", "Low", null, null, 3, CodeState.ACTIVE, null),
                 new CodeView("PRIORITY", "P4", "", "", null, null, 4, CodeState.ACTIVE, null));
-        Choices choices = new Choices(null) {
+        Choices choices = new Choices(null, null) {
             @Override
             public List<CodeView> allCodes() {
                 return sampleCodes;

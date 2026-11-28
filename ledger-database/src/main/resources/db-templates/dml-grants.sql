@@ -19,6 +19,7 @@ GRANT SELECT, INSERT, DELETE ON issue_task TO ${dml_account};
 GRANT SELECT, INSERT, DELETE ON issue_spec TO ${dml_account};
 GRANT SELECT, INSERT, DELETE ON spec_task TO ${dml_account};
 GRANT SELECT, INSERT, DELETE ON issue_relation TO ${dml_account};
+GRANT SELECT, INSERT, UPDATE ON milestone_archive TO ${dml_account};
 GRANT SELECT, INSERT, UPDATE ON milestone_criterion TO ${dml_account};
 GRANT SELECT, INSERT, DELETE ON criterion_link TO ${dml_account};
 GRANT SELECT, INSERT, UPDATE ON session_grant TO ${dml_account};

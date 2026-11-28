@@ -20,6 +20,8 @@ public class ProjectVersionRepository {
 
     public record Item(String id, String title) {}
 
+    public record Readiness(String id, String name, long issues, long specs, long tasks, long gates, long met) {}
+
     private final JdbcClient jdbc;
     private final SqlBuilder sql;
 
@@ -44,18 +46,39 @@ public class ProjectVersionRepository {
     }
 
     public Map<String, List<String>> namesForIssues(String project, List<String> issues) {
-        if (issues.isEmpty()) {
+        return namesForItems(project, HistoryEntity.ISSUE, issues);
+    }
+
+    public Map<String, List<String>> namesForItems(String project, HistoryEntity kind, List<String> ids) {
+        if (ids.isEmpty()) {
             return Map.of();
         }
         return jdbc.sql("""
                 SELECT ipv.item_id, pv.name FROM project_version pv
                 JOIN project_version_item ipv ON ipv.project_id = pv.project_id AND ipv.version_id = pv.id
-                WHERE ipv.project_id = :project AND ipv.item_kind = 'issue' AND ipv.item_id IN (:issues)
+                WHERE ipv.project_id = :project AND ipv.item_kind = :kind AND ipv.item_id IN (:ids)
                 ORDER BY pv.name
-                """).param("project", project).param("issues", issues)
+                """).param("project", project).param("kind", kind.token()).param("ids", ids)
                 .query((rs, row) -> Map.entry(rs.getString(1), rs.getString(2))).list().stream()
                 .collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.mapping(Map.Entry::getValue,
                         Collectors.toList())));
+    }
+
+    public List<Readiness> readiness(String project) {
+        return jdbc.sql("""
+                SELECT pv.id, pv.name, COUNT(i.id), COUNT(s.id), COUNT(t.id), COUNT(c.id),
+                       COUNT(CASE WHEN c.state = 'MET' THEN 1 END)
+                FROM project_version pv
+                LEFT JOIN project_version_item ref ON ref.project_id = pv.project_id AND ref.version_id = pv.id
+                LEFT JOIN issue i ON ref.item_kind = 'issue' AND i.project_id = pv.project_id AND i.id = ref.item_id
+                LEFT JOIN spec s ON ref.item_kind = 'spec' AND s.project_id = pv.project_id AND s.id = ref.item_id
+                LEFT JOIN task t ON ref.item_kind = 'task' AND t.project_id = pv.project_id AND t.id = ref.item_id
+                LEFT JOIN milestone_criterion c
+                    ON ref.item_kind = 'criterion' AND c.project_id = pv.project_id AND c.id = ref.item_id AND %s
+                WHERE pv.project_id = :project GROUP BY pv.id, pv.name ORDER BY pv.name, pv.id
+                """.formatted(MilestoneArchiveRepository.ACTIVE)).param("project", project)
+                .query((rs, row) -> new Readiness(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getLong(4),
+                        rs.getLong(5), rs.getLong(6), rs.getLong(7))).list();
     }
 
     public Optional<Stored> find(String project, String name) {

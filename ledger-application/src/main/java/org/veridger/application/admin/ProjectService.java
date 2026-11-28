@@ -44,6 +44,10 @@ public class ProjectService {
     public record RenameCommand(String id, String displayName, @NotNull(message = "{reason.REQUIRED}") Long version) {
     }
 
+    public record EditCommand(String id, String displayName, String title,
+            @NotNull(message = "{reason.REQUIRED}") Long version) {
+    }
+
     private final ProjectRepository projects;
     private final OwnerAuditWriter audit;
 
@@ -76,13 +80,29 @@ public class ProjectService {
         Project current = projects.findById(id)
                 .filter(project -> Objects.equals(project.id(), id))
                 .orElseThrow(() -> new LookupException(LookupCode.NOT_FOUND, List.of("project", id.value())));
-        if (Objects.equals(name, current.displayName())) {
+        update(current, name, current.title(), command.version(), actor, OwnerAction.PROJECT_RENAMED);
+    }
+
+    public void edit(@Valid EditCommand command, OwnerIdentity actor) {
+        ProjectId id = ProjectId.of(command.id());
+        String name = TextRule.PROJECT_NAME.required(command.displayName());
+        String title = TextRule.PROJECT_TITLE.required(command.title());
+        Project current = projects.findById(id)
+                .orElseThrow(() -> new LookupException(LookupCode.NOT_FOUND, List.of("project", id.value())));
+        update(current, name, title, command.version(), actor, OwnerAction.PROJECT_EDITED);
+    }
+
+    private void update(Project current, String name, String title, long version, OwnerIdentity actor,
+            OwnerAction action) {
+        ProjectId id = current.id();
+        if (Objects.equals(name, current.displayName()) && Objects.equals(title, current.title())) {
             return;
         }
-        if (!projects.rename(id, name, command.version())) {
+        if (!projects.edit(id, name, title, version)) {
             throw new ConflictException(ConflictCode.CONCURRENT_MODIFICATION, List.of("project", id.value()));
         }
-        audit.record(actor, OwnerAction.PROJECT_RENAMED, id.value(), name);
+        audit.record(actor, action, id.value(), action == OwnerAction.PROJECT_RENAMED ? name
+                : "name=" + name + ", description=" + title);
     }
 
     @Transactional(readOnly = true)

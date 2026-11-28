@@ -4,6 +4,7 @@ package org.veridger.application.admin;
 
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -79,6 +80,16 @@ public class ProjectVersionService {
     public List<Version> list(String project) {
         return versions.list(List.of(ProjectId.of(project).value())).stream()
                 .map(row -> new Version(row.id(), row.name(), row.description())).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, List<String>> namesForItems(String project, HistoryEntity kind, List<String> ids) {
+        return versions.namesForItems(ProjectId.of(project).value(), kind, ids);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProjectVersionRepository.Readiness> readiness(String project) {
+        return versions.readiness(ProjectId.of(project).value());
     }
 
     @Transactional(readOnly = true)

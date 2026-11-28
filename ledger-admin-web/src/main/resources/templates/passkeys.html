@@ -48,6 +48,7 @@
       <h2 th:text="#{passkeys.list}">Registered passkeys</h2>
     </div>
     <p th:if="${#lists.isEmpty(passkeys)}" class="hint" th:text="#{passkeys.none}">None yet.</p>
+    <p class="results-count" th:text="#{common.rowCount(${passkeys.size()})}">0 records</p>
     <div th:if="${!#lists.isEmpty(passkeys)}" class="table-wrap">
       <table>
         <thead>
