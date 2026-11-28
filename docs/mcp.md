@@ -20,12 +20,12 @@ Write tools (authenticated author and a live grant are needed). Every write tool
 | `ledger_task_save` | author | create or edit a task (`project_id`, `title`, `purpose`, `success_condition`, `owner_actor_id`, `origin_ref`, `origin_quote`, `id`, `expected_version`, `reason`) |
 | `ledger_criterion_save` | author | create or edit a milestone criterion (`project_id`, `id`, `milestone_name`, `goal_label`, `code`, `criterion_text`, `expected_version`, `reason`) |
 | `ledger_transition` | author | change author-side status or state (`OPEN`, `RESOLVED`, `NOT_AN_ISSUE`, `DISPUTED`, `MERGED`, `DRAFT`, `PLANNED`, `ACTIVE`, `BLOCKED`, `COMPLETED`, `CANCELLED`, `UNKNOWN`) |
-| `ledger_record_deliverable` | author | record or amend a deliverable (`document`, `commit`, `media`, `scene`, `dataset`, `design`, `artifact`, `other`) on an `issue`, `spec` or `task`, optionally marking it `RESOLVED` or `COMPLETED` (`mark_done`) |
+| `ledger_record_deliverable` | author | register a deliverable on an `issue`, `spec`, or `task` and optionally report progress with `mark_done`, or amend the check metadata of an existing deliverable |
 | `ledger_record_case` | author | add an observed case under an issue (`MERGED` issues are refused and name their target) |
 | `ledger_link` | author | link issues, specs, tasks and criteria (`issue_task`, `issue_spec`, `spec_task`, `criterion_task`, `criterion_issue`, `criterion_spec`, or issue `RELATION_KIND` codes), or remove a link |
 | `ledger_correct` | author | mark a history row as wrong |
 | `ledger_batch` | author | up to 200 author operations in one transaction, including project version changes; one `operationKey` for the batch |
-| `ledger_review` | reviewer | independent verification (`VERIFIED`, `MET`, `NOT_MET`) and reopening (`evidence_uri` required) |
+| `ledger_review` | reviewer | record a verdict, return reported work for rework, or withdraw a verdict with `evidence_uri` |
 | `ledger_review_correct` | reviewer | mark a reviewer verification row as wrong |
 
 Attachment tools. Use a session with a live grant to start, seal, inspect a sealed bundle or read it. The authenticated `attachments-send` CLI uses the per-file `uploadId` to send and resume chunks directly.
@@ -104,6 +104,50 @@ definitions without a restart. A change made by another process (the admin web, 
  "evidence": "request 7f3a, api/checkout.ts:88", "source_quote": "I can't pay with my gift card",
  "observed_at": "2026-11-05T10:00:00Z", "reason": "second report of the same failure"}
 ```
+
+## Project permissions
+
+Permissions apply to the current host session and project. Creation and editing each have their own grant. Project settings, milestone archiving and restoration, and session grant administration are owner operations.
+
+| Permission | Allowed actions |
+|---|---|
+| `issue_create` | Register an issue with `ledger_issue_save`. |
+| `issue_update` | Edit issues, change author states, add observations, manage issue–task and issue–issue relationships, or link issues to versions. |
+| `spec_create` | Register a specification with `ledger_spec_save`. |
+| `spec_update` | Edit or move specifications, change author states, manage specification links to issues or tasks, or link specifications to versions. |
+| `task_create` | Register a task with `ledger_task_save`. |
+| `task_update` | Edit or move tasks, change author states, withdraw a task completion report as an author, or link tasks to versions. |
+| `criterion_create` | Register a milestone release criterion with `ledger_criterion_save`. |
+| `criterion_update` | Edit or move criteria, change author states, manage criterion links to issues, specifications or tasks, or link criteria to versions. |
+| `deliverable_create` | Register a deliverable. On a new entry, `mark_done=true` can also resolve the issue or complete the specification or task. |
+| `deliverable_update` | Amend check metadata on an existing deliverable or correct its audit history. The target retains its state. |
+| `version_create` | Register a project version with the batch `project_version` operation. |
+| `version_update` | Rename a project version or change its description. |
+| `verify` | Record independent verdicts, return reported work for rework, withdraw earlier verdicts, or correct review history. |
+
+For a cross-project relationship, grant the relationship's update permission in both projects. Moving a record checks its update permission in both projects. Merging issues requires `issue_update` in both projects. If the source is verified, withdrawing that verdict also requires `verify` in the source project. Linking an existing record to a version checks the record's update permission. Batch operations apply the same permissions as individual operations.
+
+| Review case | Tool and required permission |
+|---|---|
+| `RESOLVED → VERIFIED` for an issue or `COMPLETED → VERIFIED` for a specification or task | `ledger_review` with `verify`, evidence, and an independent session. An issue also needs a deliverable. |
+| Decide a release criterion as `MET` or `NOT_MET` | `ledger_review` with `verify`, evidence, and an independent session. |
+| Return a report for rework, `RESOLVED → OPEN` for an issue or `COMPLETED → ACTIVE` for a specification, task, or criterion | `ledger_review` with `verify`, evidence, and an independent session. |
+| Withdraw a prior verdict such as `VERIFIED → ACTIVE` on a task | `ledger_review` with `verify` and evidence. |
+| Withdraw a verdict while cancelling work, dismissing or disputing an issue, or merging issues | `ledger_review` with `verify`, the applicable update permission, and evidence. Merging checks both projects. |
+| Withdraw an author report without a review decision | `ledger_transition` with the record's update permission. |
+| Correct an erroneous history entry | `ledger_correct` with the record or relationship's update permission, or `ledger_review_correct` with `verify` for review history. Both add history. |
+
+Project permission is checked against the current state, target state, and write path. Ordinary task changes use `task_update`. Reading ledger records requires the MCP connection token. Attachment capabilities have their own rules in the next section.
+
+| Example refusal | Error |
+|---|---|
+| A create-only session edits an existing record, or an edit-only session attempts to create one | `SESSION_NOT_GRANTED` with the required permission |
+| A reviewer with only `verify` assigns an owner or changes an ordinary author state | `SESSION_NOT_GRANTED` with the record's update permission |
+| `ledger_transition` receives `VERIFIED`, `MET`, or `NOT_MET` as its target | `VALIDATION_FAILED` |
+| An author operation attempts to leave a verification state | `VERIFY_NEEDS_REVIEWER_LOGIN` |
+| A participant attempts to approve or return their own work | `SAME_SESSION` |
+| `ledger_review` omits its required `evidence_uri` argument | `VALIDATION_FAILED` |
+| A transition reaches a rule that requires evidence without supplying it | `EVIDENCE_REQUIRED` |
 
 ## Attachments
 

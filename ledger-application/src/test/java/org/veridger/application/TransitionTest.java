@@ -9,6 +9,7 @@ import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.veridger.application.history.Change;
 import org.veridger.application.json.LedgerJson;
@@ -16,6 +17,8 @@ import org.veridger.application.support.Expect;
 import org.veridger.application.support.LedgerServiceTest;
 import org.veridger.application.support.MergeFixture;
 import org.veridger.application.support.Scenario;
+import org.veridger.application.write.CorrectCommand;
+import org.veridger.application.write.CorrectService;
 import org.veridger.application.write.ReviewService;
 import org.veridger.application.write.SaveService;
 import org.veridger.application.write.TransitionCommand;
@@ -29,6 +32,7 @@ import org.veridger.domain.error.TrustCode;
 import org.veridger.domain.error.ValidationCode;
 import org.veridger.domain.error.ValidationException;
 import org.veridger.domain.model.HistoryEntry;
+import org.veridger.domain.rule.HistoryEntity;
 import org.veridger.domain.rule.HistoryOp;
 import org.veridger.domain.rule.IssueStatus;
 import org.veridger.domain.rule.SpecStatus;
@@ -251,6 +255,108 @@ class TransitionTest {
         author(s, "task", t.id(), 1, "COMPLETED", Scenario.EVIDENCE);
         Expect.failure(() -> review(s, Scenario.REVIEWER, "task", t.id(), 2, "VERIFIED", Scenario.EVIDENCE),
                 TransitionCode.SAME_SESSION);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HistoryEntity.class, names = {"ISSUE", "SPEC", "TASK", "CRITERION"})
+    void independentReviewerCanReturnReportedWork(HistoryEntity kind, Scenario s) {
+        SaveResult reported = switch (kind) {
+            case ISSUE -> s.resolvedIssue("issue");
+            case SPEC -> s.newSpec("spec");
+            case TASK -> s.newTask("task");
+            case CRITERION -> s.newCriterion("1", "milestone", "criterion");
+            default -> throw new IllegalArgumentException(kind.name());
+        };
+        String entity = kind.token();
+        boolean issue = kind == HistoryEntity.ISSUE;
+        if (!issue) {
+            author(s, entity, reported.id(), 1, "COMPLETED", Scenario.EVIDENCE);
+        }
+        String reviewer = s.actorWith("verify");
+        String target = issue ? "OPEN" : "ACTIVE";
+        String from = issue ? "RESOLVED" : "COMPLETED";
+        var command = s.move(entity, reported.id(), 2, target, Scenario.EVIDENCE);
+        var reviewService = s.bean(ReviewService.class);
+        Expect.failure(() -> s.bean(TransitionService.class).transition(reviewer, command),
+                TrustCode.SESSION_NOT_GRANTED);
+        Expect.failure(() -> review(s, reviewer, entity, reported.id(), 2, target, null),
+                TransitionCode.EVIDENCE_REQUIRED);
+        s.grant(Scenario.AUTHOR, s.projectId(), "verify");
+        Expect.failure(() -> reviewService.review(Scenario.AUTHOR, command), TransitionCode.SAME_SESSION);
+
+        TransitionResult returned = reviewService.review(reviewer, command);
+        assertThat(returned.from()).isEqualTo(from);
+        assertThat(returned.to()).isEqualTo(target);
+        assertThat(returned.version()).isEqualTo(3);
+        assertThat(s.historyRow(returned.historyId()).involvesVerification()).isTrue();
+        assertThat(reviewService.review(reviewer, command)).isEqualTo(returned);
+        var correction = new CorrectCommand(Scenario.uuid(), returned.historyId(), Scenario.REASON);
+        Expect.failure(() -> s.bean(CorrectService.class).correct(Scenario.AUTHOR, correction),
+                TrustCode.VERIFY_NEEDS_REVIEWER_LOGIN);
+        assertThat(reviewService.reviewCorrect(reviewer, correction).corrects()).isEqualTo(returned.historyId());
+    }
+
+    @Test
+    void authorMayWithdrawCompletionWithoutReviewPrivileges(Scenario s) {
+        SaveResult task = s.newTask("task");
+        author(s, "task", task.id(), 1, "COMPLETED", Scenario.EVIDENCE);
+        var command = s.move("task", task.id(), 2, "ACTIVE", null);
+        String editOnly = s.actorWith("task_update");
+        Expect.failure(() -> s.bean(ReviewService.class).review(editOnly, command), TrustCode.SESSION_NOT_GRANTED);
+        var result = s.bean(TransitionService.class).transition(editOnly, command);
+        assertThat(result.to()).isEqualTo("ACTIVE");
+        assertThat(s.historyRow(result.historyId()).involvesVerification()).isFalse();
+        String verifyOnly = s.actorWith("verify");
+        Expect.failure(() -> review(s, verifyOnly, "task", task.id(), 3, "BLOCKED", Scenario.EVIDENCE),
+                TrustCode.SESSION_NOT_GRANTED);
+    }
+
+    @Test
+    void mergingVerifiedIssueStillRequiresUpdatePermissionOnBothProjects(Scenario s) {
+        SaveResult source = s.verifiedIssue("source");
+        String destinationProject = s.otherProject();
+        s.grant(Scenario.AUTHOR, destinationProject, "issue_create");
+        var fields = s.issueFields("destination");
+        fields.put("project_id", destinationProject);
+        SaveResult destination = s.bean(SaveService.class).save(Scenario.AUTHOR, s.create("issue", null, fields));
+        String reviewer = s.actorWith("verify");
+        s.grant(reviewer, destinationProject, "issue_update");
+        var merge = new TransitionCommand(Scenario.uuid(), "issue", source.id(), 3L, "MERGED", Scenario.REASON,
+                Scenario.EVIDENCE, null, destination.id());
+        var reviews = s.bean(ReviewService.class);
+        var failure = Expect.failure(() -> reviews.review(reviewer, merge), TrustCode.SESSION_NOT_GRANTED);
+        assertThat(failure.args()).containsExactly(reviewer, "issue_update", s.projectId());
+        s.grant(reviewer, s.projectId(), "issue_update");
+        assertThat(reviews.review(reviewer, merge).to()).isEqualTo("MERGED");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"spec", "task"})
+    void withdrawingVerdictAndCancellingRequiresRecordUpdate(String entity, Scenario s) {
+        boolean spec = "spec".equals(entity);
+        SaveResult record = spec ? s.newSpec(entity) : s.newTask(entity);
+        author(s, entity, record.id(), 1, "COMPLETED", Scenario.EVIDENCE);
+        String reviewer = s.actorWith("verify");
+        review(s, reviewer, entity, record.id(), 2, "VERIFIED", Scenario.EVIDENCE);
+        var cancel = s.move(entity, record.id(), 3, "CANCELLED", Scenario.EVIDENCE);
+        var reviews = s.bean(ReviewService.class);
+        var refused = Expect.failure(() -> reviews.review(reviewer, cancel), TrustCode.SESSION_NOT_GRANTED);
+        assertThat(refused.args()).containsExactly(reviewer, entity + "_update", s.projectId());
+        s.grant(reviewer, s.projectId(), entity + "_update");
+        assertThat(reviews.review(reviewer, cancel).to()).isEqualTo("CANCELLED");
+    }
+
+    @EnumSource(value = IssueStatus.class, names = {"NOT_AN_ISSUE", "DISPUTED"})
+    @ParameterizedTest
+    void withdrawingIssueVerdictAndChangingDispositionRequiresIssueUpdate(IssueStatus to, Scenario s) {
+        SaveResult issue = s.verifiedIssue("issue");
+        String reviewer = s.actorWith("verify");
+        var disposition = s.move("issue", issue.id(), 3, to.name(), Scenario.EVIDENCE);
+        var reviews = s.bean(ReviewService.class);
+        var refused = Expect.failure(() -> reviews.review(reviewer, disposition), TrustCode.SESSION_NOT_GRANTED);
+        assertThat(refused.args()).containsExactly(reviewer, "issue_update", s.projectId());
+        s.grant(reviewer, s.projectId(), "issue_update");
+        assertThat(reviews.review(reviewer, disposition).to()).isEqualTo(to.name());
     }
 
     @Test
