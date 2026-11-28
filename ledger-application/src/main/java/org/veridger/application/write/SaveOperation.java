@@ -107,7 +107,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
 
     private List<Target> targets(SaveCommand c) {
         HistoryEntity entity = entity(c.entity());
-        Scope scope = entity.writeScope();
+        Scope scope = c.isCreate() ? entity.createScope() : entity.updateScope();
         if (c.isCreate()) {
             String project = c.mentionedProject();
             if (project == null || project.isBlank()) {
@@ -233,7 +233,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
             }
         }
         if (ctx.session().channel() != Channel.ADMIN) {
-            ctx.authorize(gate, List.of(new Target(project.id(), entity.writeScope())));
+            ctx.authorize(gate, List.of(new Target(project.id(), entity.createScope())));
         }
         ChangeSet changes = ChangeSet.empty();
         for (Map.Entry<String, String> field : mentioned.entrySet()) {
@@ -439,7 +439,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
                 codeRules.checkIssue(row, after.category(), after.severity());
                 before = Snapshot.IssueRow.of(row);
                 version = rows.saveIssue(after).version();
-                ctx.authorize(gate, List.of(new Target(row.projectId(), HistoryEntity.ISSUE.writeScope())));
+                ctx.authorize(gate, List.of(new Target(row.projectId(), HistoryEntity.ISSUE.updateScope())));
             }
             case SpecFields f -> {
                 SpecId specId = SpecId.of(id);
@@ -464,7 +464,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
                 } else {
                     currentProject = rows.pinSpec(specId);
                 }
-                ctx.authorize(gate, moveTargets(currentProject, targetProject, HistoryEntity.SPEC.writeScope()));
+                ctx.authorize(gate, moveTargets(currentProject, targetProject, HistoryEntity.SPEC.updateScope()));
                 Spec row = rows.specForWrite(specId, expectedVersion);
                 row.requireNotVerified();
                 Spec after = row.edited(f, now);
@@ -481,7 +481,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
             }
             case TaskFields f -> {
                 ProjectId currentProject = ctx.pinTask(rows, TaskId.of(id));
-                ctx.authorize(gate, moveTargets(currentProject, f.projectId().orNull(), HistoryEntity.TASK.writeScope()));
+                ctx.authorize(gate, moveTargets(currentProject, f.projectId().orNull(), HistoryEntity.TASK.updateScope()));
                 Task row = rows.taskForWrite(TaskId.of(id), expectedVersion);
                 row.requireNotVerified();
                 Task after = row.edited(f, now);
@@ -497,7 +497,7 @@ public class SaveOperation extends WriteOperation<SaveCommand, SaveResult> {
             case CriterionFields f -> {
                 ProjectId currentProject = ctx.pinCriterion(rows, CriterionId.of(id));
                 ctx.authorize(gate,
-                        moveTargets(currentProject, f.projectId().orNull(), HistoryEntity.CRITERION.writeScope()));
+                        moveTargets(currentProject, f.projectId().orNull(), HistoryEntity.CRITERION.updateScope()));
                 Criterion row = rows.criterionForWrite(CriterionId.of(id), expectedVersion);
                 row.requireOpenForEdit();
                 Criterion after = row.edited(f);

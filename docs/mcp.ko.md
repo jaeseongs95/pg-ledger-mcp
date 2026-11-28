@@ -66,15 +66,15 @@
 같은 사유로 여러 건을 변경할 때는 `ledger_batch`의 `default_reason`을 한 번만 지정하세요. 각 항목에서
 `reason`으로 덮어쓸 수 있습니다. 첨부 원문은 필요한 바이트 범위를 지정하고 `["text","size","totalBytes"]`를 선택합니다.
 
-프로젝트의 `issue` 권한으로 `ledger_batch`의 `op=project_version`에서 버전 등록·이름 변경·설명 수정을
-할 수 있습니다. 기존 항목을 연결하거나 해제할 때는 유형별로 `link_items` 또는 `unlink_items`를 지정하세요.
+`ledger_batch`의 `op=project_version`에서 버전 등록에는 `version_create`, 이름·설명 수정에는 `version_update` 권한이 필요합니다.
+기존 항목을 연결하거나 해제할 때는 유형별로 `link_items` 또는 `unlink_items`를 지정하세요.
 
 ```json
 {"op":"project_version","project_id":"studio","name":"Review 2","link_items":{"spec":["STUDIO-S-0001"],"task":["STUDIO-T-0001"]}}
 ```
 
 `create=true`로 버전을 등록하고, `original_name`을 지정해 이름을 바꿉니다. 연결과 해제는 각각 같은 프로젝트의
-항목 ID를 최대 200개까지 받습니다. 이슈 연결에는 `issue`, 명세에는 `spec`, 작업과 출시 기준에는 `task` 권한이 필요합니다.
+항목 ID를 최대 200개까지 받습니다. 항목 연결·해제에는 유형별로 `issue_update`, `spec_update`, `task_update`, `criterion_update` 권한이 필요합니다.
 기존 `link_issue_ids`와 `unlink_issue_ids`도 사용할 수 있습니다. 사유는 작업의 `reason` 또는 배치의 `default_reason`으로
 지정하세요. 새 항목을 바로 연결할 때는 `op=save`에 `project_version`을 지정합니다.
 

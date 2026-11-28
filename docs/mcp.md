@@ -69,16 +69,16 @@ Use `structured_only=true` when the client consumes MCP `structuredContent`. The
 For author writes sharing a reason, provide `default_reason` once in `ledger_batch`. Items can override it with
 their own `reason`. For attachment text, request `["text","size","totalBytes"]` with the needed byte range.
 
-Use `ledger_batch` with `op=project_version` to register, rename or change a version description with the project's
-`issue` grant. For existing records, pass `link_items` or `unlink_items` grouped by kind:
+Use `ledger_batch` with `op=project_version` and `version_create` to register a version. Renaming it or changing its
+description requires `version_update`. For existing records, pass `link_items` or `unlink_items` grouped by kind:
 
 ```json
 {"op":"project_version","project_id":"studio","name":"Review 2","link_items":{"spec":["STUDIO-S-0001"],"task":["STUDIO-T-0001"]}}
 ```
 
 Use `create=true` to register the version, or `original_name` to rename it. Each direction accepts at most 200 record IDs
-from the same project. The item scopes are `issue` for an issue, `spec` for a specification, and `task` for a task or
-release criterion. Existing callers can still use `link_issue_ids` and `unlink_issue_ids`. Supply `reason` on the operation
+from the same project. Linking requires `issue_update`, `spec_update`, `task_update` or `criterion_update` for the
+respective record type. Existing callers can still use `link_issue_ids` and `unlink_issue_ids`. Supply `reason` on the operation
 or `default_reason` on the batch. To create a record and connect it at once, use `op=save` with `project_version`.
 
 Use `ledger_projects(project=..., include_versions=true)` to retrieve exact version names. Use `ledger_search` with

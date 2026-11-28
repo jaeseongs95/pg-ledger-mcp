@@ -45,7 +45,10 @@ class EnumsAndCodesTest {
                 "COMPLETED", "VERIFIED", "CANCELLED");
         assertThat(names(CriterionState.class)).containsExactlyInAnyOrder("UNKNOWN", "PLANNED", "ACTIVE",
                 "COMPLETED", "MET", "NOT_MET");
-        assertThat(Tokens.allowed(Scope.values())).containsExactly("issue", "spec", "task", "deliverable", "verify");
+        assertThat(Scope.assignable()).extracting(Scope::token).containsExactly(
+                "issue_create", "issue_update", "spec_create", "spec_update", "task_create", "task_update",
+                "criterion_create", "criterion_update", "deliverable_create", "deliverable_update",
+                "version_create", "version_update", "verify");
         assertThat(names(Channel.class)).containsExactlyInAnyOrder("AUTHOR", "REVIEWER", "ADMIN");
         assertThat(Tokens.allowed(CheckResult.values())).containsExactly("passed", "failed", "cancelled");
         assertThat(Tokens.allowed(DeliverableTarget.values())).containsExactly("issue", "spec", "task");
@@ -61,7 +64,7 @@ class EnumsAndCodesTest {
         ValidationException e = org.assertj.core.api.Assertions.catchThrowableOfType(ValidationException.class,
                 () -> Tokens.parse("scope", "FIXED", Scope.values()));
         assertThat(e.code()).isEqualTo(ValidationCode.VALIDATION_FAILED);
-        assertThat(e.issues().getFirst().allowed()).containsExactly("issue", "spec", "task", "deliverable", "verify");
+        assertThat(e.issues().getFirst().allowed()).containsExactlyElementsOf(Tokens.allowed(Scope.values()));
         Expect.invalid(() -> Tokens.parse("check_result", "unknown", CheckResult.values()));
         Expect.invalid(() -> Tokens.parse("scope", null, Scope.values()));
         // structural link kinds vs common-code relation kinds

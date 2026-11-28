@@ -5,12 +5,14 @@ package org.veridger.application.admin;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import org.veridger.application.gate.ProjectPinner;
 import org.veridger.database.repository.Counter;
@@ -192,8 +194,12 @@ public class GrantService {
         Instant expiresAt = command.expiresAt() == null || command.expiresAt().isBlank() ? null
                 : UtcInstant.parse("expires_at", command.expiresAt()).value();
         Instant now = clock.instant();
-
         projectPinner.pin(project);
+        return syncProjectScopes(author, project, desired, expiresAt, command.note(), now, actor);
+    }
+
+    private SyncResult syncProjectScopes(AuthorId author, ProjectId project, Set<Scope> desired, Instant expiresAt,
+            String note, Instant now, OwnerIdentity actor) {
         Map<Scope, SessionGrant> current = new LinkedHashMap<>();
         for (SessionGrant liveGrant : state.findLive(author, now)) {
             if (Objects.equals(project, liveGrant.projectId())) {
@@ -201,41 +207,69 @@ public class GrantService {
             }
         }
 
-        List<SessionGrant> toRevoke = current.entrySet().stream()
-                .filter(entry -> !desired.contains(entry.getKey()))
-                .sorted(Map.Entry.comparingByKey(LockOrder.SCOPE))
-                .map(Map.Entry::getValue)
+        Set<Scope> effective = new LinkedHashSet<>();
+        desired.forEach(scope -> effective.addAll(scope.effectiveScopes()));
+        Set<Scope> retained = new LinkedHashSet<>();
+        List<SessionGrant> toRevoke = current.values().stream()
+                .filter(grant -> !effective.containsAll(grant.scope().effectiveScopes()))
+                .sorted(Comparator.comparing(SessionGrant::scope, LockOrder.SCOPE))
                 .toList();
-        List<Scope> toAdd = desired.stream()
-                .filter(scope -> !current.containsKey(scope))
-                .toList();
+        current.values().stream().filter(grant -> !toRevoke.contains(grant)).forEach(grant -> {
+            retained.add(grant.scope());
+            retained.addAll(grant.scope().effectiveScopes());
+        });
+        List<Scope> toAdd = desired.stream().filter(scope -> !retained.contains(scope)
+                || outlives(current.get(scope.bundledScope()), current.get(scope), toRevoke)).toList();
 
-        int revokedCount = 0;
-        for (SessionGrant existing : toRevoke) {
-            state.revoke(existing.id(), now);
-            revokedCount++;
+        Set<Scope> closing = new TreeSet<>(LockOrder.SCOPE);
+        closing.addAll(toAdd);
+        toRevoke.forEach(grant -> closing.add(grant.scope()));
+        for (Scope scope : closing) {
+            if (toAdd.contains(scope)) {
+                closeLive(author, project, scope, now);
+            } else if (!state.revoke(current.get(scope).id(), now)) {
+                throw new ConflictException(ConflictCode.CONCURRENT_MODIFICATION,
+                        List.of("session_grant", scope.token()));
+            }
         }
 
         List<Long> issuedIds = new ArrayList<>(toAdd.size());
-        if (!toAdd.isEmpty()) {
-            for (Scope scope : toAdd.stream().sorted(LockOrder.SCOPE).toList()) {
-                closeLive(author, project, scope, now);
-            }
-            for (Scope scope : toAdd) {
-                issuedIds.add(insertGrant(author, project, scope, now, expiresAt, command.note()));
-            }
+        for (Scope scope : toAdd) {
+            SessionGrant previous = current.get(scope.bundledScope());
+            issuedIds.add(previous == null ? insertGrant(author, project, scope, now, expiresAt, note)
+                    : splitGrant(previous, scope));
         }
 
+        Set<Scope> revoked = new LinkedHashSet<>();
+        toRevoke.forEach(grant -> revoked.add(grant.scope()));
+        toAdd.stream().filter(current::containsKey).forEach(revoked::add);
+        int revokedCount = revoked.size();
         if (revokedCount > 0) {
-            String revokedTokens = toRevoke.stream().map(g -> g.scope().token()).collect(Collectors.joining(","));
+            String revokedTokens = revoked.stream().sorted(LockOrder.SCOPE).map(Scope::token)
+                    .collect(Collectors.joining(","));
             audit.record(actor, OwnerAction.GRANT_REVOKED, author.value() + "|" + project.value(),
                     "scope=" + revokedTokens + " revoked=" + revokedCount);
         }
         if (!issuedIds.isEmpty()) {
-            Plan addedPlan = new Plan(author, project, toAdd, expiresAt, command.note(), now);
+            Plan addedPlan = new Plan(author, project, toAdd, expiresAt, note, now);
             recordIssued(addedPlan, issuedIds, actor);
         }
         return new SyncResult(issuedIds.size(), revokedCount);
+    }
+
+    private static boolean outlives(SessionGrant bundle, SessionGrant individual, List<SessionGrant> toRevoke) {
+        if (bundle == null || individual == null || !toRevoke.contains(bundle) || individual.expiresAt() == null) {
+            return false;
+        }
+        return bundle.expiresAt() == null || bundle.expiresAt().isAfter(individual.expiresAt());
+    }
+
+    private long splitGrant(SessionGrant previous, Scope scope) {
+        long id = ids.next(Counter.SESSION_GRANT);
+        grants.insert(new SessionGrant(id, previous.authorId(), previous.projectId(), scope, previous.grantedBy(),
+                previous.grantedAt(), previous.expiresAt(), null, previous.lastUsedAt(), previous.note(),
+                SessionGrant.liveKey(previous.authorId(), previous.projectId(), scope)));
+        return id;
     }
 
     private int revokeAll(RevokeCommand command, OwnerIdentity actor) {
@@ -247,7 +281,27 @@ public class GrantService {
         }
         ProjectId project = hasProject ? ProjectId.of(command.project()) : null;
         Scope scope = hasScope ? Tokens.parse("scope", command.scope(), Scope.values()) : null;
-        int revoked = state.revokeLive(author, project, scope, clock.instant());
+        Instant now = clock.instant();
+        if (scope != null && scope.bundledScope() != null && projects.existsById(project)) {
+            projectPinner.pin(project);
+            List<SessionGrant> live = state.findLive(author, now).stream()
+                    .filter(grant -> Objects.equals(project, grant.projectId())).toList();
+            if (live.stream().anyMatch(grant -> grant.scope() == scope.bundledScope())) {
+                Set<Scope> desired = new LinkedHashSet<>();
+                live.forEach(grant -> desired.addAll(grant.scope().effectiveScopes()));
+                desired.remove(scope);
+                return syncProjectScopes(author, project, desired, null, null, now, actor).revoked();
+            }
+        }
+        int revoked;
+        if (scope == null) {
+            revoked = state.revokeLive(author, project, null, now);
+        } else {
+            Set<Scope> scopes = new LinkedHashSet<>(scope.effectiveScopes());
+            scopes.add(scope);
+            revoked = scopes.stream().sorted(LockOrder.SCOPE)
+                    .mapToInt(value -> state.revokeLive(author, project, value, now)).sum();
+        }
         audit.record(actor, OwnerAction.GRANT_REVOKED,
                 author.value() + (project == null ? "" : "|" + project.value()),
                 "scope=" + (scope == null ? "all" : scope.token()) + " revoked=" + revoked);

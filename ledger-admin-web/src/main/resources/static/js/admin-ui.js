@@ -209,9 +209,31 @@ function initializeAdminPage() {
     }
   }
 
-  document.querySelectorAll("[data-scope-matrix]").forEach((form) => {
-    syncMatrix(form);
-    form.addEventListener("change", () => syncMatrix(form));
+  function scopeGroupMembers(form, group) {
+    return Array.from(form.querySelectorAll(`input[name="scopes"][value^="${group.dataset.scopeGroup}_"]`));
+  }
+
+  function syncScopeSelection(form) {
+    form.querySelectorAll("[data-scope-group]").forEach((group) => {
+      const members = scopeGroupMembers(form, group);
+      const allChecked = members.every((member) => member.checked);
+      group.checked = allChecked;
+      group.indeterminate = !allChecked && members.some((member) => member.checked);
+    });
+    if (form.hasAttribute("data-scope-matrix")) { syncMatrix(form); }
+  }
+
+  document.querySelectorAll("[data-scope-matrix], [data-scope-picker]").forEach((form) => {
+    syncScopeSelection(form);
+    form.addEventListener("change", (event) => {
+      const changed = event.target;
+      if (changed.hasAttribute("data-scope-group")) {
+        scopeGroupMembers(form, changed).forEach((box) => { box.checked = changed.checked; });
+      }
+      if (changed.name === "scopes" || changed.hasAttribute("data-scope-group")) {
+        syncScopeSelection(form);
+      }
+    });
   });
 
   listen("click", (event) => {
@@ -226,7 +248,7 @@ function initializeAdminPage() {
         else if (preset === "standard") { box.checked = box.value !== "verify"; }
         else if (preset === "none") { box.checked = false; }
       });
-      if (container.hasAttribute("data-scope-matrix")) { syncMatrix(container); }
+      syncScopeSelection(container);
       return;
     }
 
@@ -238,7 +260,7 @@ function initializeAdminPage() {
       form.querySelectorAll('input[type="checkbox"][name="scopes"]').forEach((box) => {
         box.checked = initialSet.has(box.value);
       });
-      syncMatrix(form);
+      syncScopeSelection(form);
     }
   });
 
@@ -423,7 +445,7 @@ function initializeAdminPage() {
         form.querySelectorAll('input[type="checkbox"][name="scopes"]').forEach((box) => {
           box.checked = scopeSet.has(box.value);
         });
-        syncMatrix(form);
+        syncScopeSelection(form);
       }
     }
 
@@ -437,7 +459,10 @@ function initializeAdminPage() {
           ? (titleEl.dataset.titleSession || titleEl.textContent)
           : (titleEl.dataset.titleManual || titleEl.textContent);
       }
-      if (form) { form.reset(); }
+      if (form) {
+        form.reset();
+        syncScopeSelection(form);
+      }
       if (mode === "session") {
         populateSplitAuthor("enrolled", trigger.dataset.author || "", true);
       } else {
@@ -449,11 +474,6 @@ function initializeAdminPage() {
           .filter(([id]) => !allowed || allowed.has(id))
           .map(([id, name]) => new Option(name, id));
         enrolledProjectSelect.replaceChildren(...options);
-      }
-      if (form) {
-        form.querySelectorAll('input[type="checkbox"][name="scopes"]').forEach((box) => {
-          box.checked = box.value !== "verify";
-        });
       }
     }
 

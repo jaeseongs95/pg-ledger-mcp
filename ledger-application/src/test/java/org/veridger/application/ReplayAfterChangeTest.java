@@ -81,8 +81,8 @@ class ReplayAfterChangeTest {
         s.bean(GrantService.class).revoke(new RevokeCommand(actor, null, null), TestOwners.OWNER);
         LedgerException refused = Expect.failure(() -> s.bean(ReviewService.class).review(actor, v.started()),
                 TrustCode.SESSION_NOT_GRANTED);
-        assertThat(refused.args()).as("author, scope and project of the answered call (PLANNED to ACTIVE needs task), not the scope of the state now (verify)")
-                .containsExactly(actor, "task", s.projectId());
+        assertThat(refused.args()).as("the answered move from PLANNED to ACTIVE needs task_update")
+                .containsExactly(actor, "task_update", s.projectId());
     }
 
     @Test

@@ -39,9 +39,9 @@ record ProjectVersionLinks(Set<ItemRef> linked, Set<ItemRef> unlinked) {
         Set<Scope> scopes = new LinkedHashSet<>();
         if (Boolean.TRUE.equals(input.create()) || input.originalName() != null || input.description() != null
                 || (linked.isEmpty() && unlinked.isEmpty())) {
-            scopes.add(Scope.ISSUE);
+            scopes.add(Boolean.TRUE.equals(input.create()) ? Scope.VERSION_CREATE : Scope.VERSION_UPDATE);
         }
-        items().map(item -> item.entity().writeScope()).forEach(scopes::add);
+        items().map(item -> item.entity().updateScope()).forEach(scopes::add);
         return scopes.stream().map(scope -> new Target(project, scope)).toList();
     }
 

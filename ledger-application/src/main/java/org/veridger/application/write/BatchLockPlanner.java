@@ -331,7 +331,7 @@ class BatchLockPlanner {
                 case BatchOpInput.RecordDeliverable d -> collectDeliverableTargets(d, issueProjects, specProjects,
                         taskProjects, targets);
                 case BatchOpInput.RecordCase c -> resolveIssueProject(c.issueId(), issueProjects)
-                        .ifPresent(p -> targets.add(new Target(p, Scope.ISSUE)));
+                        .ifPresent(p -> targets.add(new Target(p, Scope.ISSUE_UPDATE)));
                 case BatchOpInput.Link l -> collectLinkTargets(l, issueProjects, specProjects, taskProjects,
                         criterionProjects, targets);
                 case BatchOpInput.Correct c -> collectCorrectTargets(c, issueProjects, specProjects, taskProjects,
@@ -351,8 +351,8 @@ class BatchLockPlanner {
             return;
         }
         HistoryEntity entity = parsed.orElseThrow();
-        Scope scope = entity.writeScope();
         boolean create = s.expectedVersion() == null || s.expectedVersion() == 0;
+        Scope scope = create ? entity.createScope() : entity.updateScope();
         Optional<ProjectId> mentionedProject = mentionedProject(s.fields()).filter(projects::existsById);
         if (create) {
             mentionedProject.ifPresent(p -> {
@@ -414,11 +414,11 @@ class BatchLockPlanner {
                 Optional.empty();
         };
         // Batches always run on Channel.AUTHOR (Scope.VERIFY is rejected by VERIFY_NEEDS_REVIEWER_LOGIN)
-        current.ifPresent(p -> targets.add(new Target(p, entity.writeScope())));
+        current.ifPresent(p -> targets.add(new Target(p, entity.updateScope())));
         if (entity == HistoryEntity.ISSUE && Tokens.find(t.to(), IssueStatus.values()).filter(s -> s == IssueStatus.MERGED)
                 .isPresent()) {
             resolveIssueProject(t.mergedInto(), issueProjects)
-                    .ifPresent(p -> targets.add(new Target(p, HistoryEntity.ISSUE.writeScope())));
+                    .ifPresent(p -> targets.add(new Target(p, HistoryEntity.ISSUE.updateScope())));
         }
     }
 
@@ -433,7 +433,10 @@ class BatchLockPlanner {
             case SPEC -> resolveSpecProject(d.targetId(), specProjects);
             case TASK -> resolveTaskProject(d.targetId(), taskProjects);
         };
-        project.ifPresent(p -> targets.add(new Target(p, Scope.DELIVERABLE)));
+        project.ifPresent(p -> {
+            targets.add(new Target(p, Scope.DELIVERABLE_ADD));
+            targets.add(new Target(p, Scope.DELIVERABLE_EDIT));
+        });
     }
 
     private void collectLinkTargets(BatchOpInput.Link l, Map<String, ProjectId> issueProjects,
@@ -444,32 +447,32 @@ class BatchLockPlanner {
         }
         switch (LinkKind.ofToken(l.kind())) {
             case ISSUE_TASK -> {
-                resolveIssueProject(l.a(), issueProjects).ifPresent(p -> targets.add(new Target(p, Scope.ISSUE)));
-                resolveTaskProject(l.b(), taskProjects).ifPresent(p -> targets.add(new Target(p, Scope.ISSUE)));
+                resolveIssueProject(l.a(), issueProjects).ifPresent(p -> targets.add(new Target(p, Scope.ISSUE_UPDATE)));
+                resolveTaskProject(l.b(), taskProjects).ifPresent(p -> targets.add(new Target(p, Scope.ISSUE_UPDATE)));
             }
             case ISSUE_SPEC -> {
-                resolveIssueProject(l.a(), issueProjects).ifPresent(p -> targets.add(new Target(p, Scope.SPEC)));
-                resolveSpecProject(l.b(), specProjects).ifPresent(p -> targets.add(new Target(p, Scope.SPEC)));
+                resolveIssueProject(l.a(), issueProjects).ifPresent(p -> targets.add(new Target(p, Scope.SPEC_UPDATE)));
+                resolveSpecProject(l.b(), specProjects).ifPresent(p -> targets.add(new Target(p, Scope.SPEC_UPDATE)));
             }
             case SPEC_TASK -> {
-                resolveSpecProject(l.a(), specProjects).ifPresent(p -> targets.add(new Target(p, Scope.SPEC)));
-                resolveTaskProject(l.b(), taskProjects).ifPresent(p -> targets.add(new Target(p, Scope.SPEC)));
+                resolveSpecProject(l.a(), specProjects).ifPresent(p -> targets.add(new Target(p, Scope.SPEC_UPDATE)));
+                resolveTaskProject(l.b(), taskProjects).ifPresent(p -> targets.add(new Target(p, Scope.SPEC_UPDATE)));
             }
             case CRITERION_TASK -> {
-                resolveCriterionProject(l.a(), criterionProjects).ifPresent(p -> targets.add(new Target(p, Scope.TASK)));
-                resolveTaskProject(l.b(), taskProjects).ifPresent(p -> targets.add(new Target(p, Scope.TASK)));
+                resolveCriterionProject(l.a(), criterionProjects).ifPresent(p -> targets.add(new Target(p, Scope.CRITERION_UPDATE)));
+                resolveTaskProject(l.b(), taskProjects).ifPresent(p -> targets.add(new Target(p, Scope.CRITERION_UPDATE)));
             }
             case CRITERION_ISSUE -> {
-                resolveCriterionProject(l.a(), criterionProjects).ifPresent(p -> targets.add(new Target(p, Scope.TASK)));
-                resolveIssueProject(l.b(), issueProjects).ifPresent(p -> targets.add(new Target(p, Scope.TASK)));
+                resolveCriterionProject(l.a(), criterionProjects).ifPresent(p -> targets.add(new Target(p, Scope.CRITERION_UPDATE)));
+                resolveIssueProject(l.b(), issueProjects).ifPresent(p -> targets.add(new Target(p, Scope.CRITERION_UPDATE)));
             }
             case CRITERION_SPEC -> {
-                resolveCriterionProject(l.a(), criterionProjects).ifPresent(p -> targets.add(new Target(p, Scope.TASK)));
-                resolveSpecProject(l.b(), specProjects).ifPresent(p -> targets.add(new Target(p, Scope.TASK)));
+                resolveCriterionProject(l.a(), criterionProjects).ifPresent(p -> targets.add(new Target(p, Scope.CRITERION_UPDATE)));
+                resolveSpecProject(l.b(), specProjects).ifPresent(p -> targets.add(new Target(p, Scope.CRITERION_UPDATE)));
             }
             case RELATION -> {
-                resolveIssueProject(l.a(), issueProjects).ifPresent(p -> targets.add(new Target(p, Scope.ISSUE)));
-                resolveIssueProject(l.b(), issueProjects).ifPresent(p -> targets.add(new Target(p, Scope.ISSUE)));
+                resolveIssueProject(l.a(), issueProjects).ifPresent(p -> targets.add(new Target(p, Scope.ISSUE_UPDATE)));
+                resolveIssueProject(l.b(), issueProjects).ifPresent(p -> targets.add(new Target(p, Scope.ISSUE_UPDATE)));
             }
         }
     }

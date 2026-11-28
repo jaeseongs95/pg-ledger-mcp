@@ -26,6 +26,7 @@ import org.veridger.application.write.RecordCaseService;
 import org.veridger.application.write.SaveCommand;
 import org.veridger.application.write.SaveService;
 import org.veridger.application.write.WriteResult.LinkResult;
+import org.veridger.application.write.WriteResult.ProjectVersionResult;
 import org.veridger.application.write.WriteResult.RecordCaseResult;
 import org.veridger.application.write.WriteResult.RecordDeliverableResult;
 import org.veridger.application.write.WriteResult.SaveResult;
@@ -48,6 +49,29 @@ class BatchTest {
 
     private BatchResult batch(Scenario s, String actor, String operationKey, List<BatchOpInput> ops) {
         return s.bean(BatchService.class).batch(actor, operationKey, ops);
+    }
+
+    @Test
+    void versionCreationMetadataEditsAndItemLinksUseTheirOwnPermissions(Scenario s) {
+        String creator = s.actorWith("version_create");
+        String editor = s.actorWith("version_update");
+        String linker = s.actorWith("spec_update");
+        String spec = s.newSpec("versioned specification").id();
+        var create = new BatchOpInput.ProjectVersion(s.projectId(), "1.0.0", Scenario.REASON, true, null,
+                "First version", null, null, null, null);
+        var edit = new BatchOpInput.ProjectVersion(s.projectId(), "1.0.0", Scenario.REASON, false, null,
+                "Updated description", null, null, null, null);
+        var link = new BatchOpInput.ProjectVersion(s.projectId(), "1.0.0", Scenario.REASON, false, null, null,
+                null, null, new BatchOpInput.VersionItems(null, List.of(spec), null, null), null);
+
+        Expect.failure(() -> batch(s, editor, Scenario.uuid(), List.of(create)), TrustCode.SESSION_NOT_GRANTED);
+        assertThat(batch(s, creator, Scenario.uuid(), List.of(create)).results().getFirst())
+                .isInstanceOfSatisfying(ProjectVersionResult.class, result -> assertThat(result.created()).isTrue());
+        Expect.failure(() -> batch(s, creator, Scenario.uuid(), List.of(edit)), TrustCode.SESSION_NOT_GRANTED);
+        assertThat(batch(s, editor, Scenario.uuid(), List.of(edit)).count()).isEqualTo(1);
+        Expect.failure(() -> batch(s, editor, Scenario.uuid(), List.of(link)), TrustCode.SESSION_NOT_GRANTED);
+        assertThat(batch(s, linker, Scenario.uuid(), List.of(link)).results().getFirst())
+                .isInstanceOfSatisfying(ProjectVersionResult.class, result -> assertThat(result.linked()).isEqualTo(1));
     }
 
     @Test
@@ -156,6 +180,22 @@ class BatchTest {
     }
 
     @Test
+    void aBatchRollsBackCreationIfASeparateEditScopeIsMissing(Scenario s) {
+        String creator = s.actorWith("spec_create");
+        String specId = s.specId(1);
+        var create = new BatchOpInput.Save("spec", Fields.of(s.specFields("Draft")), Scenario.REASON, specId, null);
+        var edit = new BatchOpInput.Save("spec", Fields.of(java.util.Map.of("title", "Edited")),
+                Scenario.REASON, specId, 1L);
+
+        LedgerException error = Expect.failure(() -> batch(s, creator, Scenario.uuid(), List.of(create, edit)),
+                TrustCode.SESSION_NOT_GRANTED);
+        assertThat(error.details()).containsEntry("op_index", List.of("2"))
+                .containsEntry("scope", List.of("spec_update"));
+        assertThat(s.count("SELECT COUNT(*) FROM spec WHERE id = ?", specId)).isZero();
+        assertThat(batch(s, creator, Scenario.uuid(), List.of(create)).count()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("SVC-BAT-09/10/12: multi-kind batch, per-operation gate checks, and chained edits of one row")
     void bat09_10_12_multiKindGatesAndChainedEdits(Scenario s) {
         SaveResult i = s.newIssue("i");
@@ -182,7 +222,7 @@ class BatchTest {
         String delivOnly = s.actorWith("deliverable");
         LedgerException gateErr = Expect.failure(() -> batch(s, delivOnly, Scenario.uuid(), gatedOps),
                 TrustCode.SESSION_NOT_GRANTED);
-        assertThat(gateErr.details()).containsEntry("op_index", List.of("2")).containsEntry("scope", List.of("issue"));
+        assertThat(gateErr.details()).containsEntry("op_index", List.of("2")).containsEntry("scope", List.of("issue_update"));
         assertThat(s.count("SELECT COUNT(*) FROM deliverable WHERE target_entity = 'ISSUE' AND target_id = ?", i.id()))
                 .isZero();
         String enough = s.actorWith("deliverable", "issue");

@@ -6,25 +6,19 @@ import org.veridger.domain.value.Token;
 
 /** Entity kinds that can own a recorded deliverable. */
 public enum DeliverableTarget implements Token {
-    ISSUE("issue", Scope.ISSUE),
-    SPEC("spec", Scope.SPEC),
-    TASK("task", Scope.TASK);
+    ISSUE("issue"),
+    SPEC("spec"),
+    TASK("task");
 
     private final String token;
-    private final Scope writeScope;
 
-    DeliverableTarget(String token, Scope writeScope) {
+    DeliverableTarget(String token) {
         this.token = token;
-        this.writeScope = writeScope;
     }
 
     @Override
     public String token() {
         return token;
-    }
-
-    public Scope writeScope() {
-        return writeScope;
     }
 
     public HistoryEntity historyEntity() {

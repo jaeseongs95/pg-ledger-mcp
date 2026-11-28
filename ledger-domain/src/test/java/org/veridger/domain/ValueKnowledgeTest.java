@@ -71,21 +71,25 @@ class ValueKnowledgeTest {
     @Test
     @DisplayName("DOM-039 every history entity names the scope that writes it")
     void writeScopeOfEveryEntity() {
-        assertThat(HistoryEntity.ISSUE.writeScope()).isEqualTo(Scope.ISSUE);
-        assertThat(HistoryEntity.SPEC.writeScope()).isEqualTo(Scope.SPEC);
-        assertThat(HistoryEntity.TASK.writeScope()).isEqualTo(Scope.TASK);
-        assertThat(HistoryEntity.CRITERION.writeScope()).isEqualTo(Scope.TASK);
-        assertThat(HistoryEntity.DELIVERABLE.writeScope()).isEqualTo(Scope.DELIVERABLE);
-        assertThat(HistoryEntity.ISSUE_TASK.writeScope()).isEqualTo(Scope.ISSUE);
-        assertThat(HistoryEntity.ISSUE_SPEC.writeScope()).isEqualTo(Scope.SPEC);
-        assertThat(HistoryEntity.SPEC_TASK.writeScope()).isEqualTo(Scope.SPEC);
-        assertThat(HistoryEntity.ISSUE_RELATION.writeScope()).isEqualTo(Scope.ISSUE);
-        assertThat(HistoryEntity.CRITERION_LINK.writeScope()).isEqualTo(Scope.TASK);
-        assertThat(HistoryEntity.ISSUE_CASE.writeScope()).isEqualTo(Scope.ISSUE);
+        assertThat(HistoryEntity.ISSUE.createScope()).isEqualTo(Scope.ISSUE_CREATE);
+        assertThat(HistoryEntity.SPEC.createScope()).isEqualTo(Scope.SPEC_CREATE);
+        assertThat(HistoryEntity.TASK.createScope()).isEqualTo(Scope.TASK_CREATE);
+        assertThat(HistoryEntity.CRITERION.createScope()).isEqualTo(Scope.CRITERION_CREATE);
+        assertThat(HistoryEntity.ISSUE.updateScope()).isEqualTo(Scope.ISSUE_UPDATE);
+        assertThat(HistoryEntity.SPEC.updateScope()).isEqualTo(Scope.SPEC_UPDATE);
+        assertThat(HistoryEntity.TASK.updateScope()).isEqualTo(Scope.TASK_UPDATE);
+        assertThat(HistoryEntity.CRITERION.updateScope()).isEqualTo(Scope.CRITERION_UPDATE);
+        assertThat(HistoryEntity.DELIVERABLE.updateScope()).isEqualTo(Scope.DELIVERABLE_EDIT);
+        assertThat(HistoryEntity.ISSUE_TASK.updateScope()).isEqualTo(Scope.ISSUE_UPDATE);
+        assertThat(HistoryEntity.ISSUE_SPEC.updateScope()).isEqualTo(Scope.SPEC_UPDATE);
+        assertThat(HistoryEntity.SPEC_TASK.updateScope()).isEqualTo(Scope.SPEC_UPDATE);
+        assertThat(HistoryEntity.ISSUE_RELATION.updateScope()).isEqualTo(Scope.ISSUE_UPDATE);
+        assertThat(HistoryEntity.CRITERION_LINK.updateScope()).isEqualTo(Scope.CRITERION_UPDATE);
+        assertThat(HistoryEntity.ISSUE_CASE.updateScope()).isEqualTo(Scope.ISSUE_UPDATE);
         for (HistoryEntity entity : List.of(HistoryEntity.ISSUE, HistoryEntity.SPEC, HistoryEntity.TASK,
                 HistoryEntity.CRITERION)) {
             assertThat(Scope.forTransition(entity, IssueStatus.OPEN, IssueStatus.DISPUTED))
-                    .isEqualTo(entity.writeScope());
+                    .isEqualTo(entity.updateScope());
         }
     }
 

@@ -143,6 +143,34 @@ class GrantsUxTest {
     }
 
     @Test
+    void selectingOnlyIssueCreationSplitsTheExistingGrantAndKeepsItsMetadata() throws Exception {
+        Seeded project = seeds.project();
+        String session = author("split");
+        Browser browser = Browser.signedIn(mvc);
+        String csrf = browser.csrfOf("/grants");
+        browser.perform(browser.form("/grants/author", Form.of("author", session, "project",
+                project.project(), "scopes", "issue", "note", "original"), csrf))
+                .andExpect(status().is3xxRedirection());
+        var original = grants.live(session).getFirst();
+
+        String html = browser.perform(browser.get("/grants").header(HttpHeaders.ACCEPT_LANGUAGE, "ko"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(html).contains("이슈 생성", "이슈 수정", "명세 작성", "명세 수정")
+                .contains("data-scope-chip=\"issue_create\"", "data-scope-chip=\"issue_update\"")
+                .contains("이슈 전체", "명세 전체", "작업 전체", "출시 기준 전체", "산출물 전체", "버전 전체")
+                .doesNotContain("data-scope-group=\"verify\"");
+
+        browser.perform(browser.form("/grants/sync", Form.of("author", session, "project", project.project(),
+                "scopes", "issue_create"), browser.csrfOf("/grants"))).andExpect(status().is3xxRedirection());
+        assertThat(grants.live(session)).singleElement().satisfies(grant -> {
+            assertThat(grant.scope().token()).isEqualTo("issue_create");
+            assertThat(grant.note()).isEqualTo("original");
+            assertThat(grant.grantedAt()).isEqualTo(original.grantedAt());
+            assertThat(grant.expiresAt()).isEqualTo(original.expiresAt());
+        });
+    }
+
+    @Test
     @DisplayName("GUX-04: POST /grants/sync enforces CSRF (403 without token) and owner authentication")
     void gux04_syncRequiresCsrfAndOwnerSession() throws Exception {
         Seeded project = seeds.project();

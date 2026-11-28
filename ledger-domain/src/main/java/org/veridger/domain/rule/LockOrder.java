@@ -27,7 +27,7 @@ public final class LockOrder {
      */
     public static final Comparator<ProjectId> PROJECT = Comparator.comparing(ProjectId::value);
 
-    /** Scopes by their names: {@code DELIVERABLE}, {@code ISSUE}, {@code SPEC}, {@code TASK}, {@code VERIFY}. */
+    /** Scopes by their stored names, independent of enum declaration order. */
     public static final Comparator<Scope> SCOPE = Comparator.comparing(Scope::name);
 
     private LockOrder() {

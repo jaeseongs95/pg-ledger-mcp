@@ -174,7 +174,7 @@ class SchemaMigratorTest {
     void sch001_aFreshDatabaseGetsEveryRealFileInOrderWithItsDigest() {
         SchemaMigrator real = TestSchemaServices.migrator(pool,
                 new SchemaProperties(SchemaProperties.DEFAULT_LOCATION, true, null), clock);
-        assertThat(real.migrate()).containsExactly(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17);
+        assertThat(real.migrate()).containsExactly(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18);
         assertThat(history()).isEqualTo(List.of(
                 succeeded(1, 1, "V1__core_tables.sql", resource("db/V1__core_tables.sql"), T0),
                 succeeded(2, 1, "V2__history_and_receipts.sql", resource("db/V2__history_and_receipts.sql"), T0),
@@ -198,7 +198,8 @@ class SchemaMigratorTest {
                         resource("db/V14__project_display_name_and_date_indexes.sql"), T0),
                 succeeded(15, 1, "V15__project_versions.sql", resource("db/V15__project_versions.sql"), T0),
                 succeeded(16, 1, "V16__project_version_items.sql", resource("db/V16__project_version_items.sql"), T0),
-                succeeded(17, 1, "V17__milestone_archive.sql", resource("db/V17__milestone_archive.sql"), T0)));
+                succeeded(17, 1, "V17__milestone_archive.sql", resource("db/V17__milestone_archive.sql"), T0),
+                succeeded(18, 1, "V18__granular_session_grants.sql", resource("db/V18__granular_session_grants.sql"), T0)));
         assertThat(tableExists("issue")).isTrue();
         assertThat(tableExists("spec")).isTrue();
         assertThat(tableExists("project_version")).isTrue();

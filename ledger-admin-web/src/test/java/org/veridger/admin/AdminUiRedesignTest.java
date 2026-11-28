@@ -335,7 +335,8 @@ class AdminUiRedesignTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(grantsKo)
                 .contains("<option value=\"verify\">검증</option>")
-                .contains("<option value=\"deliverable\">산출물</option>");
+                .contains("<option value=\"deliverable_create\">산출물 등록</option>")
+                .contains("<option value=\"deliverable_update\">산출물 수정</option>");
     }
 
     @Test
