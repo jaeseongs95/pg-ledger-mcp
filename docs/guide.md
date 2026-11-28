@@ -18,14 +18,18 @@ for a client is stated in the release notes ([2.0.0](release-notes/2.0.0.md), [2
 
 ## Contents
 
-- [Ledger concepts](concepts.md)
-- [MCP tools and attachments](mcp.md)
-- [Architecture](architecture.md)
-- [Installation and configuration](installation.md)
-- [Administration](administration.md)
-- [Client hooks](client-hooks.md)
-- [Migrating from 1.x](migration.md)
-- [Development and testing](development.md)
+| Document | Use it to |
+|---|---|
+| [README](../README.md) | Get an overview, see the admin console and quality badges, and get started. |
+| [User guide](user-guide.md) | Navigate projects, versions, specifications, issues, tasks, release criteria, and history. |
+| [Administrator guide](administration.md) | Manage owner authentication, session permissions, attachments, and update settings. |
+| [Agent integration](client-hooks.md) | Connect an MCP client and install and verify the host hook. |
+| [Practical workflows](workflows.md) | Coordinate multiple agents, review evidence independently, and make release decisions. |
+| [Architecture](architecture.md) | Understand the modules, domain model, transactions, and trust boundaries. |
+| [MCP reference](mcp.md) | Find tool inputs, outputs, errors, and permission requirements. |
+| [Operations and incident response](operations.md) | Install, migrate, back up, recover, and diagnose service failures. |
+
+[Ledger concepts](concepts.md) · [Installation and configuration](installation.md) · [Migration from 1.x](migration.md) · [Development and testing](development.md)
 
 <details>
 <summary>Links from the previous guide</summary>

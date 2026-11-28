@@ -1,6 +1,28 @@
-# 클라이언트 훅
+# 에이전트 연동 가이드
 
 [English](client-hooks.md) · [가이드 목차](guide.ko.md)
+
+## MCP 클라이언트 설정
+
+호스트의 MCP 설정에서 인스턴스의 `/mcp` 주소를 Streamable HTTP 서버로 등록합니다. 같은 호스트에서는 기본 주소가 `http://127.0.0.1:8765/mcp`입니다. 인스턴스의 `ledger.mcp.token`을 Bearer 인증 정보로 사용합니다. 원격 인스턴스에는 운영자가 설정한 HTTPS 주소를 사용합니다.
+
+## 훅 설치와 갱신
+
+에이전트가 실행되는 호스트에서 Java 25를 `PATH`에 두고 설치기를 실행합니다. Linux에서는 `sh deploy/install-hook.sh --hosts=codex,claude,antigravity`, Windows에서는 `deploy\install-hook.cmd --hosts=codex,claude,antigravity`를 실행합니다. 목록에서 실제로 쓰는 호스트만 지정합니다. `--version=vX.Y.Z`로 특정 릴리스를 지정할 수 있습니다.
+
+| 호스트 | 훅 설정과 세션 식별자 |
+|---|---|
+| [Codex](../clients/codex/README.ko.md) | `/hooks`에서 설치된 훅을 검토하고 신뢰합니다. 권한 부여에 `codex:<session_id>`를 사용합니다. |
+| [Claude Code](../clients/claude/README.ko.md) | Claude Code의 `PreToolUse` 설정에 훅을 불러옵니다. 권한 부여에 `claude:<session_id>`를 사용합니다. |
+| [Antigravity](../clients/antigravity/README.ko.md) | Antigravity 훅을 불러옵니다. 설치기에는 `antigravity`, 권한 부여에는 `gemini:<conversationId>`를 사용합니다. |
+
+플러그인과 수동 설치 절차는 호스트별 문서에 있습니다. 수동으로 설치할 때는 `ledger-client-hook.jar`와 `ledger-hook-resident.jar`를 같은 폴더에 둡니다.
+
+## 연결 확인
+
+1. 에이전트의 새 세션에서 MCP 도구 목록을 확인합니다. 연결되지 않으면 엔드포인트와 Bearer 인증 정보를 점검합니다.
+2. 호스트에서 `ledger_whoami`를 호출해 응답의 작성자가 해당 세션인지 확인합니다. `HOST_ATTESTATION_REQUIRED`이면 호출에 호스트 증명이 누락된 상태입니다. 훅 로딩과 신뢰 설정, Java, JAR 두 개를 확인합니다.
+3. **세션 권한**에서 해당 작성자에게 프로젝트에 필요한 권한을 부여합니다. `ledger_whoami`를 다시 호출해 유효 권한을 확인합니다. 쓰기가 `SESSION_NOT_GRANTED`로 거절되면 프로젝트, 권한, 만료를 확인합니다. 입력과 권한 계약은 [MCP 레퍼런스](mcp.ko.md)를 참조합니다.
 
 ## 클라이언트 훅
 

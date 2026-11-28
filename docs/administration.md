@@ -1,6 +1,14 @@
-# Administration
+# Administrator guide
 
 [한국어](administration.ko.md) · [Guide index](guide.md)
+
+## Owner checklist
+
+1. Choose the owner sign-in method and confirm that the owner can sign in. Keep the owner credential separate from the MCP Bearer credential. See [Admin web](#admin-web).
+2. Create the project and identify the host and session that needs access. Confirm the identity with `ledger_whoami` before granting permissions. Revisit **Session grants** to edit or revoke access as work changes.
+3. Use **Attachments** to inspect stored evidence. Monitor the instance and plan backups, upgrades, and recovery with the [operations guide](operations.md).
+
+For navigating and maintaining project records, use the [user guide](user-guide.md).
 
 ## ledger-cli
 

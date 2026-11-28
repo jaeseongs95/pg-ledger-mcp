@@ -1,6 +1,28 @@
-# Client hooks
+# Agent integration guide
 
 [한국어](client-hooks.ko.md) · [Guide index](guide.md)
+
+## Connect the MCP client
+
+In the host's MCP settings, register a Streamable HTTP server with the instance's `/mcp` URL. On the same host, the default is `http://127.0.0.1:8765/mcp`. Use the instance's `ledger.mcp.token` as the Bearer credential. For a remote instance, use the HTTPS URL configured by the operator.
+
+## Install or update the hook
+
+Run the installer on the host where the agent runs, with Java 25 available on its `PATH`. Use `sh deploy/install-hook.sh --hosts=codex,claude,antigravity` on Linux or `deploy\install-hook.cmd --hosts=codex,claude,antigravity` on Windows. Keep only the host names you use. `--version=vX.Y.Z` selects a specific release.
+
+| Host | Hook configuration and session identity |
+|---|---|
+| [Codex](../clients/codex/README.md) | Review and trust the installed hook in `/hooks`. Grants use `codex:<session_id>`. |
+| [Claude Code](../clients/claude/README.md) | Load the hook in Claude Code's `PreToolUse` configuration. Grants use `claude:<session_id>`. |
+| [Antigravity](../clients/antigravity/README.md) | Load the Antigravity hook. The installer uses `antigravity` and grants use `gemini:<conversationId>`. |
+
+The vendor pages describe plugin and manual installation. Keep `ledger-client-hook.jar` and `ledger-hook-resident.jar` together when installing manually.
+
+## Verify the connection
+
+1. Start a new agent session and confirm the MCP tool list loads. Check the endpoint and Bearer credential if it cannot connect.
+2. Call `ledger_whoami` from the host. Confirm the returned author identifies the intended session. `HOST_ATTESTATION_REQUIRED` means the call arrived without the required host attestation. Check hook loading, trust, Java, and the two JARs.
+3. In **Session grants**, give that author the permissions it needs for the project. Call `ledger_whoami` again to confirm its live grants. If a write returns `SESSION_NOT_GRANTED`, check the project, permission, and expiry. See the [MCP reference](mcp.md) for the input and permission contracts.
 
 ## Client hooks
 

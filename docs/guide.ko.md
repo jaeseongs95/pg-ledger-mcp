@@ -14,14 +14,18 @@
 
 ## 목차
 
-- [장부 개념](concepts.ko.md)
-- [MCP 도구와 첨부](mcp.ko.md)
-- [아키텍처](architecture.ko.md)
-- [설치와 설정](installation.ko.md)
-- [운영](administration.ko.md)
-- [클라이언트 훅](client-hooks.ko.md)
-- [1.x에서 마이그레이션](migration.ko.md)
-- [개발과 시험](development.ko.md)
+| 문서 | 주요 내용 |
+|---|---|
+| [README](../README.ko.md) | 제품 소개, 품질 배지, 관리자 화면, 빠른 시작 |
+| [사용자 가이드](user-guide.ko.md) | 프로젝트·버전·명세·이슈·작업·출시 기준·이력 관리 |
+| [관리자 가이드](administration.ko.md) | 소유자 인증, 세션 권한, 첨부, 업데이트 설정 |
+| [에이전트 연동 가이드](client-hooks.ko.md) | MCP 연결, 호스트별 훅 설치와 연결 확인 |
+| [실전 활용 가이드](workflows.ko.md) | 다중 에이전트 협업, 독립 검수, 출시 판단 |
+| [아키텍처](architecture.ko.md) | 모듈, 도메인 모델, 트랜잭션과 신뢰 경계 |
+| [MCP 레퍼런스](mcp.ko.md) | 도구별 입력·출력·오류·권한 |
+| [운영 및 장애 대응](operations.ko.md) | 설치, 마이그레이션, 백업, 복구, 장애 진단 |
+
+[장부 개념](concepts.ko.md) · [설치와 설정](installation.ko.md) · [1.x에서 마이그레이션](migration.ko.md) · [개발과 시험](development.ko.md)
 
 <details>
 <summary>이전 가이드 링크</summary>

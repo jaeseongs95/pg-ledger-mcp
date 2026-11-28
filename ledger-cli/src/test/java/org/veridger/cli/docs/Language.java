@@ -120,7 +120,8 @@ enum Language {
         String suffix = this == KO ? ".ko.md" : ".md";
         return List.of(guideFile(), "docs/concepts" + suffix, "docs/mcp" + suffix, "docs/architecture" + suffix,
                 "docs/installation" + suffix, "docs/administration" + suffix, "docs/client-hooks" + suffix,
-                "docs/migration" + suffix, "docs/development" + suffix);
+                "docs/migration" + suffix, "docs/development" + suffix, "docs/user-guide" + suffix,
+                "docs/workflows" + suffix, "docs/operations" + suffix);
     }
 
     Markdown guide() {

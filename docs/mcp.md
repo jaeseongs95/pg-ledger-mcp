@@ -1,4 +1,4 @@
-# MCP tools and attachments
+# MCP reference
 
 [한국어](mcp.ko.md) · [Guide index](guide.md)
 
@@ -148,6 +148,22 @@ Project permission is checked against the current state, target state, and write
 | A participant attempts to approve or return their own work | `SAME_SESSION` |
 | `ledger_review` omits its required `evidence_uri` argument | `VALIDATION_FAILED` |
 | A transition reaches a rule that requires evidence without supplying it | `EVIDENCE_REQUIRED` |
+
+## Input, output, and errors
+
+- Use the connected server's `tools/list` schemas for the exact parameter names, JSON types, and required fields. The tool tables above describe each operation and its scope.
+- When `ok` is `true`, read the tool's result in `data`. When `ok` is `false`, read `error.code` for the stable error token, `error.details` for context, and `error.issues` for field errors. A field error gives its `path`, `reason`, and `allowed` values where applicable.
+- Read tools require the transport credential. `ledger_whoami` also needs the host identity. Author writes require a live grant for the operation on each affected project. Reviewer writes additionally enforce the reviewer rules. See [Ledger concepts](concepts.md#concepts).
+
+| Error code | Handle it by |
+|---|---|
+| `VALIDATION_FAILED` | Correct the fields identified in `error.issues`. |
+| `HOST_ATTESTATION_REQUIRED` | Confirm the host added the session proof. See the [agent integration checklist](client-hooks.md#verify-the-connection). |
+| `SESSION_NOT_GRANTED` | Confirm the session's live scope on the target project. |
+| `VERSION_CONFLICT` | Read the latest row version and review the changes before trying again. |
+| `OPERATION_CONFLICT` | Reuse the existing key only with the original request. Use a fresh key for a different write. |
+| `VERIFY_NEEDS_REVIEWER_LOGIN` | Submit through the reviewer channel with its required permission. |
+| `SAME_SESSION` | Assign a reviewer who meets the independence requirements for the record. |
 
 ## Attachments
 
