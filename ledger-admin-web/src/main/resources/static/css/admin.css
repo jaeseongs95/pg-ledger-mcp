@@ -2161,9 +2161,45 @@ blockquote.origin-quote {
   font-size: 0.9rem;
 }
 
+.scope-group-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.scope-group-caption {
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+
+.scope-group-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.scope-group-option input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.scope-group-option:has(input:checked, input:indeterminate) {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
 .scope-chip-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
   gap: var(--space-2);
 }
 
@@ -2225,9 +2261,9 @@ blockquote.origin-quote {
 
 .scope-chip-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
+  column-gap: 6px;
 }
 
 .scope-chip-title {
@@ -2237,6 +2273,7 @@ blockquote.origin-quote {
 }
 
 .scope-chip-code {
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: 0.74rem;
   color: var(--text-muted);

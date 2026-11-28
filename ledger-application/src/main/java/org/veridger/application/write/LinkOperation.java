@@ -107,26 +107,26 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
     protected Lookup resolve(LinkCommand c) {
         return Lookup.afterActor(() -> switch (knownKind(c.kind())) {
             case ISSUE_TASK -> List.of(
-                    new Target(rows.issue(IssueId.of(c.a())).projectId(), Scope.ISSUE),
-                    new Target(rows.task(TaskId.of(c.b())).projectId(), Scope.ISSUE));
+                    new Target(rows.issue(IssueId.of(c.a())).projectId(), Scope.ISSUE_UPDATE),
+                    new Target(rows.task(TaskId.of(c.b())).projectId(), Scope.ISSUE_UPDATE));
             case ISSUE_SPEC -> List.of(
-                    new Target(rows.issue(IssueId.of(c.a())).projectId(), Scope.SPEC),
-                    new Target(rows.spec(SpecId.of(c.b())).projectId(), Scope.SPEC));
+                    new Target(rows.issue(IssueId.of(c.a())).projectId(), Scope.SPEC_UPDATE),
+                    new Target(rows.spec(SpecId.of(c.b())).projectId(), Scope.SPEC_UPDATE));
             case SPEC_TASK -> List.of(
-                    new Target(rows.spec(SpecId.of(c.a())).projectId(), Scope.SPEC),
-                    new Target(rows.task(TaskId.of(c.b())).projectId(), Scope.SPEC));
+                    new Target(rows.spec(SpecId.of(c.a())).projectId(), Scope.SPEC_UPDATE),
+                    new Target(rows.task(TaskId.of(c.b())).projectId(), Scope.SPEC_UPDATE));
             case CRITERION_TASK -> List.of(
-                    new Target(rows.criterion(CriterionId.of(c.a())).projectId(), Scope.TASK),
-                    new Target(rows.task(TaskId.of(c.b())).projectId(), Scope.TASK));
+                    new Target(rows.criterion(CriterionId.of(c.a())).projectId(), Scope.CRITERION_UPDATE),
+                    new Target(rows.task(TaskId.of(c.b())).projectId(), Scope.CRITERION_UPDATE));
             case CRITERION_ISSUE -> List.of(
-                    new Target(rows.criterion(CriterionId.of(c.a())).projectId(), Scope.TASK),
-                    new Target(rows.issue(IssueId.of(c.b())).projectId(), Scope.TASK));
+                    new Target(rows.criterion(CriterionId.of(c.a())).projectId(), Scope.CRITERION_UPDATE),
+                    new Target(rows.issue(IssueId.of(c.b())).projectId(), Scope.CRITERION_UPDATE));
             case CRITERION_SPEC -> List.of(
-                    new Target(rows.criterion(CriterionId.of(c.a())).projectId(), Scope.TASK),
-                    new Target(rows.spec(SpecId.of(c.b())).projectId(), Scope.TASK));
+                    new Target(rows.criterion(CriterionId.of(c.a())).projectId(), Scope.CRITERION_UPDATE),
+                    new Target(rows.spec(SpecId.of(c.b())).projectId(), Scope.CRITERION_UPDATE));
             case RELATION -> List.of(
-                    new Target(rows.issue(IssueId.of(c.a())).projectId(), Scope.ISSUE),
-                    new Target(rows.issue(IssueId.of(c.b())).projectId(), Scope.ISSUE));
+                    new Target(rows.issue(IssueId.of(c.a())).projectId(), Scope.ISSUE_UPDATE),
+                    new Target(rows.issue(IssueId.of(c.b())).projectId(), Scope.ISSUE_UPDATE));
         });
     }
 
@@ -187,8 +187,8 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
                 ctx.requirePinnedIssue(issue);
                 ProjectId issueProject = rows.issue(issue).projectId();
                 ProjectId taskProject = ctx.pinTask(rows, task);
-                ctx.authorize(gate, List.of(new Target(issueProject, Scope.ISSUE),
-                        new Target(taskProject, Scope.ISSUE)));
+                ctx.authorize(gate, List.of(new Target(issueProject, Scope.ISSUE_UPDATE),
+                        new Target(taskProject, Scope.ISSUE_UPDATE)));
                 yield new IssueTaskLink(issue, task, author);
             }
             case ISSUE_SPEC -> {
@@ -197,8 +197,8 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
                 ctx.requirePinnedIssue(issue);
                 ProjectId issueProject = rows.issue(issue).projectId();
                 ProjectId specProject = ctx.pinSpec(rows, spec);
-                ctx.authorize(gate, List.of(new Target(issueProject, Scope.SPEC),
-                        new Target(specProject, Scope.SPEC)));
+                ctx.authorize(gate, List.of(new Target(issueProject, Scope.SPEC_UPDATE),
+                        new Target(specProject, Scope.SPEC_UPDATE)));
                 yield new IssueSpecLink(issue, spec, author);
             }
             case SPEC_TASK -> {
@@ -206,8 +206,8 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
                 TaskId task = TaskId.of(b);
                 ProjectId specProject = ctx.pinSpec(rows, spec);
                 ProjectId taskProject = ctx.pinTask(rows, task);
-                ctx.authorize(gate, List.of(new Target(specProject, Scope.SPEC),
-                        new Target(taskProject, Scope.SPEC)));
+                ctx.authorize(gate, List.of(new Target(specProject, Scope.SPEC_UPDATE),
+                        new Target(taskProject, Scope.SPEC_UPDATE)));
                 yield new SpecTaskLink(spec, task, author);
             }
             case CRITERION_TASK -> {
@@ -215,8 +215,8 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
                 TaskId task = TaskId.of(b);
                 ProjectId taskProject = ctx.pinTask(rows, task);
                 ProjectId criterionProject = ctx.pinCriterion(rows, criterion);
-                ctx.authorize(gate, List.of(new Target(taskProject, Scope.TASK),
-                        new Target(criterionProject, Scope.TASK)));
+                ctx.authorize(gate, List.of(new Target(taskProject, Scope.CRITERION_UPDATE),
+                        new Target(criterionProject, Scope.CRITERION_UPDATE)));
                 yield CriterionLink.toTask(criterion, task, author);
             }
             case CRITERION_ISSUE -> {
@@ -225,8 +225,8 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
                 ctx.requirePinnedIssue(issue);
                 ProjectId issueProject = rows.issue(issue).projectId();
                 ProjectId criterionProject = ctx.pinCriterion(rows, criterion);
-                ctx.authorize(gate, List.of(new Target(issueProject, Scope.TASK),
-                        new Target(criterionProject, Scope.TASK)));
+                ctx.authorize(gate, List.of(new Target(issueProject, Scope.CRITERION_UPDATE),
+                        new Target(criterionProject, Scope.CRITERION_UPDATE)));
                 yield CriterionLink.toIssue(criterion, issue, author);
             }
             case CRITERION_SPEC -> {
@@ -234,8 +234,8 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
                 SpecId spec = SpecId.of(b);
                 ProjectId specProject = ctx.pinSpec(rows, spec);
                 ProjectId criterionProject = ctx.pinCriterion(rows, criterion);
-                ctx.authorize(gate, List.of(new Target(specProject, Scope.TASK),
-                        new Target(criterionProject, Scope.TASK)));
+                ctx.authorize(gate, List.of(new Target(specProject, Scope.CRITERION_UPDATE),
+                        new Target(criterionProject, Scope.CRITERION_UPDATE)));
                 yield CriterionLink.toSpec(criterion, spec, author);
             }
             case RELATION -> {
@@ -243,8 +243,8 @@ public class LinkOperation extends WriteOperation<LinkCommand, LinkResult> {
                 IssueId second = IssueId.of(b);
                 ctx.requirePinnedIssue(first);
                 ctx.requirePinnedIssue(second);
-                ctx.authorize(gate, List.of(new Target(rows.issue(first).projectId(), Scope.ISSUE),
-                        new Target(rows.issue(second).projectId(), Scope.ISSUE)));
+                ctx.authorize(gate, List.of(new Target(rows.issue(first).projectId(), Scope.ISSUE_UPDATE),
+                        new Target(rows.issue(second).projectId(), Scope.ISSUE_UPDATE)));
                 // the direction that decided the order of the two ends must still be the one of the code until this
                 // transaction ends (the owner cannot change it while a relation is being stored)
                 ctx.holdRelationDirection(codes, token, direction);

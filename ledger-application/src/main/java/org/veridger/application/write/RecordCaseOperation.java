@@ -64,7 +64,7 @@ public class RecordCaseOperation extends WriteOperation<RecordCaseCommand, Recor
     @Override
     protected Lookup resolve(RecordCaseCommand c) {
         return Lookup.afterActor(() -> List.of(new Target(rows.issue(IssueId.of(c.issueId())).projectId(),
-                Scope.ISSUE)));
+                Scope.ISSUE_UPDATE)));
     }
 
     @Override
@@ -94,7 +94,7 @@ public class RecordCaseOperation extends WriteOperation<RecordCaseCommand, Recor
             throw new TransitionException(TransitionCode.MERGED_ISSUE,
                     List.of(issueId.value(), issue.mergedInto() == null ? "?" : issue.mergedInto().value()));
         }
-        ctx.authorize(gate, List.of(new Target(rows.issue(issueId).projectId(), Scope.ISSUE)));
+        ctx.authorize(gate, List.of(new Target(rows.issue(issueId).projectId(), Scope.ISSUE_UPDATE)));
         ChangeSet changes = ChangeSet.empty().with("observation", null, observation).with("evidence", null, evidence)
                 .with("source_quote", null, quote).with("observed_at", null, ChangeSet.text(observedAt));
         if (ctx.isBatched()) {

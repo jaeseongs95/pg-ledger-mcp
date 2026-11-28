@@ -4,6 +4,7 @@ package org.veridger.admin.console;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -11,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import org.veridger.domain.model.SessionGrant;
+import org.veridger.domain.rule.Scope;
 
 /**
  * Session-centric view model for the admin {@code /grants} console. Groups active project grants by session author so
@@ -78,8 +80,9 @@ public final class SessionAccessView {
             int totalGrants = 0;
             for (Map.Entry<String, List<SessionGrant>> entry : byProject.entrySet()) {
                 List<SessionGrant> projectGrants = entry.getValue();
-                totalGrants += projectGrants.size();
-                projectRows.add(toProjectRow(entry.getKey(), projectGrants));
+                ProjectGrantRow projectRow = toProjectRow(entry.getKey(), projectGrants);
+                totalGrants += projectRow.scopeCount();
+                projectRows.add(projectRow);
             }
 
             List<String> available = new ArrayList<>();
@@ -105,7 +108,7 @@ public final class SessionAccessView {
         Set<Instant> distinctExpiries = new LinkedHashSet<>();
         String note = null;
         for (SessionGrant grant : projectGrants) {
-            scopes.add(grant.scope().token());
+            grant.scope().effectiveScopes().stream().map(Scope::token).forEach(scopes::add);
             if (grant.expiresAt() == null) {
                 hasNullExpiry = true;
             } else {
@@ -119,6 +122,6 @@ public final class SessionAccessView {
             }
         }
         boolean mixedExpiry = distinctExpiries.size() > 1 || (hasNullExpiry && !distinctExpiries.isEmpty());
-        return new ProjectGrantRow(project, Set.copyOf(scopes), earliest, mixedExpiry, note);
+        return new ProjectGrantRow(project, Collections.unmodifiableSet(scopes), earliest, mixedExpiry, note);
     }
 }

@@ -35,6 +35,8 @@ import org.veridger.application.write.LinkCommand;
 import org.veridger.application.write.LinkService;
 import org.veridger.application.write.RecordCaseCommand;
 import org.veridger.application.write.RecordCaseService;
+import org.veridger.application.write.RecordDeliverableCommand;
+import org.veridger.application.write.RecordDeliverableService;
 import org.veridger.application.write.ReviewService;
 import org.veridger.application.write.SaveCommand;
 import org.veridger.application.write.SaveService;
@@ -92,7 +94,7 @@ class GateTest {
         LedgerException e = Expect.failure(() -> s.bean(SaveService.class).save(Scenario.NOGRANT,
                 s.create("issue", null, s.issueFields("t"))), TrustCode.SESSION_NOT_GRANTED);
         assertThat(e.details()).containsEntry("author", List.of(Scenario.NOGRANT))
-                .containsEntry("scope", List.of("issue")).containsEntry("project", List.of(s.projectId()));
+                .containsEntry("scope", List.of("issue_create")).containsEntry("project", List.of(s.projectId()));
     }
 
     static Stream<Named<Consumer<Scenario>>> verificationsThroughTheAuthorChannel() {
@@ -167,25 +169,45 @@ class GateTest {
 
     static List<Op> operations() {
         return List.of(
-                new Op("save issue", Scope.ISSUE, s -> a -> s.bean(SaveService.class).save(a,
+                new Op("save issue", Scope.ISSUE_CREATE, s -> a -> s.bean(SaveService.class).save(a,
                         s.create("issue", null, s.issueFields("g")))),
-                new Op("save spec", Scope.SPEC, s -> a -> s.bean(SaveService.class).save(a,
+                new Op("save spec", Scope.SPEC_CREATE, s -> a -> s.bean(SaveService.class).save(a,
                         s.create("spec", null, s.specFields("g")))),
-                new Op("save task", Scope.TASK, s -> a -> s.bean(SaveService.class).save(a,
+                new Op("save task", Scope.TASK_CREATE, s -> a -> s.bean(SaveService.class).save(a,
                         s.create("task", null, s.taskFields("g")))),
-                new Op("save criterion", Scope.TASK, s -> a -> s.bean(SaveService.class).save(a,
+                new Op("save criterion", Scope.CRITERION_CREATE, s -> a -> s.bean(SaveService.class).save(a,
                         s.create("criterion", s.criterionId("G"), s.criterionFields("r", "c")))),
-                new Op("transition issue", Scope.ISSUE, s -> {
+                new Op("edit issue", Scope.ISSUE_UPDATE, s -> {
+                    SaveResult issue = s.newIssue("before");
+                    return a -> s.bean(SaveService.class).save(a,
+                            s.edit("issue", issue.id(), 1, java.util.Map.of("title", "after")));
+                }),
+                new Op("edit spec", Scope.SPEC_UPDATE, s -> {
+                    SaveResult spec = s.newSpec("before");
+                    return a -> s.bean(SaveService.class).save(a,
+                            s.edit("spec", spec.id(), 1, java.util.Map.of("title", "after")));
+                }),
+                new Op("edit task", Scope.TASK_UPDATE, s -> {
+                    SaveResult task = s.newTask("before");
+                    return a -> s.bean(SaveService.class).save(a,
+                            s.edit("task", task.id(), 1, java.util.Map.of("title", "after")));
+                }),
+                new Op("edit criterion", Scope.CRITERION_UPDATE, s -> {
+                    SaveResult criterion = s.newCriterion("E", "r", "before");
+                    return a -> s.bean(SaveService.class).save(a,
+                            s.edit("criterion", criterion.id(), 1, java.util.Map.of("criterion_text", "after")));
+                }),
+                new Op("transition issue", Scope.ISSUE_UPDATE, s -> {
                     SaveResult i = s.newIssue("g");
                     return a -> s.bean(TransitionService.class).transition(a,
                             s.move("issue", i.id(), 1, "DISPUTED", Scenario.EVIDENCE));
                 }),
-                new Op("transition spec", Scope.SPEC, s -> {
+                new Op("transition spec", Scope.SPEC_UPDATE, s -> {
                     SaveResult sp = s.newSpec("g");
                     return a -> s.bean(TransitionService.class).transition(a,
                             s.move("spec", sp.id(), 1, "ACTIVE", null));
                 }),
-                new Op("transition task", Scope.TASK, s -> {
+                new Op("transition task", Scope.TASK_UPDATE, s -> {
                     SaveResult t = s.newTask("g");
                     return a -> s.bean(TransitionService.class).transition(a,
                             s.move("task", t.id(), 1, "ACTIVE", null));
@@ -195,74 +217,74 @@ class GateTest {
                     return a -> s.bean(ReviewService.class).review(a,
                             s.move("issue", i.id(), 2, "VERIFIED", Scenario.EVIDENCE));
                 }),
-                new Op("record_deliverable", Scope.DELIVERABLE, s -> {
+                new Op("record_deliverable", Scope.DELIVERABLE_ADD, s -> {
                     SaveResult i = s.newIssue("g");
                     return a -> s.deliver(a, i.id(), Scenario.ref('b'));
                 }),
-                new Op("record_case", Scope.ISSUE, s -> {
+                new Op("record_case", Scope.ISSUE_UPDATE, s -> {
                     SaveResult i = s.newIssue("g");
                     return a -> s.bean(RecordCaseService.class).recordCase(a,
                             new RecordCaseCommand(Scenario.uuid(), i.id(), "seen", Scenario.REASON, null, null, null));
                 }),
-                new Op("link issue_task", Scope.ISSUE, s -> {
+                new Op("link issue_task", Scope.ISSUE_UPDATE, s -> {
                     SaveResult i = s.newIssue("g");
                     SaveResult t = s.newTask("g");
                     return a -> s.bean(LinkService.class).link(a,
                             new LinkCommand(Scenario.uuid(), "issue_task", i.id(), t.id(), Scenario.REASON, null));
                 }),
-                new Op("link issue_spec", Scope.SPEC, s -> {
+                new Op("link issue_spec", Scope.SPEC_UPDATE, s -> {
                     SaveResult i = s.newIssue("g");
                     SaveResult sp = s.newSpec("g");
                     return a -> s.bean(LinkService.class).link(a,
                             new LinkCommand(Scenario.uuid(), "issue_spec", i.id(), sp.id(), Scenario.REASON, null));
                 }),
-                new Op("link spec_task", Scope.SPEC, s -> {
+                new Op("link spec_task", Scope.SPEC_UPDATE, s -> {
                     SaveResult sp = s.newSpec("g");
                     SaveResult t = s.newTask("g");
                     return a -> s.bean(LinkService.class).link(a,
                             new LinkCommand(Scenario.uuid(), "spec_task", sp.id(), t.id(), Scenario.REASON, null));
                 }),
-                new Op("link relation", Scope.ISSUE, s -> {
+                new Op("link relation", Scope.ISSUE_UPDATE, s -> {
                     SaveResult i1 = s.newIssue("g1");
                     SaveResult i2 = s.newIssue("g2");
                     return a -> s.bean(LinkService.class).link(a,
                             new LinkCommand(Scenario.uuid(), "same_site", i1.id(), i2.id(), Scenario.REASON, null));
                 }),
-                new Op("link criterion_task", Scope.TASK, s -> {
+                new Op("link criterion_task", Scope.CRITERION_UPDATE, s -> {
                     SaveResult c = s.newCriterion("L1", "r", "c");
                     SaveResult t = s.newTask("g");
                     return a -> s.bean(LinkService.class).link(a,
                             new LinkCommand(Scenario.uuid(), "criterion_task", c.id(), t.id(), Scenario.REASON, null));
                 }),
-                new Op("link criterion_issue", Scope.TASK, s -> {
+                new Op("link criterion_issue", Scope.CRITERION_UPDATE, s -> {
                     SaveResult c = s.newCriterion("L2", "r", "c");
                     SaveResult i = s.newIssue("g");
                     return a -> s.bean(LinkService.class).link(a,
                             new LinkCommand(Scenario.uuid(), "criterion_issue", c.id(), i.id(), Scenario.REASON, null));
                 }),
-                new Op("link criterion_spec", Scope.TASK, s -> {
+                new Op("link criterion_spec", Scope.CRITERION_UPDATE, s -> {
                     SaveResult c = s.newCriterion("L3", "r", "c");
                     SaveResult sp = s.newSpec("g");
                     return a -> s.bean(LinkService.class).link(a,
                             new LinkCommand(Scenario.uuid(), "criterion_spec", c.id(), sp.id(), Scenario.REASON, null));
                 }),
-                new Op("correct an issue row", Scope.ISSUE, s -> {
+                new Op("correct an issue row", Scope.ISSUE_UPDATE, s -> {
                     SaveResult i = s.newIssue("g");
                     return a -> s.bean(CorrectService.class).correct(a,
                             new CorrectCommand(Scenario.uuid(), i.historyId(), Scenario.REASON));
                 }),
-                new Op("correct a spec row", Scope.SPEC, s -> {
+                new Op("correct a spec row", Scope.SPEC_UPDATE, s -> {
                     SaveResult sp = s.newSpec("g");
                     return a -> s.bean(CorrectService.class).correct(a,
                             new CorrectCommand(Scenario.uuid(), sp.historyId(), Scenario.REASON));
                 }),
-                new Op("correct a deliverable row", Scope.DELIVERABLE, s -> {
+                new Op("correct a deliverable row", Scope.DELIVERABLE_EDIT, s -> {
                     SaveResult i = s.newIssue("g");
                     long deliverableHistory = s.deliver(Scenario.AUTHOR, i.id(), Scenario.ref('c')).historyId();
                     return a -> s.bean(CorrectService.class).correct(a,
                             new CorrectCommand(Scenario.uuid(), deliverableHistory, Scenario.REASON));
                 }),
-                new Op("correct a task row", Scope.TASK, s -> {
+                new Op("correct a task row", Scope.TASK_UPDATE, s -> {
                     SaveResult t = s.newTask("g");
                     return a -> s.bean(CorrectService.class).correct(a,
                             new CorrectCommand(Scenario.uuid(), t.historyId(), Scenario.REASON));
@@ -282,7 +304,7 @@ class GateTest {
     @DisplayName("SVC-GATE-06: an author with every scope but the needed one is refused, naming the scope")
     void gate06_wrongScopeIsRefused(Op op, Scenario s) {
         Function<String, Object> call = op.prepare().apply(s);
-        String[] others = java.util.Arrays.stream(Scope.values()).filter(x -> x != op.scope()).map(Scope::token)
+        String[] others = Scope.assignable().stream().filter(x -> x != op.scope()).map(Scope::token)
                 .toArray(String[]::new);
         String actor = s.actorWith(others);
         LedgerException e = Expect.failure(() -> call.apply(actor), TrustCode.SESSION_NOT_GRANTED);
@@ -414,6 +436,41 @@ class GateTest {
         assertThat(s.bean(SaveService.class).save(actor, command)).isEqualTo(first);
         s.bean(GrantService.class).revoke(new RevokeCommand(actor, null, null), TestOwners.OWNER);
         Expect.failure(() -> s.bean(SaveService.class).save(actor, command), TrustCode.SESSION_NOT_GRANTED);
+    }
+
+    @Test
+    void deliverableCreationAndReplayNeedCreateWhileAmendmentNeedsUpdate(Scenario s) {
+        String creator = s.actorWith("deliverable_create");
+        String editor = s.actorWith("deliverable_update");
+        String issue = s.newIssue("deliverable permission test").id();
+        String reference = Scenario.ref('a');
+        RecordDeliverableService service = s.bean(RecordDeliverableService.class);
+        RecordDeliverableCommand create = s.deliverableCommand(issue, reference);
+        Expect.failure(() -> service.recordDeliverable(editor, create), TrustCode.SESSION_NOT_GRANTED);
+        var created = service.recordDeliverable(creator, create);
+        assertThat(service.recordDeliverable(creator, create)).isEqualTo(created);
+
+        var update = new RecordDeliverableCommand(Scenario.uuid(), "issue", issue, "code_change", reference,
+                Scenario.REASON, "repo/e2e", "Deliverable for " + issue, "check/result", "passed", null, null);
+        Expect.failure(() -> service.recordDeliverable(creator, update), TrustCode.SESSION_NOT_GRANTED);
+        var amended = service.recordDeliverable(editor, update);
+        assertThat(service.recordDeliverable(editor, update)).isEqualTo(amended);
+    }
+
+    @Test
+    void revokingOnePermissionKeepsTheEffectiveExpiryOfTheRemainingGrant(Scenario s) {
+        String actor = s.actorWith("issue");
+        var service = s.bean(GrantService.class);
+        service.grant(new GrantCommand(actor, s.projectId(), List.of("issue_update"),
+                "2026-11-05T11:00:00Z", null), TestOwners.OWNER);
+        assertThat(service.revoke(new RevokeCommand(actor, s.projectId(), "issue_create"), TestOwners.OWNER))
+                .isEqualTo(2);
+        var grants = service.live(actor);
+        assertThat(grants).extracting(SessionGrant::scope).containsExactlyInAnyOrder(Scope.ISSUE_UPDATE,
+                Scope.VERSION_CREATE, Scope.VERSION_UPDATE);
+        assertThat(grants).allMatch(grant -> grant.expiresAt() == null);
+        Expect.failure(() -> s.bean(SaveService.class).save(actor, s.create("issue", null, s.issueFields("forbidden"))),
+                TrustCode.SESSION_NOT_GRANTED);
     }
 
     private SessionGrant issueGrant(Scenario s, String actor) {
@@ -570,12 +627,12 @@ class GateTest {
 
     static Stream<LinkKindCase> linkKinds() {
         return Stream.of(
-                new LinkKindCase("issue_task", Scope.ISSUE),
-                new LinkKindCase("issue_spec", Scope.SPEC),
-                new LinkKindCase("spec_task", Scope.SPEC),
-                new LinkKindCase("criterion_task", Scope.TASK),
-                new LinkKindCase("criterion_issue", Scope.TASK),
-                new LinkKindCase("criterion_spec", Scope.TASK));
+                new LinkKindCase("issue_task", Scope.ISSUE_UPDATE),
+                new LinkKindCase("issue_spec", Scope.SPEC_UPDATE),
+                new LinkKindCase("spec_task", Scope.SPEC_UPDATE),
+                new LinkKindCase("criterion_task", Scope.CRITERION_UPDATE),
+                new LinkKindCase("criterion_issue", Scope.CRITERION_UPDATE),
+                new LinkKindCase("criterion_spec", Scope.CRITERION_UPDATE));
     }
 
     /** The two ends of a link. */
@@ -705,7 +762,7 @@ class GateTest {
         s.grant(firstOnly, s.projectId(), "issue");
         LedgerException e = Expect.failure(() -> s.bean(TransitionService.class).transition(firstOnly,
                 merge.apply(source.id(), target.id())), TrustCode.SESSION_NOT_GRANTED);
-        assertThat(e.details()).containsEntry("project", List.of(other)).containsEntry("scope", List.of("issue"));
+        assertThat(e.details()).containsEntry("project", List.of(other)).containsEntry("scope", List.of("issue_update"));
         String secondOnly = newActor("mg");
         s.grant(secondOnly, other, "issue");
         e = Expect.failure(() -> s.bean(TransitionService.class).transition(secondOnly,

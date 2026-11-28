@@ -149,7 +149,7 @@ public class GrantsController {
         Map<String, String> projectNames = Choices.projectNames(choice.projects());
         List<SessionAccessView.SessionCard> sessions = SessionAccessView.build(liveGrants, List.copyOf(projectNames.keySet()));
 
-        target.put("grants", liveGrants);
+        target.put("activeScopeCount", sessions.stream().mapToInt(SessionAccessView.SessionCard::totalGrantCount).sum());
         target.put("sessions", sessions);
         target.put("knownAuthors", SessionAccessView.knownAuthors(sessions));
         target.put("knownHosts", uiProperties.knownHosts());
@@ -157,6 +157,7 @@ public class GrantsController {
                 .filter(host -> !host.isEmpty()).distinct().sorted().toList());
         target.put("projectNames", projectNames);
         target.put("choice", choice);
-        target.put("scopes", Scope.values());
+        target.put("scopes", Scope.assignable());
+        target.put("scopeGroups", List.of("issue", "spec", "task", "criterion", "deliverable", "version"));
     }
 }

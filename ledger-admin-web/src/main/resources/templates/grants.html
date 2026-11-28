@@ -25,7 +25,7 @@
     </div>
     <div class="kpi-card">
       <span class="kpi-label" th:text="#{grants.kpi.grants}">Active scopes</span>
-      <span class="kpi-value" th:text="${#lists.size(grants)}">0</span>
+      <span class="kpi-value" th:text="${activeScopeCount}">0</span>
     </div>
     <div class="kpi-card">
       <span class="kpi-label" th:text="#{grants.kpi.projects}">Projects</span>
@@ -218,6 +218,14 @@
         <input type="hidden" name="author" id="edit-scopes-author" th:value="${syncForm != null} ? ${syncForm.author()}">
         <input type="hidden" name="project" id="edit-scopes-project" th:value="${syncForm != null} ? ${syncForm.project()}">
 
+        <div class="scope-group-picker" th:fragment="scopeGroupPicker">
+          <span class="scope-group-caption" th:text="#{grants.group.caption}">Select by item</span>
+          <label th:each="group : ${scopeGroups}" class="scope-group-option">
+            <input type="checkbox" th:attr="data-scope-group=${group}">
+            <span th:text="#{${'grants.group.' + group}}">Issues</span>
+          </label>
+        </div>
+
         <div class="scope-chip-grid" role="group" th:attr="aria-label=#{grants.scopes}">
           <label th:each="sc : ${scopes}"
                  class="scope-chip"
@@ -353,11 +361,12 @@
             <button type="button" class="ghost btn-sm" data-scope-preset="standard" th:text="#{grants.preset.standard}">Standard (no verify)</button>
             <button type="button" class="ghost btn-sm" data-scope-preset="none" th:text="#{grants.preset.none}">Clear all</button>
           </div>
+          <div th:replace="~{::scopeGroupPicker}"></div>
           <div class="scope-chip-grid">
             <label th:each="sc : ${scopes}" class="scope-chip"
                    th:classappend="${sc.token() == 'verify'} ? ' scope-chip-sensitive' : ''">
               <input type="checkbox" name="scopes" th:value="${sc.token()}"
-                     th:checked="${authorGrantForm != null ? (authorGrantForm.scopes() != null and authorGrantForm.scopes().contains(sc.token())) : (sc.token() != 'verify')}">
+                     th:checked="${authorGrantForm != null and authorGrantForm.scopes() != null and authorGrantForm.scopes().contains(sc.token())}">
               <span class="scope-chip-head">
                 <span class="scope-chip-title" th:text="#{${'grants.scope.' + sc.token()}}">Issue</span>
                 <span class="scope-chip-code" th:text="${sc.token()}">issue</span>

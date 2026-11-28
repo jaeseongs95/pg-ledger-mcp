@@ -192,7 +192,7 @@ public record LedgerAdminProperties(String token, String agentToken,
             @DefaultValue("/etc/veridger/update") Path directory,
             @DefaultValue("10s") Duration timeout,
             @DefaultValue("7.0.0") String currentVersion,
-            @DefaultValue("17") @Min(1) int currentSchemaVersion,
+            @DefaultValue("18") @Min(1) int currentSchemaVersion,
             Path schemaMigrationMarker) {
 
         private static final Pattern REPOSITORY_PATTERN = Pattern.compile("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$");

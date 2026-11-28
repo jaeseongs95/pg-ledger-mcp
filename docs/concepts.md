@@ -9,9 +9,10 @@
   set to `<vendor>:<session-id>`, which the client host hook stamps and models must omit. For example, the author is `claude:1f2e3d4c`
   or `codex:9a8b7c6d`; the owner of the ledger is `user:owner`. A tool has no `author_id` argument.
 - **Writes need a live grant.** The owner grants an author a scope on a project with `ledger-cli grant` (or on the grants page of
-  the admin web). The scopes are `issue`, `spec`, `task`, `deliverable` and `verify`. A write without a matching grant is refused. A
-  write that touches rows of two projects (a spec, task or criterion moved to another project, a link, a merge into an issue of another
-  project) needs the matching grant on both projects.
+  the admin web). Creation and editing are separate scopes, for example `issue_create` and `issue_update`. Specifications, tasks,
+  release criteria, deliverables and project versions have corresponding scopes. Author-side state changes and relationships require
+  the owning record's update scope. Independent review requires `verify`. Moves, links and issue merges across projects require
+  the matching grant on both projects. Existing bundled grants retain their permissions and can be narrowed in the admin web.
 - **Completion and verification are separate across all entities.** Authors record deliverables (`ledger_record_deliverable`) on an
   `issue`, `spec` or `task` and report completion (`RESOLVED` on an `issue`, `COMPLETED` on a `spec`, `task` or criterion). `VERIFIED`,
   `MET` and `NOT_MET` are set only through the reviewer tools `ledger_review` and `ledger_review_correct`, which need the scope

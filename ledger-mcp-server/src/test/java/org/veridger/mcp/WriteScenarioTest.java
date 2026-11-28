@@ -326,4 +326,35 @@ class WriteScenarioTest {
         assertThat(Ledger.history(session, scenario.projectId())).extracting(ReadOutputs.History::authorId)
                 .doesNotContain(Scenario.NOGRANT);
     }
+    @Test
+    @Order(15)
+    void mcpSeparatelyEnforcesIssueAndSpecificationCreationAndEditing() {
+        String creator = scenario.actorWith("creator", "issue_create", "spec_create");
+        String editor = scenario.actorWith("editor", "issue_update", "spec_update");
+        Saved createdIssue = session.ok("ledger_issue_save",
+                Calls.IssueSave.create(scenario.projectId(), "new issue", creator), Saved.class);
+        Saved createdSpec = session.ok("ledger_spec_save",
+                Calls.SpecSave.create(scenario.projectId(), "new spec", creator), Saved.class);
+
+        assertThat(session.failed("ledger_issue_save",
+                Calls.IssueSave.editTitle(createdIssue.id(), 1, "blocked issue edit", creator)).code())
+                .isEqualTo("SESSION_NOT_GRANTED");
+        assertThat(session.failed("ledger_spec_save",
+                Calls.SpecSave.editTitle(createdSpec.id(), 1, "blocked spec edit", creator)).code())
+                .isEqualTo("SESSION_NOT_GRANTED");
+        assertThat(session.failed("ledger_issue_save",
+                Calls.IssueSave.create(scenario.projectId(), "blocked issue creation", editor)).code())
+                .isEqualTo("SESSION_NOT_GRANTED");
+        assertThat(session.failed("ledger_spec_save",
+                Calls.SpecSave.create(scenario.projectId(), "blocked spec creation", editor)).code())
+                .isEqualTo("SESSION_NOT_GRANTED");
+
+        assertThat(session.ok("ledger_issue_save",
+                Calls.IssueSave.editTitle(createdIssue.id(), 1, "edited issue", editor), Saved.class).version())
+                .isEqualTo(2);
+        assertThat(session.ok("ledger_spec_save",
+                Calls.SpecSave.editTitle(createdSpec.id(), 1, "edited spec", editor), Saved.class).version())
+                .isEqualTo(2);
+    }
+
 }

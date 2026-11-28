@@ -137,7 +137,7 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
                 return Resolution.of(own);
             }
             return mergeTargetProject(c).map(project -> Resolution.of(own,
-                    new Target(project, HistoryEntity.ISSUE.writeScope()))).orElseGet(() -> Resolution.of(own));
+                    new Target(project, HistoryEntity.ISSUE.updateScope()))).orElseGet(() -> Resolution.of(own));
         }).orElseGet(() -> Resolution.unresolved(Tokens.unknown("to", c.to(), IssueStatus.values())));
     }
 
@@ -264,7 +264,7 @@ public class TransitionOperation extends WriteOperation<TransitionCommand, Trans
         MergeTarget target = null;
         if (to == IssueStatus.MERGED && mergedInto != null) {
             Issue targetRow = rows.issue(mergedInto);
-            authTargets.add(new Target(targetRow.projectId(), HistoryEntity.ISSUE.writeScope()));
+            authTargets.add(new Target(targetRow.projectId(), HistoryEntity.ISSUE.updateScope()));
             target = new MergeTarget(targetRow.id(), targetRow.status());
         }
         if (locked) {

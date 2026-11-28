@@ -5,6 +5,7 @@ package org.veridger.application.gate;
 import java.time.Clock;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -157,7 +158,7 @@ public class WriteGate {
 
     /** Read-only liveness check for one grant without locking {@code session_grant}. */
     public void requireLive(AuthorId author, Target target) {
-        if (!grants.hasLive(author, target.project(), target.scope(), clock.instant())) {
+        if (liveGrantTarget(author, target).isEmpty()) {
             throw notGranted(author, target);
         }
     }
@@ -168,8 +169,16 @@ public class WriteGate {
      * of the operation have been acquired.
      */
     public void authorizeAll(AuthorId author, Collection<Target> targets) {
-        Set<Target> distinct = new LinkedHashSet<>(targets);
-        distinct.stream().sorted(TARGET_LOCK_ORDER).forEach(target -> authorize(author, target));
+        Map<Target, Target> required = new LinkedHashMap<>();
+        for (Target requested : targets) {
+            Target live = liveGrantTarget(author, requested).orElseThrow(() -> notGranted(author, requested));
+            required.putIfAbsent(live, requested);
+        }
+        required.keySet().stream().sorted(TARGET_LOCK_ORDER).forEach(live -> {
+            if (!stamp(author, live)) {
+                throw notGranted(author, required.get(live));
+            }
+        });
     }
 
     /**
@@ -179,21 +188,41 @@ public class WriteGate {
      * {@code SESSION_NOT_GRANTED} at the exact failing operation index.
      */
     public Set<Target> authorizeAvailable(AuthorId author, Collection<Target> targets) {
-        Set<Target> distinct = new LinkedHashSet<>(targets);
+        Map<Target, Target> requestedToLive = new LinkedHashMap<>();
+        for (Target requested : new LinkedHashSet<>(targets)) {
+            liveGrantTarget(author, requested).ifPresent(live -> requestedToLive.put(requested, live));
+        }
         Set<Target> authorized = new LinkedHashSet<>();
-        distinct.stream().sorted(TARGET_LOCK_ORDER).forEach(target -> {
-            if (grants.markUsed(author, target.project(), target.scope(), clock.instant())) {
-                authorized.add(target);
+        requestedToLive.values().stream().distinct().sorted(TARGET_LOCK_ORDER)
+                .filter(live -> stamp(author, live)).forEach(authorized::add);
+        Set<Target> accepted = new LinkedHashSet<>();
+        requestedToLive.forEach((requested, live) -> {
+            if (authorized.contains(live)) {
+                accepted.add(requested);
             }
         });
-        return Set.copyOf(authorized);
+        return Set.copyOf(accepted);
     }
 
-    /** Checks (and stamps) one grant of an author that already passed the gate. */
+    /** Checks and stamps the exact permission used by a single-target write. */
     public void authorize(AuthorId author, Target target) {
-        if (!grants.markUsed(author, target.project(), target.scope(), clock.instant())) {
-            throw notGranted(author, target);
+        authorizeAll(author, List.of(target));
+    }
+
+    private Optional<Target> liveGrantTarget(AuthorId author, Target requested) {
+        var now = clock.instant();
+        if (grants.hasLive(author, requested.project(), requested.scope(), now)) {
+            return Optional.of(requested);
         }
+        Scope bundle = requested.scope().bundledScope();
+        if (bundle != null && grants.hasLive(author, requested.project(), bundle, now)) {
+            return Optional.of(new Target(requested.project(), bundle));
+        }
+        return Optional.empty();
+    }
+
+    private boolean stamp(AuthorId author, Target target) {
+        return grants.markUsed(author, target.project(), target.scope(), clock.instant());
     }
 
     private static TrustException notGranted(AuthorId author, Target target) {

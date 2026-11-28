@@ -117,13 +117,13 @@ public class CorrectOperation extends WriteOperation<CorrectCommand, CorrectResu
 
     private ResolvedPlan inspect(HistoryEntry row) {
         HistoryEntry origin = originRow(row);
-        Scope scope = origin.involvesVerification() ? Scope.VERIFY : origin.entity().writeScope();
+        Scope scope = origin.involvesVerification() ? Scope.VERIFY : origin.entity().updateScope();
         List<Endpoint> endpoints = new ArrayList<>();
         List<Resolution> parts = new ArrayList<>();
         switch (origin.entity()) {
             case ISSUE -> {
                 addIssue(origin.entityId(), scope, endpoints, parts);
-                mergedInto(origin).ifPresent(merged -> addIssue(merged.value(), Scope.ISSUE, endpoints, parts));
+                mergedInto(origin).ifPresent(merged -> addIssue(merged.value(), Scope.ISSUE_UPDATE, endpoints, parts));
             }
             case SPEC -> addSpec(origin.entityId(), scope, endpoints, parts);
             case TASK -> addTask(origin.entityId(), scope, endpoints, parts);

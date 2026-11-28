@@ -197,13 +197,13 @@ class TransitionPolicyTest {
         assertThat(Scope.forTransition(HistoryEntity.ISSUE, IssueStatus.VERIFIED, IssueStatus.OPEN))
                 .isEqualTo(Scope.VERIFY);
         assertThat(Scope.forTransition(HistoryEntity.ISSUE, IssueStatus.OPEN, IssueStatus.DISPUTED))
-                .isEqualTo(Scope.ISSUE);
+                .isEqualTo(Scope.ISSUE_UPDATE);
         assertThat(Scope.forTransition(HistoryEntity.SPEC, SpecStatus.ACTIVE, SpecStatus.COMPLETED))
-                .isEqualTo(Scope.SPEC);
+                .isEqualTo(Scope.SPEC_UPDATE);
         assertThat(Scope.forTransition(HistoryEntity.SPEC, SpecStatus.COMPLETED, SpecStatus.VERIFIED))
                 .isEqualTo(Scope.VERIFY);
         assertThat(Scope.forTransition(HistoryEntity.TASK, TaskState.ACTIVE, TaskState.COMPLETED))
-                .isEqualTo(Scope.TASK);
+                .isEqualTo(Scope.TASK_UPDATE);
         assertThat(Scope.forTransition(HistoryEntity.TASK, TaskState.COMPLETED, TaskState.VERIFIED))
                 .isEqualTo(Scope.VERIFY);
         assertThat(Scope.forTransition(HistoryEntity.CRITERION, CriterionState.UNKNOWN, CriterionState.MET))

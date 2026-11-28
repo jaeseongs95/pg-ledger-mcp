@@ -20,6 +20,7 @@ import org.veridger.application.receipt.ReceiptService;
 import org.veridger.application.write.WriteResult.RecordDeliverableResult;
 import org.veridger.database.repository.Counter;
 import org.veridger.database.repository.DeliverableRepository;
+import org.veridger.database.repository.HistoryRepository;
 import org.veridger.database.repository.IdAllocator;
 import org.veridger.domain.error.ConflictCode;
 import org.veridger.domain.error.ConflictException;
@@ -78,12 +79,13 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
     private final DeliverableRepository deliverables;
     private final IdAllocator ids;
     private final HistoryWriter history;
+    private final HistoryRepository historyRows;
     private final AttachmentLinks attachments;
     private final Clock clock;
 
     public RecordDeliverableOperation(WriteGate gate, ReceiptService receipts, Rows rows,
             CodeRules codeRules, DeliverableRepository deliverables, IdAllocator ids, HistoryWriter history,
-            AttachmentLinks attachments, Clock clock) {
+            AttachmentLinks attachments, HistoryRepository historyRows, Clock clock) {
         super(gate, receipts, ReceiptOperation.RECORD_DELIVERABLE, RecordDeliverableResult.class);
         this.gate = gate;
         this.rows = rows;
@@ -91,6 +93,7 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
         this.deliverables = deliverables;
         this.ids = ids;
         this.history = history;
+        this.historyRows = historyRows;
         this.attachments = attachments;
         this.clock = clock;
     }
@@ -104,8 +107,25 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
                 case SPEC -> rows.spec(SpecId.of(c.targetId())).projectId();
                 case TASK -> rows.task(TaskId.of(c.targetId())).projectId();
             };
-            return List.of(new Target(project, Scope.DELIVERABLE));
+            CodeValue kind = CodeValue.of(TextRule.CODE_NAME.required(c.kind()));
+            String reference = TextRule.DELIVERABLE_REF.required(c.deliverableRef());
+            String location = TextRule.LOCATION.optional(c.location());
+            boolean exists = findDeliverable(target, c.targetId(), kind, reference, location).isPresent();
+            return List.of(new Target(project, deliverableScope(exists)));
         });
+    }
+
+    @Override
+    protected List<Target> targetsAnswered(RecordDeliverableCommand command, RecordDeliverableResult stored,
+            List<Target> now) {
+        return historyRows.findById(stored.historyId()).map(row -> {
+            Scope scope = deliverableScope(row.op() != HistoryOp.CREATE);
+            return now.stream().map(target -> new Target(target.project(), scope)).toList();
+        }).orElse(now);
+    }
+
+    private static Scope deliverableScope(boolean exists) {
+        return exists ? Scope.DELIVERABLE_EDIT : Scope.DELIVERABLE_ADD;
     }
 
     @Override
@@ -214,15 +234,21 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
      */
     private Known readKnown(DeliverableTarget target, String targetId, CodeValue kind, String deliverableRef,
             String location, String checkRef, CheckResult checkResult, Instant checkedAt) {
-        return deliverables.findByTargetEntityAndTargetIdAndKindAndDeliverableRefAndLocationKey(target, targetId, kind,
-                deliverableRef, Deliverable.locationKeyOf(location))
-                .or(() -> location == null ? soleDeliverable(target, targetId, kind, deliverableRef) : Optional.empty())
+        return findDeliverable(target, targetId, kind, deliverableRef, location)
                 .<Known>map(row -> new Known.Recorded(row, amendedChanges(row, checkRef, checkResult, checkedAt)))
                 .orElseGet(() -> {
                     codeRules.checkDeliverableKind(kind);
                     return new Known.New();
                 });
     }
+
+    private Optional<Deliverable> findDeliverable(DeliverableTarget target, String targetId, CodeValue kind,
+            String reference, String location) {
+        return deliverables.findByTargetEntityAndTargetIdAndKindAndDeliverableRefAndLocationKey(target, targetId, kind,
+                reference, Deliverable.locationKeyOf(location))
+                .or(() -> location == null ? soleDeliverable(target, targetId, kind, reference) : Optional.empty());
+    }
+
 
     private Optional<Deliverable> soleDeliverable(DeliverableTarget target, String targetId, CodeValue kind,
             String deliverableRef) {
@@ -240,6 +266,7 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
         ctx.requirePinnedIssue(id);
         Issue row = rows.issueForWrite(id, null);
         Known known = afterTheTarget.get();
+        ctx.authorize(gate, List.of(new Target(row.projectId(), deliverableScope(known.exists()))));
         row.requireNotVerified();
         ActorId nextOwner = known.exists() ? row.ownerActorId() : author;
         String oldOwner = row.ownerActorId() == null ? null : row.ownerActorId().value();
@@ -248,13 +275,11 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
         if (row.status() == IssueStatus.OPEN && mark) {
             Issue after = row.transitioned(IssueStatus.RESOLVED, null, now).ownedBy(nextOwner, now);
             long version = rows.saveIssue(after).version();
-            ctx.authorize(gate, List.of(new Target(row.projectId(), Scope.DELIVERABLE)));
             return new TargetUpdate(HistoryOp.TRANSITION, IssueStatus.OPEN.name(), IssueStatus.RESOLVED.name(),
                     oldOwner, newOwner, version, before, known);
         }
         Issue after = row.ownedBy(nextOwner, now);
         long version = rows.saveIssue(after).version();
-        ctx.authorize(gate, List.of(new Target(row.projectId(), Scope.DELIVERABLE)));
         HistoryOp op = Objects.equals(oldOwner, newOwner) ? null : HistoryOp.EDIT;
         return new TargetUpdate(op, row.status().name(), row.status().name(), oldOwner, newOwner, version, before,
                 known);
@@ -263,9 +288,9 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
     private TargetUpdate updateSpec(WriteContext ctx, SpecId id, Supplier<Known> afterTheTarget, AuthorId author,
             boolean mark, Instant now) {
         ProjectId pinnedProject = ctx.pinSpec(rows, id);
-        ctx.authorize(gate, List.of(new Target(pinnedProject, Scope.DELIVERABLE)));
         Spec row = rows.specForWrite(id, null);
         Known known = afterTheTarget.get();
+        ctx.authorize(gate, List.of(new Target(pinnedProject, deliverableScope(known.exists()))));
         row.requireNotVerified();
         ActorId nextOwner = known.exists() ? row.ownerActorId() : author;
         String oldOwner = row.ownerActorId() == null ? null : row.ownerActorId().value();
@@ -289,9 +314,9 @@ public class RecordDeliverableOperation extends WriteOperation<RecordDeliverable
     private TargetUpdate updateTask(WriteContext ctx, TaskId id, Supplier<Known> afterTheTarget, AuthorId author,
             boolean mark, Instant now) {
         ProjectId pinnedProject = ctx.pinTask(rows, id);
-        ctx.authorize(gate, List.of(new Target(pinnedProject, Scope.DELIVERABLE)));
         Task row = rows.taskForWrite(id, null);
         Known known = afterTheTarget.get();
+        ctx.authorize(gate, List.of(new Target(pinnedProject, deliverableScope(known.exists()))));
         row.requireNotVerified();
         ActorId nextOwner = known.exists() ? row.ownerActorId() : author;
         String oldOwner = row.ownerActorId() == null ? null : row.ownerActorId().value();

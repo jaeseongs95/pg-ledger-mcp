@@ -29,13 +29,25 @@ public enum HistoryEntity implements Token {
         return token;
     }
 
-    /** The grant scope required to write this kind of history row on a project. */
-    public Scope writeScope() {
+    public Scope createScope() {
         return switch (this) {
-            case ISSUE, ISSUE_TASK, ISSUE_RELATION, ISSUE_CASE -> Scope.ISSUE;
-            case SPEC, ISSUE_SPEC, SPEC_TASK -> Scope.SPEC;
-            case TASK, CRITERION, CRITERION_LINK -> Scope.TASK;
-            case DELIVERABLE -> Scope.DELIVERABLE;
+            case ISSUE -> Scope.ISSUE_CREATE;
+            case SPEC -> Scope.SPEC_CREATE;
+            case TASK -> Scope.TASK_CREATE;
+            case CRITERION -> Scope.CRITERION_CREATE;
+            case DELIVERABLE -> Scope.DELIVERABLE_ADD;
+            case ISSUE_TASK, ISSUE_SPEC, SPEC_TASK, ISSUE_RELATION, CRITERION_LINK, ISSUE_CASE -> updateScope();
+        };
+    }
+
+    /** Updates to relationships and observations belong to their owning record. */
+    public Scope updateScope() {
+        return switch (this) {
+            case ISSUE, ISSUE_TASK, ISSUE_RELATION, ISSUE_CASE -> Scope.ISSUE_UPDATE;
+            case SPEC, ISSUE_SPEC, SPEC_TASK -> Scope.SPEC_UPDATE;
+            case TASK -> Scope.TASK_UPDATE;
+            case CRITERION, CRITERION_LINK -> Scope.CRITERION_UPDATE;
+            case DELIVERABLE -> Scope.DELIVERABLE_EDIT;
         };
     }
 }

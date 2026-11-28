@@ -36,12 +36,14 @@ class LockOrderTest {
     }
 
     @Test
-    @DisplayName("LOCK-02 scopes are ordered by their names: DELIVERABLE, ISSUE, SPEC, TASK, VERIFY")
+    @DisplayName("LOCK-02 scopes are ordered by their stored names")
     void scopesByName() {
         List<Scope> reversed = new ArrayList<>(List.of(Scope.values()));
         Collections.reverse(reversed);
-        assertThat(reversed.stream().sorted(LockOrder.SCOPE)).containsExactly(Scope.DELIVERABLE, Scope.ISSUE, Scope.SPEC,
-                Scope.TASK, Scope.VERIFY);
+        assertThat(reversed.stream().sorted(LockOrder.SCOPE).map(Scope::name)).containsExactly(
+                "CRITERION_CREATE", "CRITERION_UPDATE", "DELIVERABLE", "DELIVERABLE_ADD", "DELIVERABLE_EDIT",
+                "ISSUE", "ISSUE_CREATE", "ISSUE_UPDATE", "SPEC", "SPEC_CREATE", "SPEC_UPDATE",
+                "TASK", "TASK_CREATE", "TASK_UPDATE", "VERIFY", "VERSION_CREATE", "VERSION_UPDATE");
     }
 
     @Test
