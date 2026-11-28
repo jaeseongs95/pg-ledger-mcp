@@ -15,7 +15,7 @@ The examples use a fictional **Harbor Response Drill** project and its **1.2.0**
 
 1. The working agent records what was produced and where the evidence can be inspected. It reports completion on the associated item.
 2. The reviewer reads the item, deliverables, and relevant history. It applies the independence rules for the item before calling `ledger_review` with an `evidence_uri`. Use the [ledger concepts](concepts.md#concepts) for the exact eligibility rules.
-3. If the evidence is incomplete, record the reason and route the follow-up to the current owner. The reviewer reopens a verified item before it can be edited. The original verdict stays in history.
+3. If the evidence does not support the report, use `ledger_review` with the review evidence to return a completed specification, task, or release criterion to `ACTIVE`. Return a resolved issue to `OPEN` the same way. The current owner can then address the reason recorded in the review. If a verdict was already recorded, use the reviewer path to withdraw it and keep the earlier verdict in history.
 
 ## Make a release decision
 
