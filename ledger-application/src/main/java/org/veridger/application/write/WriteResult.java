@@ -2,6 +2,8 @@
 
 package org.veridger.application.write;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 /**
  * Result of a write operation, persisted in {@code request_receipt} and replayed idempotently.
  */
@@ -12,7 +14,8 @@ public sealed interface WriteResult {
     }
 
     record TransitionResult(WriteStatus status, String entity, String id, String from, String to, long version,
-            long historyId, String author, String login) implements WriteResult {
+            long historyId, String author, String login,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean reviewReturn) implements WriteResult {
     }
 
     record RecordDeliverableResult(WriteStatus status, String targetEntity, String targetId, long deliverableId,

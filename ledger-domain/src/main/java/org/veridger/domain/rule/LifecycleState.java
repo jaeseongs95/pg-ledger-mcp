@@ -15,6 +15,12 @@ public sealed interface LifecycleState extends Token
     /** True for VERIFIED, MET and NOT_MET: moving into or out of such a state is an independent verification. */
     boolean verification();
 
+    /** An independent reviewer may return a reported outcome to the working state. */
+    static boolean isReviewReturn(String from, String to) {
+        return ("RESOLVED".equals(from) && "OPEN".equals(to))
+                || ("COMPLETED".equals(from) && "ACTIVE".equals(to));
+    }
+
     @Override
     default String token() {
         return name();

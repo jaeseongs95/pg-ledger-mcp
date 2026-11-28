@@ -17,12 +17,12 @@
 | `ledger_task_save` | author | 작업을 만들거나 수정합니다(`project_id`, `title`, `purpose`, `success_condition`, `owner_actor_id`, `origin_ref`, `origin_quote`, `id`, `expected_version`, `reason`) |
 | `ledger_criterion_save` | author | 마일스톤 기준을 만들거나 수정합니다(`project_id`, `id`, `milestone_name`, `goal_label`, `code`, `criterion_text`, `expected_version`, `reason`) |
 | `ledger_transition` | author | 작성자 채널 상태를 바꿉니다(`OPEN`, `RESOLVED`, `NOT_AN_ISSUE`, `DISPUTED`, `MERGED`, `DRAFT`, `PLANNED`, `ACTIVE`, `BLOCKED`, `COMPLETED`, `CANCELLED`, `UNKNOWN`) |
-| `ledger_record_deliverable` | author | `issue`, `spec`, `task`에 산출물(`document`, `commit`, `media`, `scene`, `dataset`, `design`, `artifact`, `other`)을 기록하거나 보완하고, 선택으로 `RESOLVED` 또는 `COMPLETED` 처리합니다(`mark_done`) |
+| `ledger_record_deliverable` | author | `issue`, `spec`, `task`에 새 산출물을 등록하며 선택으로 해결·완료를 보고하거나(`mark_done`), 기존 산출물의 점검 정보를 바꿉니다 |
 | `ledger_record_case` | author | 이슈 아래에 관찰된 사례를 추가합니다(`MERGED` 이슈는 거절되며 병합 대상을 알려 줍니다) |
 | `ledger_link` | author | 이슈, 명세, 작업, 기준을 연결(`issue_task`, `issue_spec`, `spec_task`, `criterion_task`, `criterion_issue`, `criterion_spec` 또는 이슈 `RELATION_KIND` 코드)하거나 연결을 제거합니다 |
 | `ledger_correct` | author | 이력 행이 잘못되었음을 표시합니다 |
 | `ledger_batch` | author | 프로젝트 버전 변경을 포함한 작성자 작업을 한 트랜잭션에서 최대 200개까지 처리합니다. 배치에 `operationKey` 하나를 줍니다 |
-| `ledger_review` | reviewer | 독립 검수(`VERIFIED`, `MET`, `NOT_MET`)와 재오픈을 처리합니다(`evidence_uri` 필수) |
+| `ledger_review` | reviewer | `evidence_uri`와 함께 독립 판정, 재작업 반려, 기존 판정 철회를 기록합니다 |
 | `ledger_review_correct` | reviewer | 검수 행이 잘못되었음을 표시합니다 |
 
 첨부 도구. 업로드 시작, 번들 확정, 확정 번들 상태 조회와 본문 읽기에는 활성 권한이 있는 세션이 필요합니다. 인증된 `attachments-send` CLI는 파일별 `uploadId`로 청크를 직접 보내고 이어서 전송합니다.
@@ -99,6 +99,50 @@ ID를 모르면 `ledger_search`, ID를 알면 `ledger_get`, 조치 대기 목록
  "evidence": "request 7f3a, api/checkout.ts:88", "source_quote": "I can't pay with my gift card",
  "observed_at": "2026-11-05T10:00:00Z", "reason": "second report of the same failure"}
 ```
+
+## 프로젝트 권한
+
+권한은 현재 호스트 세션과 프로젝트에 적용합니다. 생성과 수정에는 각각 권한을 부여합니다. 프로젝트 설정, 마일스톤 보관·복원, 세션 권한 부여와 회수는 소유자 관리 기능입니다.
+
+| 권한 | 허용되는 작업 |
+|---|---|
+| `issue_create` | `ledger_issue_save`로 새 이슈를 등록합니다. |
+| `issue_update` | 이슈 내용·작성자 상태를 바꾸고, 관찰 사례를 추가하거나 작업·다른 이슈·버전 연결을 관리합니다. |
+| `spec_create` | `ledger_spec_save`로 새 명세를 등록합니다. |
+| `spec_update` | 명세 내용·작성자 상태를 바꾸거나 프로젝트를 옮기고, 이슈·작업·버전 연결을 관리합니다. |
+| `task_create` | `ledger_task_save`로 새 작업을 등록합니다. |
+| `task_update` | 작업 내용·작성자 상태를 바꾸거나 프로젝트를 옮기고, 작성자 완료 보고를 철회하거나 버전 연결을 관리합니다. |
+| `criterion_create` | `ledger_criterion_save`로 새 마일스톤 출시 기준을 등록합니다. |
+| `criterion_update` | 출시 기준 내용·작성자 상태를 바꾸거나 프로젝트를 옮기고, 이슈·명세·작업·버전 연결을 관리합니다. |
+| `deliverable_create` | 새 산출물을 등록합니다. 등록과 함께 `mark_done=true`로 이슈 해결이나 명세·작업 완료를 보고할 수 있습니다. |
+| `deliverable_update` | 기존 산출물의 점검 정보나 감사 이력을 정정합니다. 대상의 상태는 유지됩니다. |
+| `version_create` | 일괄 요청의 `project_version` 연산으로 새 버전을 등록합니다. |
+| `version_update` | 프로젝트 버전의 이름과 설명을 바꿉니다. |
+| `verify` | 독립 판정, 재작업 반려, 판정 철회나 검수 이력 정정을 기록합니다. |
+
+프로젝트가 다른 두 항목을 연결할 때는 관계에 해당하는 수정 권한을 양쪽 프로젝트에서 확인합니다. 항목을 옮길 때도 해당 유형의 수정 권한을 양쪽에서 확인합니다. 이슈 병합은 양쪽의 `issue_update`가 필요하며, 원본이 검증 상태이면 판정 철회에 원본 프로젝트의 `verify`도 필요합니다. 기존 항목을 버전에 연결할 때는 해당 항목의 수정 권한을 확인합니다. 일괄 요청의 개별 연산에도 같은 규칙이 적용됩니다.
+
+| 검수 상황 | 도구와 필요한 권한 |
+|---|---|
+| 이슈 `RESOLVED → VERIFIED`, 명세·작업 `COMPLETED → VERIFIED` | `ledger_review`에 `verify`, 근거, 독립 세션이 필요합니다. 이슈는 산출물도 필요합니다. |
+| 출시 기준을 `MET` 또는 `NOT_MET`로 판정 | `ledger_review`에 `verify`, 근거, 독립 세션이 필요합니다. |
+| 이슈 `RESOLVED → OPEN`, 명세·작업·출시 기준 `COMPLETED → ACTIVE`로 재작업 반려 | `ledger_review`에 `verify`, 근거, 독립 세션이 필요합니다. |
+| 작업 `VERIFIED → ACTIVE`와 같은 판정 철회 | `ledger_review`에 `verify`와 근거가 필요합니다. |
+| 판정 철회와 함께 명세·작업 취소 또는 이슈 기각·분쟁·병합 | `ledger_review`에 `verify`, 해당 항목의 수정 권한, 근거가 필요합니다. 병합은 양쪽 프로젝트를 확인합니다. |
+| 작성자가 검수 전 보고를 철회 | `ledger_transition`에 해당 항목의 수정 권한이 필요합니다. |
+| 잘못 적힌 이력에 정정 기록 추가 | 작성자 이력은 `ledger_correct`와 항목 또는 관계의 수정 권한, 검수 이력은 `ledger_review_correct`와 `verify`가 필요합니다. |
+
+현재 상태, 목표 상태, 호출 도구를 기준으로 적용할 권한을 판정합니다. 일반 작업 수정에는 `task_update`를 사용합니다. 장부 조회는 MCP 연결 토큰을 사용합니다. 첨부 도구의 권한은 아래에서 확인할 수 있습니다.
+
+| 거절 사례 | 오류 |
+|---|---|
+| 생성 권한으로 기존 항목을 수정하거나 수정 권한으로 새 항목을 등록 | `SESSION_NOT_GRANTED`와 필요한 권한 |
+| `verify`만 가진 검수자가 담당자를 지정하거나 일반 작성자 상태를 변경 | `SESSION_NOT_GRANTED`와 해당 항목의 수정 권한 |
+| `ledger_transition`에 `VERIFIED`, `MET`, `NOT_MET`를 목표 상태로 지정 | `VALIDATION_FAILED` |
+| 작성자 연산으로 기존 검증 상태를 되돌림 | `VERIFY_NEEDS_REVIEWER_LOGIN` |
+| 작업에 참여한 세션이 해당 보고를 승인 또는 반려 | `SAME_SESSION` |
+| `ledger_review`의 필수 인자 `evidence_uri`를 생략 | `VALIDATION_FAILED` |
+| 근거가 필요한 상태 전이에서 상태 규칙에 전달된 근거가 비어 있음 | `EVIDENCE_REQUIRED` |
 
 ## 첨부
 

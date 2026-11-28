@@ -196,7 +196,9 @@ class WriteSchemaTest {
         String description = session.tool("ledger_review").description();
 
         assertThat(description).contains("optional metadata").contains("actual deliverable")
-                .contains("resolved_by of ledger_issue").contains("completed_by of ledger_spec");
+                .contains("resolved_by of ledger_issue").contains("completed_by of ledger_spec")
+                .contains("project verify", "RESOLVED issue to OPEN", "COMPLETED spec/task/criterion to ACTIVE",
+                        "ledger_transition for author-side changes");
     }
 
     @Test

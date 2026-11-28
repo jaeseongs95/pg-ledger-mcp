@@ -69,11 +69,13 @@ class GrantsUxTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(enHtml).contains("data-session-card", "/grants/sync", "/grants/author")
                 .contains(firstAuthor, secondAuthor)
+                .contains("aria-label=\"Help for Verify\"", "completed specification, task, or criterion to Active")
                 .doesNotContain("/grants/preview", "/grants/tokens", "/grants/keys/revoke");
 
         String koHtml = browser.perform(browser.get("/grants").header(HttpHeaders.ACCEPT_LANGUAGE, "ko"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        assertThat(koHtml).contains("세션 권한 관리", "권한이 부여된 세션 목록", "변경 저장");
+        assertThat(koHtml).contains("세션 권한 관리", "권한이 부여된 세션 목록", "변경 저장",
+                "aria-label=\"검증 권한 도움말\"", "완료 보고된 명세·작업·출시 기준을 진행 중으로");
     }
 
     @Test

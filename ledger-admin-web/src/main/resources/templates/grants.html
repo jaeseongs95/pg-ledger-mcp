@@ -227,18 +227,27 @@
         </div>
 
         <div class="scope-chip-grid" role="group" th:attr="aria-label=#{grants.scopes}">
-          <label th:each="sc : ${scopes}"
+          <div th:each="sc : ${scopes}"
                  class="scope-chip"
                  th:classappend="${sc.token() == 'verify'} ? ' scope-chip-sensitive' : ''"
+                 th:with="token=${sc.token()},selected=${syncForm != null and syncForm.scopes() != null and syncForm.scopes().contains(token)}"
                  th:attr="data-scope-chip=${sc.token()}">
-            <input type="checkbox" name="scopes" th:value="${sc.token()}"
-                   th:checked="${syncForm != null and syncForm.scopes() != null and syncForm.scopes().contains(sc.token())}">
-            <span class="scope-chip-head">
-              <span class="scope-chip-title" th:text="#{${'grants.scope.' + sc.token()}}">Issue</span>
-              <span class="scope-chip-code" th:text="${sc.token()}">issue</span>
-            </span>
-            <span class="scope-chip-desc" th:text="#{${'grants.scope.desc.' + sc.token()}}">Create &amp; update issues</span>
-          </label>
+            <label th:fragment="scopeChipControl(token, selected)" class="scope-chip-control">
+              <input type="checkbox" name="scopes" th:value="${token}" th:checked="${selected}">
+              <span class="scope-chip-head">
+                <span class="scope-chip-title" th:text="#{${'grants.scope.' + token}}">Issue</span>
+                <span class="scope-chip-code" th:text="${token}">issue</span>
+              </span>
+              <span class="scope-chip-desc" th:text="#{${'grants.scope.desc.' + token}}">Create issues</span>
+            </label>
+            <details th:fragment="scopeChipHelp(token)" class="scope-chip-help"
+                     th:with="scopeLabel=#{${'grants.scope.' + token}}">
+              <summary th:attr="aria-label=#{grants.scope.helpLabel(${scopeLabel})}">
+                <span aria-hidden="true">?</span>
+              </summary>
+              <p th:text="#{${'grants.scope.help.' + token}}">Permission details</p>
+            </details>
+          </div>
         </div>
 
         <div class="preset-row">
@@ -363,16 +372,11 @@
           </div>
           <div th:replace="~{::scopeGroupPicker}"></div>
           <div class="scope-chip-grid">
-            <label th:each="sc : ${scopes}" class="scope-chip"
-                   th:classappend="${sc.token() == 'verify'} ? ' scope-chip-sensitive' : ''">
-              <input type="checkbox" name="scopes" th:value="${sc.token()}"
-                     th:checked="${authorGrantForm != null and authorGrantForm.scopes() != null and authorGrantForm.scopes().contains(sc.token())}">
-              <span class="scope-chip-head">
-                <span class="scope-chip-title" th:text="#{${'grants.scope.' + sc.token()}}">Issue</span>
-                <span class="scope-chip-code" th:text="${sc.token()}">issue</span>
-              </span>
-              <span class="scope-chip-desc" th:text="#{${'grants.scope.desc.' + sc.token()}}">Create &amp; update issues</span>
-            </label>
+            <div th:each="sc : ${scopes}" class="scope-chip"
+                 th:classappend="${sc.token() == 'verify'} ? ' scope-chip-sensitive' : ''">
+              <label th:replace="~{::scopeChipControl(${sc.token()}, ${authorGrantForm != null and authorGrantForm.scopes() != null and authorGrantForm.scopes().contains(sc.token())})}"></label>
+              <details th:replace="~{::scopeChipHelp(${sc.token()})}"></details>
+            </div>
           </div>
         </fieldset>
 

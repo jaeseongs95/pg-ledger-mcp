@@ -553,6 +553,25 @@ class WriteCallTest {
     }
 
     @Test
+    void issueAndVerifyGrantsCanReturnACompletedTaskForRework(McpSession session, Scenario scenario) {
+        Seed seed = Seed.create(session, scenario);
+        session.ok("ledger_transition",
+                Calls.Transition.of("task", seed.task(), 1, "COMPLETED", Scenario.AUTHOR)
+                        .withEvidence(Scenario.EVIDENCE),
+                WriteOutputs.Transitioned.class);
+        String reviewer = scenario.actorWith("return-reviewer", "issue", "verify");
+        assertThat(session.failed("ledger_transition",
+                Calls.Transition.of("task", seed.task(), 2, "ACTIVE", reviewer)).code())
+                .isEqualTo("SESSION_NOT_GRANTED");
+        var request = Calls.Review.of("task", seed.task(), 2, "ACTIVE", reviewer);
+        var returned = session.ok("ledger_review", request, WriteOutputs.Transitioned.class);
+        assertThat(returned.from()).isEqualTo("COMPLETED");
+        assertThat(returned.to()).isEqualTo("ACTIVE");
+        assertThat(returned.login()).isEqualTo("ledger_reviewer");
+        assertThat(session.ok("ledger_review", request, WriteOutputs.Transitioned.class)).isEqualTo(returned);
+    }
+
+    @Test
     @DisplayName("MCW-019: ledger_correct refuses a verification row, ledger_review_correct corrects it")
     void correctionOfAVerificationRow(McpSession session, Scenario scenario) {
         Seed seed = Seed.create(session, scenario);

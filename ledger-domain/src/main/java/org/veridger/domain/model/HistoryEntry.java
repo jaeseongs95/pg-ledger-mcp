@@ -83,10 +83,12 @@ public record HistoryEntry(@Id Long id, @Column("occurred_at") Instant at, Actor
         }
     }
 
-    /** Whether this entry is a transition into or out of a verification state: such a change is a verification. */
+    /** Whether this transition records a review decision or withdraws a previous decision. */
     public boolean involvesVerification() {
         return op == HistoryOp.TRANSITION
-                && (LifecycleState.isVerification(entity, toState) || LifecycleState.isVerification(entity, fromState));
+                && (LifecycleState.isVerification(entity, toState) || LifecycleState.isVerification(entity, fromState)
+                    || (Objects.equals(Channel.REVIEWER.login(), login)
+                        && LifecycleState.isReviewReturn(fromState, toState)));
     }
 
     private static void require(boolean condition, String path, ValidationReason reason, String... reasonArgs) {

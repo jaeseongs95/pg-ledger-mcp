@@ -225,7 +225,7 @@ final class BatchBuffer {
             case SaveResult r -> new SaveResult(r.status(), r.entity(), r.id(), r.version(),
                     resolve(r.historyId(), historyIds), r.author(), r.login());
             case TransitionResult r -> new TransitionResult(r.status(), r.entity(), r.id(), r.from(), r.to(),
-                    r.version(), resolve(r.historyId(), historyIds), r.author(), r.login());
+                    r.version(), resolve(r.historyId(), historyIds), r.author(), r.login(), r.reviewReturn());
             case RecordDeliverableResult r -> new RecordDeliverableResult(r.status(), r.targetEntity(), r.targetId(),
                     r.deliverableId(), r.targetState(), r.ownerActorId(), r.version(),
                     resolve(r.historyId(), historyIds), resolveNullable(r.transitionHistoryId(), historyIds),

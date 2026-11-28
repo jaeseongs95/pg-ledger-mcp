@@ -11,6 +11,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.veridger.application.history.Change;
@@ -72,6 +73,25 @@ class DeliverableTest {
         assertThat(keys.keySet()).isEqualTo(Set.of("status", "target_entity", "target_id", "deliverable_id",
                 "target_state", "owner_actor_id", "version", "history_id", "transition_history_id", "author",
                 "login"));
+    }
+
+    @ParameterizedTest
+    @EnumSource(DeliverableTarget.class)
+    void amendingCheckMetadataDoesNotReportCompletion(DeliverableTarget kind, Scenario s) {
+        SaveResult target = switch (kind) {
+            case ISSUE -> s.newIssue("issue");
+            case SPEC -> s.newSpec("spec");
+            case TASK -> s.newTask("task");
+        };
+        String entity = kind.token();
+        String creator = s.actorWith("deliverable_create");
+        String updater = s.actorWith("deliverable_update");
+        var reference = Scenario.ref('a');
+        var added = record(s, creator, cmd(entity, target.id(), reference, "check", "failed", null, false));
+        var amended = record(s, updater, cmd(entity, target.id(), reference, "check", "passed", null, true));
+        assertThat(amended.deliverableId()).isEqualTo(added.deliverableId());
+        assertThat(amended.targetState()).isEqualTo(added.targetState());
+        assertThat(amended.transitionHistoryId()).isNull();
     }
 
     @Test
