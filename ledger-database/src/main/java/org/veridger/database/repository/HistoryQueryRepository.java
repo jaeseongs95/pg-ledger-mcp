@@ -135,16 +135,17 @@ public class HistoryQueryRepository {
     private static final String VERSION_OWNER = "(" + String.join(" OR ", ISSUE_VERSION, SPEC_VERSION,
             TASK_VERSION, CRITERION_VERSION) + ")";
 
+    private static final String PROJECT_VERSIONS = "SELECT DISTINCT h.id, pv.name FROM history h "
+            + "JOIN project_version_item ref ON " + VERSION_OWNER
+            + " JOIN project_version pv ON pv.project_id = ref.project_id AND pv.id = ref.version_id"
+            + " WHERE h.id IN (:ids) ORDER BY h.id, pv.name";
+
     /** Current versions of a page of history targets, including the owners of related records. */
     public Map<Long, List<String>> projectVersions(List<Long> historyIds) {
         if (historyIds.isEmpty()) {
             return Map.of();
         }
-        return jdbc.sql("""
-                SELECT DISTINCT h.id, pv.name FROM history h JOIN project_version_item ref ON %s
-                JOIN project_version pv ON pv.project_id = ref.project_id AND pv.id = ref.version_id
-                WHERE h.id IN (:ids) ORDER BY h.id, pv.name
-                """.formatted(VERSION_OWNER)).param("ids", historyIds)
+        return jdbc.sql(PROJECT_VERSIONS).param("ids", historyIds)
                 .query((rs, row) -> Map.entry(rs.getLong(1), rs.getString(2))).list().stream()
                 .collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.mapping(Map.Entry::getValue,
                         Collectors.toList())));
@@ -202,8 +203,8 @@ public class HistoryQueryRepository {
 
     public KeysetPage<Position> positions(Filter filter, MaxRows maxRows, DateQuery dates, Position after,
             String projectVersionId) {
-        StringBuilder sql = new StringBuilder("SELECT h.id, h.occurred_at ")
-                .append(matching(filter, dates, projectVersionId));
+        StringBuilder sql = new StringBuilder("SELECT h.id, h.occurred_at ");
+        appendMatching(sql, filter, dates, projectVersionId);
         if (dates.sort() != null) {
             if (after != null) {
                 dates.appendSeek(sql, "h.id", after.at(), false);
@@ -226,13 +227,14 @@ public class HistoryQueryRepository {
     }
 
     public long count(Filter filter, DateQuery dates, String projectVersionId) {
-        return bindMatching(jdbc.sql("SELECT COUNT(*) " + matching(filter, dates, projectVersionId)),
-                filter, dates, projectVersionId)
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        return bindMatching(jdbc.sql(sql.toString()), filter, dates, projectVersionId)
                 .query(Long.class).single();
     }
 
-    private static StringBuilder matching(Filter filter, DateQuery dates, String projectVersionId) {
-        StringBuilder sql = new StringBuilder("FROM history h WHERE h.id > 0");
+    private static void appendMatching(StringBuilder sql, Filter filter, DateQuery dates, String projectVersionId) {
+        sql.append("FROM history h WHERE h.id > 0");
         if (!filter.ids().isEmpty()) {
             sql.append(" AND h.id IN (:ids)");
         }
@@ -267,7 +269,6 @@ public class HistoryQueryRepository {
             sql.append(" AND h.occurred_at <= :atTo");
         }
         dates.appendRange(sql);
-        return sql;
     }
 
     private static JdbcClient.StatementSpec bindMatching(JdbcClient.StatementSpec spec, Filter filter, DateQuery dates,

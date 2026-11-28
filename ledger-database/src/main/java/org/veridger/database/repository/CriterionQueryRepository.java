@@ -77,8 +77,8 @@ public class CriterionQueryRepository {
     public KeysetPage<CriterionSummary> page(ProjectId project, Filter filter, MaxRows maxRows, DateQuery dates,
             Position after, String projectVersionId) {
         StringBuilder sql = new StringBuilder("SELECT c.id, c.milestone_name, c.goal_label, c.code, c.criterion_text, "
-                + "c.state, c.version, dates.created_at, dates.updated_at ")
-                .append(matching(filter, dates, projectVersionId));
+                + "c.state, c.version, dates.created_at, dates.updated_at ");
+        appendMatching(sql, filter, dates, projectVersionId);
         if (dates.sort() != null) {
             if (after != null) {
                 dates.appendSeek(sql, "c.id", after.at(), true);
@@ -104,12 +104,14 @@ public class CriterionQueryRepository {
     }
 
     public long count(ProjectId project, Filter filter, DateQuery dates, String projectVersionId) {
-        return bindMatching(jdbc.sql("SELECT COUNT(*) " + matching(filter, dates, projectVersionId)),
-                project, filter, dates, projectVersionId).query(Long.class).single();
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        return bindMatching(jdbc.sql(sql.toString()), project, filter, dates, projectVersionId)
+                .query(Long.class).single();
     }
 
-    private static StringBuilder matching(Filter filter, DateQuery dates, String projectVersionId) {
-        StringBuilder sql = new StringBuilder("FROM milestone_criterion c "
+    private static void appendMatching(StringBuilder sql, Filter filter, DateQuery dates, String projectVersionId) {
+        sql.append("FROM milestone_criterion c "
                 + "LEFT JOIN (SELECT h.entity_id, "
                 + "MIN(CASE WHEN h.op IN ('CREATE', 'IMPORT') THEN h.occurred_at END) AS created_at, "
                 + "MAX(h.occurred_at) AS updated_at "
@@ -125,7 +127,6 @@ public class CriterionQueryRepository {
         }
         ProjectVersionRepository.appendItemFilter(sql, projectVersionId, "c.id", HistoryEntity.CRITERION);
         dates.appendRange(sql);
-        return sql;
     }
 
     private static JdbcClient.StatementSpec bindMatching(JdbcClient.StatementSpec spec, ProjectId project,

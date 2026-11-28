@@ -49,8 +49,8 @@ public class SpecQueryRepository {
     public KeysetPage<SpecSummary> page(ProjectId project, Filter filter, MaxRows maxRows, DateQuery dates,
             Position after, String projectVersionId) {
         StringBuilder sql = new StringBuilder("SELECT id, parent_id, title, status, priority, owner_actor_id, "
-                + "version, created_at, updated_at ")
-                .append(matching(filter, dates, projectVersionId));
+                + "version, created_at, updated_at ");
+        appendMatching(sql, filter, dates, projectVersionId);
         DateQuery order = dates.defaultOrder(DateQuery.Column.CREATED, false);
         if (after != null) {
             order.appendSeek(sql, "id", after.at(), false);
@@ -72,12 +72,14 @@ public class SpecQueryRepository {
     }
 
     public long count(ProjectId project, Filter filter, DateQuery dates, String projectVersionId) {
-        return bindMatching(jdbc.sql("SELECT COUNT(*) " + matching(filter, dates, projectVersionId)),
-                project, filter, dates, projectVersionId).query(Long.class).single();
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        return bindMatching(jdbc.sql(sql.toString()), project, filter, dates, projectVersionId)
+                .query(Long.class).single();
     }
 
-    private static StringBuilder matching(Filter filter, DateQuery dates, String projectVersionId) {
-        StringBuilder sql = new StringBuilder("FROM spec WHERE project_id = :project");
+    private static void appendMatching(StringBuilder sql, Filter filter, DateQuery dates, String projectVersionId) {
+        sql.append("FROM spec WHERE project_id = :project");
         if (filter.status() != null) {
             sql.append(" AND status = :status");
         }
@@ -95,7 +97,6 @@ public class SpecQueryRepository {
         }
         ProjectVersionRepository.appendItemFilter(sql, projectVersionId, "id", HistoryEntity.SPEC);
         dates.appendRange(sql);
-        return sql;
     }
 
     private static JdbcClient.StatementSpec bindMatching(JdbcClient.StatementSpec stmt, ProjectId project,

@@ -56,8 +56,8 @@ public class TaskQueryRepository {
     public KeysetPage<TaskSummary> page(ProjectId project, Filter filter, MaxRows maxRows, DateQuery dates,
             Position after, String projectVersionId) {
         StringBuilder sql = new StringBuilder("SELECT id, title, state, owner_actor_id, version, created_at, "
-                + "updated_at ")
-                .append(matching(filter, dates, projectVersionId));
+                + "updated_at ");
+        appendMatching(sql, filter, dates, projectVersionId);
         DateQuery order = dates.defaultOrder(DateQuery.Column.CREATED, false);
         if (after != null) {
             order.appendSeek(sql, "id", after.at(), false);
@@ -75,12 +75,14 @@ public class TaskQueryRepository {
     }
 
     public long count(ProjectId project, Filter filter, DateQuery dates, String projectVersionId) {
-        return bindMatching(jdbc.sql("SELECT COUNT(*) " + matching(filter, dates, projectVersionId)),
-                project, filter, dates, projectVersionId).query(Long.class).single();
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        return bindMatching(jdbc.sql(sql.toString()), project, filter, dates, projectVersionId)
+                .query(Long.class).single();
     }
 
-    private static StringBuilder matching(Filter filter, DateQuery dates, String projectVersionId) {
-        StringBuilder sql = new StringBuilder("FROM task WHERE project_id = :project");
+    private static void appendMatching(StringBuilder sql, Filter filter, DateQuery dates, String projectVersionId) {
+        sql.append("FROM task WHERE project_id = :project");
         if (filter.state() != null) {
             sql.append(" AND state = :state");
         }
@@ -92,7 +94,6 @@ public class TaskQueryRepository {
         }
         ProjectVersionRepository.appendItemFilter(sql, projectVersionId, "id", HistoryEntity.TASK);
         dates.appendRange(sql);
-        return sql;
     }
 
     private static JdbcClient.StatementSpec bindMatching(JdbcClient.StatementSpec spec, ProjectId project,

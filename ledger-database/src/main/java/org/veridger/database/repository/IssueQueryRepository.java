@@ -72,8 +72,8 @@ public class IssueQueryRepository {
     public KeysetPage<IssueSummary> page(ProjectId project, Filter filter, MaxRows maxRows, Order order,
             DateQuery dates, Position after, String projectVersionId) {
         StringBuilder sql = new StringBuilder("SELECT id, title, category, severity, status, merged_into, "
-                + EFFECTIVE_OWNER + " AS effective_owner, version, created_at, updated_at ")
-                .append(matching(filter, dates, projectVersionId));
+                + EFFECTIVE_OWNER + " AS effective_owner, version, created_at, updated_at ");
+        appendMatching(sql, filter, dates, projectVersionId);
         DateQuery sort = dates.defaultOrder(DateQuery.Column.CREATED, order == Order.OLDEST_FIRST);
         if (after != null) {
             sort.appendSeek(sql, "id", after.at(), false);
@@ -88,12 +88,14 @@ public class IssueQueryRepository {
     }
 
     public long count(ProjectId project, Filter filter, DateQuery dates, String projectVersionId) {
-        return bindMatching(jdbc.sql("SELECT COUNT(*) " + matching(filter, dates, projectVersionId)),
-                project, filter, dates, projectVersionId).query(Long.class).single();
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) ");
+        appendMatching(sql, filter, dates, projectVersionId);
+        return bindMatching(jdbc.sql(sql.toString()), project, filter, dates, projectVersionId)
+                .query(Long.class).single();
     }
 
-    private static StringBuilder matching(Filter filter, DateQuery dates, String projectVersionId) {
-        StringBuilder sql = new StringBuilder("FROM issue WHERE project_id = :project");
+    private static void appendMatching(StringBuilder sql, Filter filter, DateQuery dates, String projectVersionId) {
+        sql.append("FROM issue WHERE project_id = :project");
         if (filter.status() != null) {
             sql.append(" AND status = :status");
         }
@@ -120,7 +122,6 @@ public class IssueQueryRepository {
         }
         ProjectVersionRepository.appendItemFilter(sql, projectVersionId, "id", HistoryEntity.ISSUE);
         dates.appendRange(sql);
-        return sql;
     }
 
     private static JdbcClient.StatementSpec bindMatching(JdbcClient.StatementSpec spec, ProjectId project,
