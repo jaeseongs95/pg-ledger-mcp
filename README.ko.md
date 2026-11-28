@@ -42,10 +42,9 @@ Veridger는 AI 에이전트와 운영자가 함께 쓰는 작업 장부입니다
 
 ## 문서
 
-- [설치](docs/installation.ko.md) · [운영](docs/administration.ko.md)
-- [MCP 도구와 예제](docs/mcp.ko.md#mcp-도구)
-- [아키텍처](docs/architecture.ko.md) · [빌드와 시험](docs/development.ko.md#빌드와-시험)
-- [문서 목차](docs/guide.ko.md#목차) · [릴리스 노트](docs/release-notes/)
+- [사용자 가이드](docs/user-guide.ko.md) · [관리자 가이드](docs/administration.ko.md) · [에이전트 연동](docs/client-hooks.ko.md)
+- [실전 활용 가이드](docs/workflows.ko.md) · [MCP 레퍼런스](docs/mcp.ko.md) · [아키텍처](docs/architecture.ko.md)
+- [운영 및 장애 대응](docs/operations.ko.md) · [문서 목차](docs/guide.ko.md#목차) · [릴리스 노트](docs/release-notes/)
 
 ## 라이선스
 

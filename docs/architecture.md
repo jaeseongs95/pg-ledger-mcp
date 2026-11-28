@@ -27,3 +27,15 @@ The build is a Gradle multi-module project.
 | `ledger-client-hook` | the resident program of the hook (`ledger-hook-resident.jar`, a Spring Boot application) |
 | `ledger-system-test` | test code only: the system test of the packaged product, which starts the built jars against the local PostgreSQL |
 | `ledger-arch-checks` | test code only: cross-module architecture, build-script, SQL/transaction boundary, and module dependency checks |
+
+## Domain model
+
+- Projects own versions and the records associated with them. A record can be linked to multiple versions of its project.
+- Specifications define expected outcomes. Tasks track work. Issues capture observations and related evidence. Milestones group release criteria for Go/No-Go decisions.
+- Deliverables and attachments support completion and review decisions. Session grants, operation receipts, and immutable history capture who was authorized to act, what was recorded, and why.
+
+## Transactions and trust boundaries
+
+State changes check the expected row version. The application commits a write, its history, and its operation receipt in one transaction. A batch commits its author operations together. A retry with the same operation key and payload returns the stored result if the session still holds the required grants.
+
+Agent writes require host attestation and a live project grant. Independent review checks the reviewer's session against the parties who contributed to the record. The admin console uses owner authentication. PostgreSQL schema changes run as the schema owner, and application services connect through an application account. See the [administrator guide](administration.md) and [operating procedures](operations.md).

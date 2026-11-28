@@ -1,4 +1,4 @@
-# MCP 도구와 첨부
+# MCP 레퍼런스
 
 [English](mcp.md) · [가이드 목차](guide.ko.md)
 
@@ -99,6 +99,22 @@ ID를 모르면 `ledger_search`, ID를 알면 `ledger_get`, 조치 대기 목록
  "evidence": "request 7f3a, api/checkout.ts:88", "source_quote": "I can't pay with my gift card",
  "observed_at": "2026-11-05T10:00:00Z", "reason": "second report of the same failure"}
 ```
+
+## 입력·출력·오류
+
+- 정확한 인자 이름, JSON 자료형, 필수 필드는 연결한 서버의 `tools/list` 스키마를 사용합니다. 위 표에서 각 도구의 동작과 권한 범위를 확인합니다.
+- `ok`가 `true`이면 `data`에 도구 결과가 있습니다. `ok`가 `false`이면 `error.code`에서 고정 오류 코드를, `error.details`에서 오류 맥락을, `error.issues`에서 필드 오류를 확인합니다. 필드 오류는 `path`, `reason`, 해당하는 경우 `allowed` 값을 제공합니다.
+- 조회 도구는 전송 계층 인증 정보가 필요합니다. `ledger_whoami`는 호스트 증명도 필요합니다. 작성 도구는 영향을 받는 프로젝트마다 해당 동작의 유효 권한이 필요합니다. 검토 도구는 검토자 규칙도 적용합니다. [장부 개념](concepts.ko.md#개념)
+
+| 오류 코드 | 처리 방법 |
+|---|---|
+| `VALIDATION_FAILED` | `error.issues`가 가리키는 필드를 고칩니다. |
+| `HOST_ATTESTATION_REQUIRED` | 호스트가 세션 증명을 추가했는지 확인합니다. [에이전트 연결 확인](client-hooks.ko.md#연결-확인) |
+| `SESSION_NOT_GRANTED` | 대상 프로젝트에서 해당 세션의 유효 권한을 확인합니다. |
+| `VERSION_CONFLICT` | 최신 행 버전과 달라진 내용을 확인하고 다시 시도합니다. |
+| `OPERATION_CONFLICT` | 기존 키는 원래 요청을 재시도할 때만 사용합니다. 다른 쓰기에는 새 키를 씁니다. |
+| `VERIFY_NEEDS_REVIEWER_LOGIN` | 필요한 권한을 갖춘 세션에서 검토자 채널로 다시 요청합니다. |
+| `SAME_SESSION` | 해당 기록의 독립성 요건을 충족하는 검토자에게 맡깁니다. |
 
 ## 첨부
 

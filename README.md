@@ -42,10 +42,9 @@ Review Go/No-Go evidence by milestone and check which criteria passed independen
 
 ## Documentation
 
-- [Installation](docs/installation.md) · [Administration](docs/administration.md)
-- [MCP tools and examples](docs/mcp.md#mcp-tools)
-- [Architecture](docs/architecture.md) · [Build and test](docs/development.md#build-and-test)
-- [Documentation index](docs/guide.md#contents) · [Release notes](docs/release-notes/)
+- [User guide](docs/user-guide.md) · [Administrator guide](docs/administration.md) · [Agent integration](docs/client-hooks.md)
+- [Practical workflows](docs/workflows.md) · [MCP reference](docs/mcp.md) · [Architecture](docs/architecture.md)
+- [Operations and troubleshooting](docs/operations.md) · [Documentation index](docs/guide.md#contents) · [Release notes](docs/release-notes/)
 
 ## License
 
